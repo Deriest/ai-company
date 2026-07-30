@@ -95,6 +95,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"Serving HTTP on 0.0.0.0 port {PORT} from {DIRECTORY}...")
         httpd.serve_forever()
