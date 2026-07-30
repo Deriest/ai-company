@@ -505,7 +505,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
-  const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -586,17 +586,32 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   }
 
   const handleSend = async () => {
-    if (!activeId || !input.trim()) return
+    if (!input.trim()) return
     const text = input.trim()
     setInput('')
 
+    // Auto-create session if none active
+    let convId = activeId
+    if (!convId) {
+      try {
+        const conv = await conversationsApi.create(text.slice(0, 60))
+        setConversations(prev => [conv, ...prev])
+        convId = conv.id
+        setActiveId(convId)
+      } catch (e) {
+        console.error('Failed to create session', e)
+        setInput(text)
+        return
+      }
+    }
+
     const tempUserMsg: MessageRecord = {
-      id: 'temp-' + Date.now(), conversation_id: activeId, role: 'user', content: text,
+      id: 'temp-' + Date.now(), conversation_id: convId, role: 'user', content: text,
       status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
     }
     const tempAsstId = 'temp-ast-' + Date.now()
     const tempAsstMsg: MessageRecord = {
-      id: tempAsstId, conversation_id: activeId, role: 'assistant', content: '',
+      id: tempAsstId, conversation_id: convId, role: 'assistant', content: '',
       status: 'streaming', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
     }
     setMessages(prev => [...prev, tempUserMsg, tempAsstMsg])
@@ -610,7 +625,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
       // Use executeAgent — goes through ConversationEngine → Dispatcher → Orchestrator → Workers
       await chatApi.executeAgent(
         {
-          conversation_id: activeId,
+          conversation_id: convId,
           messages: [{ role: 'user', content: text }],
           worker_role: AGENT_WORKER_MAP[agentMode],
         },
@@ -643,12 +658,12 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           onDone: () => {
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, status: 'completed' } : m))
-            void loadMessages(activeId)
+            void loadMessages(convId)
           },
           onError: (err) => {
             console.error('Execute error', err)
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
-            void loadMessages(activeId)
+            void loadMessages(convId)
           },
         },
       )
