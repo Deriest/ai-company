@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
@@ -505,6 +505,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -715,43 +716,145 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Status bar */}
-      <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1 text-[9px] text-muted-foreground/50">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1">
-            <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
-            {health === 'ok' ? 'connected' : health === 'bad' ? 'offline' : 'checking…'}
-          </span>
-          <span className="font-mono">{agentMode} agent</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="font-mono">Hermes</span>
-        </div>
-      </div>
+          {/* Status bar */}
+          <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1 text-[9px] text-muted-foreground/50">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
+                {health === 'ok' ? 'connected' : health === 'bad' ? 'offline' : 'checking…'}
+              </span>
+              <span className="font-mono">{agentMode} agent</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setInspectorOpen(!inspectorOpen)} className="hover:text-foreground flex items-center gap-1">
+                <PanelRight className="size-3" />
+                {inspectorOpen ? 'inspector' : ''}
+              </button>
+              <span className="font-mono">Hermes</span>
+            </div>
+          </div>
 
-      {/* Composer */}
-      <div className="border-t border-border px-4 py-2.5">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 focus-within:border-primary/40">
-            <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
-            <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                  e.preventDefault(); void handleSend()
-                }
-              }}
-              disabled={!activeId} rows={1}
-              placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'create a session first'}
-              className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
-            <button onClick={() => void handleSend()} disabled={!activeId || !input.trim()}
-              className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-20">
-              <Send className="size-3" />
-            </button>
+          {/* Composer */}
+          <div className="border-t border-border px-4 py-2.5">
+            <div className="max-w-3xl mx-auto">
+              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 focus-within:border-primary/40">
+                <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
+                <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault(); void handleSend()
+                    }
+                  }}
+                  disabled={!activeId} rows={1}
+                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'create a session first'}
+                  className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
+                <button onClick={() => void handleSend()} disabled={!activeId || !input.trim()}
+                  className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-20">
+                  <Send className="size-3" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Inspector Panel — right side */}
+        {inspectorOpen && active && (
+          <div className="w-72 shrink-0 border-l border-border bg-sidebar/50 flex flex-col">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-[10px] font-semibold tracking-wide">Inspector</span>
+              <button onClick={() => setInspectorOpen(false)} className="text-muted-foreground/60 hover:text-foreground">
+                <X className="size-3" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto scroll-thin p-3 space-y-3">
+              {/* Deliverables */}
+              {(() => {
+                const lastState = Array.from(assistantStates.values()).find(s => s.deliverables)
+                if (!lastState?.deliverables) return null
+                const d = lastState.deliverables
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-success">
+                      <Check className="size-3" /> Deliverables
+                    </div>
+                    <div className="space-y-1.5">
+                      {d.files_created?.length > 0 && (
+                        <div className="rounded-md border border-border/60 bg-card/60 p-2">
+                          <p className="text-[9px] text-muted-foreground mb-1">Files Created ({d.files_created.length})</p>
+                          {d.files_created.slice(0, 10).map((f: string, i: number) => (
+                            <div key={i} className="text-[10px] font-mono text-foreground/80 truncate">{f}</div>
+                          ))}
+                        </div>
+                      )}
+                      {d.files_modified?.length > 0 && (
+                        <div className="rounded-md border border-border/60 bg-card/60 p-2">
+                          <p className="text-[9px] text-muted-foreground mb-1">Files Modified ({d.files_modified.length})</p>
+                          {d.files_modified.slice(0, 10).map((f: string, i: number) => (
+                            <div key={i} className="text-[10px] font-mono text-foreground/80 truncate">{f}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Active Tool Calls */}
+              {(() => {
+                const lastState = Array.from(assistantStates.values()).find(s => s.toolCalls.length > 0)
+                if (!lastState) return null
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-primary">
+                      <Terminal className="size-3" /> Tools
+                    </div>
+                    <div className="space-y-1">
+                      {lastState.toolCalls.slice(-5).map(tc => (
+                        <div key={tc.id} className="flex items-center gap-2 rounded-md border border-border/60 bg-card/60 px-2 py-1.5">
+                          <span className={cn("size-1.5 rounded-full shrink-0",
+                            tc.status === 'running' ? 'bg-warning animate-pulse' :
+                            tc.status === 'completed' ? 'bg-success' : 'bg-destructive'
+                          )} />
+                          <span className="text-[10px] font-mono text-foreground/80">{tc.type}</span>
+                          <span className="text-[9px] text-muted-foreground truncate ml-auto">{tc.duration_ms}ms</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Session Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                  <FileText className="size-3" /> Session
+                </div>
+                <div className="rounded-md border border-border/60 bg-card/60 p-2 space-y-1.5">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">Mode</span>
+                    <span className="font-mono">{agentMode}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">Messages</span>
+                    <span className="font-mono">{messages.length}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">Worker</span>
+                    <span className="font-mono">{AGENT_WORKER_MAP[agentMode]}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!inspectorOpen && active && (
+          <button onClick={() => setInspectorOpen(true)}
+            className="absolute right-0 top-12 z-10 rounded-l-md border border-border bg-sidebar p-1 text-muted-foreground/60 hover:text-foreground">
+            <PanelRight className="size-3.5" />
+          </button>
+        )}
       </div>
     </div>
   )

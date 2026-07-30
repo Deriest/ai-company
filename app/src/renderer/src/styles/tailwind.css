@@ -206,6 +206,24 @@
   }
 }
 
+/* Worker animation states */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes scan {
+  0%, 100% { opacity: 0.4; width: 8px; }
+  50% { opacity: 1; width: 20px; }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+}
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
 /* Subtle office floor grid */
 .office-floor {
   background-color: var(--background);

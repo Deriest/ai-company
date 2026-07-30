@@ -49,6 +49,8 @@ export interface DeliverableFile {
 
 export interface DeliverableSummary {
   files: DeliverableFile[];
+  files_created: string[];
+  files_modified: string[];
   tests: {
     passed: number;
     failed: number;

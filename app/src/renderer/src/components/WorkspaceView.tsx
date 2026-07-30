@@ -38,7 +38,7 @@ interface DeskWorker {
   role: string
   dept: string
   color: string
-  status: 'online' | 'working' | 'idle' | 'offline'
+  status: 'online' | 'working' | 'idle' | 'offline' | 'typing' | 'reviewing' | 'discussing'
   tasks: number
   initials: string
 }
@@ -84,7 +84,8 @@ const DEPT_TEXT: Record<string, string> = {
 // ── Desk Component ─────────────────────────────────────
 
 function Desk({ worker, onClick }: { worker: DeskWorker; onClick: () => void }) {
-  const isWorking = worker.status === 'working'
+  const s = worker.status
+  const isWorking = s === 'working' || s === 'typing' || s === 'reviewing' || s === 'discussing'
 
   return (
     <button
@@ -99,11 +100,27 @@ function Desk({ worker, onClick }: { worker: DeskWorker; onClick: () => void }) 
           : "border-border/60 bg-card/80"
       )}>
         {/* Screen content */}
-        {isWorking ? (
+        {s === 'typing' ? (
           <div className="flex gap-0.5">
             <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '0ms' }} />
             <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '150ms' }} />
             <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        ) : s === 'reviewing' ? (
+          <div className="w-6 h-0.5 rounded bg-success/60" style={{ animation: 'scan 1s ease-in-out infinite' }} />
+        ) : s === 'working' ? (
+          <div className="flex gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite' }} />
+            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite', animationDelay: '0.2s' }} />
+            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite', animationDelay: '0.4s' }} />
+          </div>
+        ) : s === 'idle' ? (
+          <div className="w-3 h-3 rounded-full bg-muted-foreground/20" style={{ animation: 'breathe 2s ease-in-out infinite' }} />
+        ) : s === 'discussing' ? (
+          <div className="flex gap-1">
+            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite' }} />
+            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite', animationDelay: '0.3s' }} />
+            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite', animationDelay: '0.6s' }} />
           </div>
         ) : (
           <div className="w-5 h-0.5 rounded bg-muted-foreground/30" />
@@ -116,14 +133,18 @@ function Desk({ worker, onClick }: { worker: DeskWorker; onClick: () => void }) 
       {/* Status dot */}
       <span className={cn(
         "absolute top-1 right-1 w-2 h-2 rounded-full",
-        worker.status === 'online' ? "bg-success" :
-        worker.status === 'working' ? "bg-success animate-pulse" :
-        worker.status === 'idle' ? "bg-warning" : "bg-muted-foreground/30"
+        s === 'online' ? "bg-success" :
+        s === 'working' || s === 'typing' ? "bg-success animate-pulse" :
+        s === 'reviewing' ? "bg-primary animate-pulse" :
+        s === 'discussing' ? "bg-warning animate-pulse" :
+        s === 'idle' ? "bg-warning" : "bg-muted-foreground/30"
       )} />
 
       {/* Name */}
       <span className="text-[10px] font-medium text-foreground/80 leading-none">{worker.name}</span>
-      <span className="text-[8px] text-muted-foreground leading-none">{worker.role}</span>
+      <span className="text-[8px] text-muted-foreground leading-none">
+        {s === 'typing' ? 'coding...' : s === 'reviewing' ? 'reviewing' : s === 'discussing' ? 'in meeting' : worker.role}
+      </span>
 
       {/* Task count badge */}
       {worker.tasks > 0 && (
@@ -185,6 +206,20 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
   const [totalTokens, setTotalTokens] = useState(0)
   const [totalCost, setTotalCost] = useState(0)
   const [loading, setLoading] = useState(true)
+
+  // Animate workers randomly
+  const states: DeskWorker['status'][] = ['online', 'idle', 'typing', 'working', 'reviewing', 'idle', 'online']
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWorkers(prev => prev.map(w => {
+        if (w.status === 'discussing') return w // Keep discussing workers in meeting
+        const roll = Math.random()
+        const next = roll < 0.6 ? 'online' : roll < 0.75 ? 'idle' : roll < 0.85 ? 'typing' : roll < 0.93 ? 'working' : 'reviewing'
+        return { ...w, status: next }
+      }))
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [])
 
   const loadData = useCallback(async () => {
     try {
