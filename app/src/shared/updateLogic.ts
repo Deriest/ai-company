@@ -23,10 +23,20 @@ export type UpdateManifest = {
 };
 
 export function parseVersion(v: string): number[] {
-  return String(v || "0")
-    .replace(/^v/i, "")
-    .split(/[.+-]/)
-    .map((p) => parseInt(p.replace(/\D/g, ""), 10) || 0);
+  const s = String(v || "0").replace(/^v/i, "");
+  const parts = s.split(/[.+-]/);
+  const result: number[] = [];
+  for (const p of parts) {
+    const num = parseInt(p.replace(/\D/g, ""), 10) || 0;
+    result.push(num);
+    const alpha = p.replace(/\d/g, "").toLowerCase();
+    if (alpha) {
+      for (let i = 0; i < alpha.length; i++) {
+        result.push(alpha.charCodeAt(i) - 96);
+      }
+    }
+  }
+  return result.length ? result : [0];
 }
 
 /** Returns true if remote > local. */
