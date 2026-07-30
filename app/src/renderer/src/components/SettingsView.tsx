@@ -15,7 +15,7 @@ import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/pr
 
 const tabs = [
   'General', 'Workspace', 'Appearance', 'Providers',
-  'Updates', 'Memory', 'Developer', 'Auto Save',
+  'Updates', 'Developer', 'Auto Save',
 ] as const
 export type SettingsTab = (typeof tabs)[number]
 type Tab = SettingsTab
@@ -370,65 +370,6 @@ function UpdatesTab() {
   )
 }
 
-/* ─── Memory Tab ─── */
-
-function MemoryTab() {
-  const [contextWindow, setContextWindow] = useState(150000)
-  const [maxMessages, setMaxMessages] = useState(50)
-  const [autoSummarize, setAutoSummarize] = useState(true)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    const saved = localStorage.getItem('aic-ade-memory')
-    if (saved) {
-      const s = JSON.parse(saved)
-      if (s.contextWindow) setContextWindow(s.contextWindow)
-      if (s.maxMessages) setMaxMessages(s.maxMessages)
-      if (s.autoSummarize !== undefined) setAutoSummarize(s.autoSummarize)
-    }
-  }, [])
-
-  const save = () => {
-    localStorage.setItem('aic-ade-memory', JSON.stringify({ contextWindow, maxMessages, autoSummarize }))
-    setSaved(true); setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <HardDrive className="size-5" /> Memory
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm text-muted-foreground">Context Window (tokens)</label>
-            <input type="number" value={contextWindow} onChange={(e) => setContextWindow(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground">Max Messages to Keep</label>
-            <input type="number" value={maxMessages} onChange={(e) => setMaxMessages(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary" />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">Auto-Summarize Old Messages</label>
-              <p className="text-xs text-muted-foreground">Automatically compress old messages when context is full</p>
-            </div>
-            <button onClick={() => setAutoSummarize(!autoSummarize)}
-              className={cn('relative h-5 w-9 rounded-full transition-colors', autoSummarize ? 'bg-primary' : 'bg-muted')}>
-              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', autoSummarize ? 'left-4' : 'left-0.5')} />
-            </button>
-          </div>
-          <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            {saved ? 'Saved' : 'Save'}
-          </button>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
 /* ─── Developer Tab ─── */
 
 function DeveloperTab() {
@@ -697,7 +638,6 @@ export function SettingsView({
         {tab === 'Appearance' && <AppearanceTab />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
-        {tab === 'Memory' && <MemoryTab />}
         {tab === 'Developer' && <DeveloperTab />}
         {tab === 'Auto Save' && <AutoSaveTab />}
       </div>
