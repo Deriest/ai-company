@@ -86,7 +86,7 @@ export function AppShell({
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-sidebar px-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <img src="/aic-ade-logo.png" alt="AIC ADE" width={18} height={18} className="rounded" />
+            <img src="./aic-ade-logo.png" alt="AIC ADE" width={18} height={18} className="rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
             <span className="text-xs font-semibold tracking-wide">AIC ADE</span>
             <span className="text-xs text-muted-foreground">— AI Company Workspace</span>
           </div>
@@ -113,7 +113,6 @@ export function AppShell({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
           <div className="flex items-center gap-2 px-4 py-4">
-            <img src="/aic-ade-logo.png" alt="AIC ADE" width={32} height={32} className="rounded-lg" />
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-semibold">AIC ADE</span>
               <span className="text-[11px] text-muted-foreground">AI Company Workspace</span>

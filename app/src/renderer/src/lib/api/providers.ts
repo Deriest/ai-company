@@ -145,11 +145,11 @@ export const providersApi = {
     await apiClient.delete(`/providers/${id}`);
   },
 
-  async fetchModels(endpoint: string): Promise<ModelInfo[]> {
+  async fetchModels(endpoint: string, apiKey: string): Promise<ModelInfo[]> {
     const p = await apiClient.post<ProviderWithModelsResponse>("/providers/test-ephemeral", {
       name: "fetch",
       endpoint,
-      apiKey: "invalid"
+      apiKey: apiKey
     });
     return p.models || [];
   },

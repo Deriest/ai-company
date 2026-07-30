@@ -121,11 +121,27 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
 
   const testConnection = async () => {
     setStatus("testing");
+    setError("");
     try {
-      const m = await providersApi.fetchModels(endpoint);
-      setModels(m);
-      setStatus(m.length > 0 ? "connected" : "failed");
-    } catch { setStatus("failed"); }
+      const { providerManageApi } = await import('../../lib/api/provider_manage');
+      const testKey = apiKey || (provider.apiKey === "***" ? "" : provider.apiKey) || "";
+      const res = await providerManageApi.testConnection(endpoint, testKey);
+      
+      if (res.success) {
+        setStatus("connected");
+        // Also fetch models if successful to show the count
+        try {
+          const m = await providersApi.fetchModels(endpoint, testKey);
+          setModels(m);
+        } catch { /* ignore fetch model errors if connection succeeded */ }
+      } else {
+        setStatus("failed");
+        setError(res.error || "Connection failed");
+      }
+    } catch (e: any) { 
+      setStatus("failed"); 
+      setError(e.message || "Request failed");
+    }
   };
 
   const handleSave = async () => {
@@ -189,10 +205,20 @@ function FREProviderSetup() {
 
   const testConnection = async () => {
     setStatus("testing");
+    setError("");
     try {
-      const m = await providersApi.fetchModels(endpoint);
-      setStatus(m.length > 0 ? "connected" : "failed");
-    } catch { setStatus("failed"); }
+      const { providerManageApi } = await import('../../lib/api/provider_manage');
+      const res = await providerManageApi.testConnection(endpoint, apiKey);
+      if (res.success) {
+        setStatus("connected");
+      } else {
+        setStatus("failed");
+        setError(res.error || "Connection failed");
+      }
+    } catch (e: any) { 
+      setStatus("failed");
+      setError(e.message || "Request failed");
+    }
   };
 
   const handleSave = async () => {

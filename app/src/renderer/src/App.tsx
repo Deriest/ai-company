@@ -31,7 +31,7 @@ export function App() {
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("home");
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("Account" as SettingsTab);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("General");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);

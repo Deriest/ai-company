@@ -549,7 +549,9 @@ export function SettingsView({
 } = {}) {
   const [tab, setTab] = useState<Tab>(() => {
     const saved = localStorage.getItem('aic-ade-settings-tab')
-    return (saved && tabs.includes(saved as Tab)) ? (saved as Tab) : (initialTab || 'General')
+    if (saved && tabs.includes(saved as Tab)) return saved as Tab
+    if (initialTab && tabs.includes(initialTab as Tab)) return initialTab as Tab
+    return 'General'
   })
 
   const handleTabChange = (t: Tab) => {

@@ -58,8 +58,12 @@ def _to_provider_response(p: Provider, models: List[ProviderModel] = None) -> Pr
 
 @router.get("/health")
 async def health_check():
-    from llm.provider import provider_manager
-    llm_configured = bool(provider_manager.providers)
+    llm_configured = False
+    try:
+        from llm.provider import provider_manager
+        llm_configured = bool(getattr(provider_manager, "_providers", {}))
+    except Exception:
+        pass
     return {"status": "healthy", "version": "2.4.0A", "service": "AIC-ADE Backend", "llm_configured": llm_configured}
 
 

@@ -11,6 +11,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import net from "node:net";
 import * as pty from "node-pty";
 import { UpdateManager } from "./updateManager";
 import {
@@ -73,6 +74,28 @@ function ensureAppData(): void {
   }
 }
 
+/** Write runtime.json so the frontend can read the chosen port on startup. */
+function writeRuntimeState(port: number | null, pid: number | null): void {
+  if (!port) return;
+  const state = {
+    host: "127.0.0.1",
+    port,
+    url: `http://127.0.0.1:${port}`,
+    pid: pid ?? null,
+    started_at: new Date().toISOString(),
+  };
+  try {
+    fs.writeFileSync(
+      path.join(appDataDir(), "runtime.json"),
+      JSON.stringify(state, null, 2),
+      "utf8"
+    );
+  } catch {
+    /* ignore */
+  }
+  backendPort = port;
+}
+
 function storePath(): string {
   return path.join(appDataDir(), "state.json");
 }
@@ -97,6 +120,7 @@ let mainWindow: BrowserWindow | null = null;
 let backendProc: ChildProcessWithoutNullStreams | null = null;
 let backendStatus: "stopped" | "starting" | "healthy" | "error" = "stopped";
 let backendError: string | null = null;
+let backendPort: number | null = null;
 let restartAttempts = 0;
 let updateManager: UpdateManager | null = null;
 
@@ -115,6 +139,35 @@ export function resolvePlatformDir(): string {
   const devWorkspace = path.join(__dirname, "..", "..", "..", "backend");
   if (fs.existsSync(devWorkspace)) return path.resolve(devWorkspace);
   return appParentDir;
+}
+
+/** Find a free TCP port — try from start until one is available. */
+export function findFreePort(start: number = 8000, end: number = 8099, host: string = "127.0.0.1"): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let port = start;
+    const tryNext = (): void => {
+      if (port > end) {
+        reject(new Error(`No free ports in range ${start}-${end}`));
+        return;
+      }
+      const socket = net.createConnection({ host, port });
+      socket.setTimeout(300);
+      socket.on("connect", () => {
+        socket.destroy();
+        port++;
+        tryNext();
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        resolve(port);
+      });
+      socket.on("timeout", () => {
+        socket.destroy();
+        resolve(port);
+      });
+    };
+    tryNext();
+  });
 }
 
 /** Bundled portable Python (packaged) or local venv (dev). Never require system Python for production. */
@@ -169,8 +222,9 @@ export function resolvePythonPath(platformDir: string): string | null {
 }
 
 async function checkBackendHealth(): Promise<boolean> {
+  if (!backendPort) return false;
   try {
-    const res = await fetch("http://127.0.0.1:8000/health");
+    const res = await fetch(`http://127.0.0.1:${backendPort}/health`);
     if (res.ok) {
       backendStatus = "healthy";
       backendError = null;
@@ -218,7 +272,10 @@ async function ensureBackendRunning(): Promise<void> {
     logLine(`AIC_DATA_DIR: ${appDataDir()}`);
     logLine(`PYTHONPATH: ${[platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter)}`);
 
-    backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+    const backendPort = await findFreePort();
+    logLine(`Backend port: ${backendPort}`);
+
+    backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
       env: {
         ...process.env,
@@ -235,6 +292,7 @@ async function ensureBackendRunning(): Promise<void> {
       if (text.includes("Uvicorn running on")) {
         backendStatus = "healthy";
         restartAttempts = 0;
+        writeRuntimeState(backendPort, backendProc?.pid ?? null);
       }
     });
 
@@ -244,6 +302,7 @@ async function ensureBackendRunning(): Promise<void> {
       if (text.includes("Uvicorn running on")) {
         backendStatus = "healthy";
         restartAttempts = 0;
+        writeRuntimeState(backendPort, backendProc?.pid ?? null);
       }
     });
 
@@ -344,7 +403,7 @@ function registerIpc(): void {
       status: backendStatus,
       error: backendError,
       logFile: path.join(appDataDir(), "logs", "backend-startup.log"),
-      port: 8000,
+      port: backendPort,
     };
   });
 
