@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Hand, Bot, Zap, Monitor, Palette, Globe, Cpu, Download, FolderOpen,
+  Hand, Bot, Zap, Cpu, Download, FolderOpen,
   Bug, Clock, HardDrive, Save, FileText, RefreshCw, Trash2,
 } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
@@ -14,7 +14,7 @@ import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
 import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
 
 const tabs = [
-  'General', 'Workspace', 'Appearance', 'Providers',
+  'General', 'Workspace', 'Providers',
   'Updates', 'Developer', 'Auto Save',
 ] as const
 export type SettingsTab = (typeof tabs)[number]
@@ -53,80 +53,6 @@ function WorkspaceTab() {
           <button onClick={handleSave} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             {saved ? 'Saved' : 'Save'}
           </button>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-/* ─── Appearance Tab ─── */
-
-function AppearanceTab() {
-  const [theme, setTheme] = useState('dark')
-  const [fontSize, setFontSize] = useState('medium')
-  const [density, setDensity] = useState('comfortable')
-
-  useEffect(() => {
-    const saved = localStorage.getItem('aic-ade-settings')
-    if (saved) {
-      const s = JSON.parse(saved)
-      if (s.theme) setTheme(s.theme)
-      if (s.fontSize) setFontSize(s.fontSize)
-      if (s.density) setDensity(s.density)
-    }
-  }, [])
-
-  const save = (key: string, val: string) => {
-    const saved = localStorage.getItem('aic-ade-settings')
-    const cfg = saved ? JSON.parse(saved) : {}
-    cfg[key] = val
-    localStorage.setItem('aic-ade-settings', JSON.stringify(cfg))
-  }
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Palette className="size-5" /> Theme
-        </h3>
-        <div className="flex gap-3">
-          {['dark', 'light', 'system'].map(t => (
-            <button key={t} onClick={() => { setTheme(t); save('theme', t) }}
-              className={cn('rounded-lg border px-4 py-3 text-sm font-medium capitalize transition-colors',
-                theme === t ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40')}>
-              {t}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Monitor className="size-5" /> Font Size
-        </h3>
-        <div className="flex gap-3">
-          {['small', 'medium', 'large'].map(s => (
-            <button key={s} onClick={() => { setFontSize(s); save('fontSize', s) }}
-              className={cn('rounded-lg border px-4 py-3 text-sm font-medium capitalize transition-colors',
-                fontSize === s ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40')}>
-              {s}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Monitor className="size-5" /> UI Density
-        </h3>
-        <div className="flex gap-3">
-          {['compact', 'comfortable', 'spacious'].map(d => (
-            <button key={d} onClick={() => { setDensity(d); save('density', d) }}
-              className={cn('rounded-lg border px-4 py-3 text-sm font-medium capitalize transition-colors',
-                density === d ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40')}>
-              {d}
-            </button>
-          ))}
         </div>
       </Card>
     </div>
@@ -635,7 +561,6 @@ export function SettingsView({
 
         {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
         {tab === 'Workspace' && <WorkspaceTab />}
-        {tab === 'Appearance' && <AppearanceTab />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
         {tab === 'Developer' && <DeveloperTab />}
