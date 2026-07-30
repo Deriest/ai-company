@@ -93,16 +93,26 @@ class ProviderClient:
                 "status_code": response.status_code,
                 "latency_ms": latency_ms,
             }))
+
+            # Extract detailed error message from response if available
+            error_detail = ""
+            if not response.is_success:
+                try:
+                    err_json = response.json()
+                    error_detail = str(err_json.get("error", err_json.get("message", err_json)))
+                except:
+                    error_detail = response.text[:200]
+
             if response.status_code == 401:
-                raise ProviderAPIError(401, "Invalid API Key")
+                raise ProviderAPIError(401, f"Invalid API Key: {error_detail}" if error_detail else "Invalid API Key")
             elif response.status_code == 403:
-                raise ProviderAPIError(403, "Permission Denied")
+                raise ProviderAPIError(403, f"Permission Denied: {error_detail}" if error_detail else "Permission Denied")
             elif response.status_code == 404:
                 raise ProviderAPIError(404, "Endpoint Not Found")
             elif response.status_code == 429:
-                raise ProviderAPIError(429, "Rate Limited")
+                raise ProviderAPIError(429, f"Rate Limited: {error_detail}" if error_detail else "Rate Limited")
             elif response.status_code >= 500:
-                raise ProviderAPIError(response.status_code, "Provider Internal Error")
+                raise ProviderAPIError(response.status_code, f"Provider Internal Error: {error_detail}" if error_detail else "Provider Internal Error")
             response.raise_for_status()
             return response
         except httpx.TimeoutException as e:
