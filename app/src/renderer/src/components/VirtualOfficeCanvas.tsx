@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
 // ── Constants ──────────────────────────────────────────
-const TILE = 32
+const TILE = 40
 const HALF = TILE / 2
-const COLS = 30
-const ROWS = 20
+const COLS = 35
+const ROWS = 22
 const W = COLS * TILE
 const H = ROWS * TILE
 const AGENT_R = 10
@@ -48,14 +48,14 @@ interface AgentRuntime extends AgentDef {
 // ── Department layout ──────────────────────────────────
 
 const DEPT_ZONES: Record<string, { x: number; y: number; w: number; h: number; label: string; color: string }> = {
-  Leadership: { x: 10, y: 2, w: 8, h: 4, label: 'Leadership', color: 'rgba(61,220,151,0.08)' },
-  Product:    { x: 2,  y: 8, w: 7, h: 6, label: 'Product', color: 'rgba(245,158,11,0.08)' },
-  Engineering:{ x: 18, y: 8, w: 8, h: 6, label: 'Engineering', color: 'rgba(34,211,238,0.08)' },
-  Platform:   { x: 10, y: 15, w: 8, h: 4, label: 'Platform', color: 'rgba(167,139,250,0.08)' },
+  Leadership: { x: 12, y: 2, w: 10, h: 5, label: 'Leadership', color: 'rgba(61,220,151,0.08)' },
+  Product:    { x: 2,  y: 9, w: 9, h: 7, label: 'Product', color: 'rgba(245,158,11,0.08)' },
+  Engineering:{ x: 22, y: 9, w: 10, h: 7, label: 'Engineering', color: 'rgba(34,211,238,0.08)' },
+  Platform:   { x: 12, y: 17, w: 10, h: 4, label: 'Platform', color: 'rgba(167,139,250,0.08)' },
 }
 
 // Meeting room
-const MEETING = { x: 27, y: 7, w: 3, h: 6, label: 'Meeting Room', color: 'rgba(52,211,153,0.06)' }
+const MEETING = { x: 32, y: 8, w: 3, h: 7, label: 'Meeting Room', color: 'rgba(52,211,153,0.06)' }
 
 // ── Agent definitions (15 workers) ─────────────────────
 
@@ -82,24 +82,24 @@ const DEFAULT_AGENTS: AgentDef[] = [
 function getDeskPositions(): Record<string, AgentPos> {
   const desks: Record<string, AgentPos> = {}
   // Leadership — top center
-  desks['hermes'] = { x: 12 * TILE + HALF, y: 3 * TILE + HALF }
-  desks['rex']    = { x: 15 * TILE + HALF, y: 3 * TILE + HALF }
+  desks['hermes'] = { x: 15 * TILE + HALF, y: 4 * TILE + HALF }
+  desks['rex']    = { x: 19 * TILE + HALF, y: 4 * TILE + HALF }
   // Product — left wing
-  desks['aria']  = { x: 3 * TILE + HALF, y: 9 * TILE + HALF }
-  desks['sage']  = { x: 6 * TILE + HALF, y: 9 * TILE + HALF }
-  desks['luna']  = { x: 3 * TILE + HALF, y: 11 * TILE + HALF }
-  desks['echo']  = { x: 6 * TILE + HALF, y: 11 * TILE + HALF }
+  desks['aria']  = { x: 4 * TILE + HALF, y: 10 * TILE + HALF }
+  desks['sage']  = { x: 8 * TILE + HALF, y: 10 * TILE + HALF }
+  desks['luna']  = { x: 4 * TILE + HALF, y: 13 * TILE + HALF }
+  desks['echo']  = { x: 8 * TILE + HALF, y: 13 * TILE + HALF }
   // Engineering — right wing
-  desks['atlas'] = { x: 19 * TILE + HALF, y: 9 * TILE + HALF }
-  desks['hugo']  = { x: 22 * TILE + HALF, y: 9 * TILE + HALF }
-  desks['leo']   = { x: 24 * TILE + HALF, y: 9 * TILE + HALF }
-  desks['eve']   = { x: 19 * TILE + HALF, y: 11 * TILE + HALF }
-  desks['pulse'] = { x: 22 * TILE + HALF, y: 11 * TILE + HALF }
+  desks['atlas'] = { x: 24 * TILE + HALF, y: 10 * TILE + HALF }
+  desks['hugo']  = { x: 28 * TILE + HALF, y: 10 * TILE + HALF }
+  desks['leo']   = { x: 30 * TILE + HALF, y: 10 * TILE + HALF }
+  desks['eve']   = { x: 24 * TILE + HALF, y: 13 * TILE + HALF }
+  desks['pulse'] = { x: 28 * TILE + HALF, y: 13 * TILE + HALF }
   // Platform — bottom center
-  desks['nova']     = { x: 11 * TILE + HALF, y: 16 * TILE + HALF }
-  desks['nexus']    = { x: 14 * TILE + HALF, y: 16 * TILE + HALF }
-  desks['flint']    = { x: 17 * TILE + HALF, y: 16 * TILE + HALF }
-  desks['sentinel'] = { x: 14 * TILE + HALF, y: 18 * TILE + HALF }
+  desks['nova']     = { x: 14 * TILE + HALF, y: 18 * TILE + HALF }
+  desks['nexus']    = { x: 17 * TILE + HALF, y: 18 * TILE + HALF }
+  desks['flint']    = { x: 20 * TILE + HALF, y: 18 * TILE + HALF }
+  desks['sentinel'] = { x: 17 * TILE + HALF, y: 20 * TILE + HALF }
   return desks
 }
 
@@ -327,11 +327,27 @@ interface VirtualOfficeProps {
 
 export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: VirtualOfficeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const animRef = useRef<number>(0)
   const agentsRef = useRef<AgentRuntime[]>([])
   const desksRef = useRef(getDeskPositions())
   const meetingSlotsRef = useRef(getMeetingSlots())
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null)
+  const [scale, setScale] = useState(1)
+
+  // Responsive scaling
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const cw = entry.contentRect.width
+        setScale(Math.min(1, cw / W))
+      }
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   // Initialize agents
   useEffect(() => {
@@ -502,8 +518,8 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: VirtualOffi
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
+    const mx = (e.clientX - rect.left) / scale
+    const my = (e.clientY - rect.top) / scale
 
     let found: string | null = null
     for (const agent of agentsRef.current) {
@@ -519,8 +535,8 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: VirtualOffi
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
+    const mx = (e.clientX - rect.left) / scale
+    const my = (e.clientY - rect.top) / scale
 
     for (const agent of agentsRef.current) {
       const dx = mx - agent.x, dy = my - agent.y
@@ -529,16 +545,16 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: VirtualOffi
         break
       }
     }
-  }, [onWorkerClick])
+  }, [onWorkerClick, scale])
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-[#0a0e14]">
+    <div ref={containerRef} className="relative overflow-hidden rounded-xl border border-border bg-[#0a0e14]">
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
-        className="block cursor-default"
-        style={{ width: W, height: H }}
+        className="block cursor-default origin-top-left"
+        style={{ width: W * scale, height: H * scale }}
       />
       {/* Stats overlay */}
       <div className="absolute bottom-2 right-2 flex gap-2 text-[10px] text-muted-foreground/60">
