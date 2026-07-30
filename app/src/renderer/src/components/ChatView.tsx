@@ -713,62 +713,15 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               </div>
             )}
             {messages.length === 0 ? (
-              <div className="relative grid h-full place-items-center" style={{ background: 'radial-gradient(ellipse at 50% 45%, rgba(52,211,153,0.03) 0%, transparent 60%)' }}>
-                {/* Ghost conversation */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none" style={{ opacity: 0.08, top: '10%' }}>
-                  <div className="max-w-md w-full space-y-3 px-8">
-                    <div className="flex gap-2 items-start">
-                      <div className="size-5 rounded-full bg-primary/40 shrink-0" />
-                      <div className="rounded-lg bg-muted/50 px-3 py-1.5 text-[11px] text-foreground/60">How can I help today?</div>
-                    </div>
-                    <div className="flex gap-2 items-start justify-end">
-                      <div className="rounded-lg bg-primary/20 px-3 py-1.5 text-[11px] text-foreground/60">Build a React dashboard with charts...</div>
-                    </div>
-                    <div className="flex gap-2 items-start">
-                      <div className="size-5 rounded-full bg-primary/40 shrink-0" />
-                      <div className="rounded-lg bg-muted/50 px-3 py-1.5 text-[11px] text-foreground/60">Planning architecture, creating components...</div>
-                    </div>
+              <div className="grid h-full place-items-center">
+                <div className="text-center space-y-2">
+                  <div className="mx-auto grid size-10 place-items-center rounded-xl bg-muted/30">
+                    <Terminal className="size-5 text-muted-foreground/40" />
                   </div>
+                  <p className="text-xs text-muted-foreground/60">
+                    {active ? `${agentMode} mode · describe what to do` : 'select or create a session'}
+                  </p>
                 </div>
-
-                {/* Main empty state — centered at ~42% */}
-                <div className="relative z-10 flex flex-col items-center gap-5 -mt-12" style={{ animation: 'fadeIn 150ms ease-out' }}>
-                  {/* Animated AI icon */}
-                  <div className="relative">
-                    <div className="grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20" style={{ animation: 'float 3s ease-in-out infinite' }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-primary">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    {/* Pulse ring */}
-                    <div className="absolute inset-0 rounded-2xl border border-primary/10 animate-ping" style={{ animationDuration: '3s' }} />
-                  </div>
-
-                  {/* Title & subtitle */}
-                  <div className="text-center space-y-1.5">
-                    <h2 className="text-lg font-semibold tracking-tight text-foreground/90">Build with AI Company</h2>
-                    <p className="text-sm text-muted-foreground/70">Describe what you want to build, fix, or automate.</p>
-                  </div>
-
-                  {/* Quick command chips */}
-                  <div className="flex flex-wrap justify-center gap-2 max-w-md">
-                    {['Create Website', 'Build API', 'Fix Bug', 'Refactor Project', 'Generate Component', 'Write Documentation', 'Explain Repository'].map(chip => (
-                      <button
-                        key={chip}
-                        onClick={() => setInput(chip + ': ')}
-                        className="rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground/70 hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all"
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* CSS animations */}
-                <style>{`
-                  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-                  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-                `}</style>
               </div>
             ) : (
               <div className="max-w-3xl mx-auto">
@@ -800,7 +753,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           {/* Composer */}
           <div className="border-t border-border px-4 py-2.5">
             <div className="max-w-3xl mx-auto">
-              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 transition-all focus-within:border-primary/40 focus-within:shadow-[0_0_12px_rgba(52,211,153,0.08)]">
+              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 focus-within:border-primary/40">
                 <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
                 <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
                   onKeyDown={e => {
