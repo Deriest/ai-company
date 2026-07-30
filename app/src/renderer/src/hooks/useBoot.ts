@@ -89,7 +89,7 @@ export function useBoot(opts: UseBootOptions): BootState {
     configureClient({ baseUrl: engineUrl, token });
     try {
       const h = await api.health();
-      setHealth(h.status === "healthy" ? "ok" : "bad");
+      setHealth(["ok", "healthy"].includes(h.status || "") ? "ok" : "bad");
       const isLlmConfigured = Boolean(h.llm_configured);
       setLlmConfigured(isLlmConfigured);
       setHealthDetail(isLlmConfigured ? "Ready · model configured" : "Ready · add an AI provider");

@@ -13,10 +13,14 @@ router = APIRouter()
 @router.post("/providers/test-connection")
 async def test_provider_connection(payload: dict):
     """Test connection to a provider endpoint without saving."""
-    endpoint = payload.get("endpoint", "")
-    api_key = payload.get("api_key", "")
+    endpoint = payload.get("endpoint", "").strip()
+    api_key = payload.get("api_key", "").strip()
     if not endpoint:
         raise HTTPException(status_code=400, detail="Endpoint required")
+    if not api_key:
+        return {"success": False, "error": "API Key is required", "error_type": "missing_api_key"}
+
+    endpoint = endpoint.rstrip("/")
 
     client = ProviderClient(endpoint, api_key)
     try:
@@ -25,14 +29,20 @@ async def test_provider_connection(payload: dict):
         return {
             "success": True,
             "latency_ms": result.get("latency_ms", 0),
-            "models": result.get("model_count", 0),
+            "model_count": result.get("model_count", 0),
         }
-    except (ProviderAPIError, ProviderConnectionError, ProviderTimeoutError) as e:
+    except ProviderAPIError as e:
         await client.close()
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": e.message, "error_type": "api_error", "status_code": e.status_code}
+    except ProviderConnectionError as e:
+        await client.close()
+        return {"success": False, "error": str(e), "error_type": "connection_error"}
+    except ProviderTimeoutError as e:
+        await client.close()
+        return {"success": False, "error": str(e), "error_type": "timeout"}
     except Exception as e:
         await client.close()
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "error_type": "unknown"}
 
 
 @router.get("/providers/health")
