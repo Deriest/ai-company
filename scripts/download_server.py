@@ -1,6 +1,6 @@
 """AIC ADE — Static Release Download Server.
 
-Serves compiled distributable release artifacts from /home/tvd/AI-Company/releases/AIC-ADE
+Serves compiled distributable release artifacts from /home/tvd/AI-Company/app/release
 HTTP Port: 8088 (Proxied via Cloudflare Tunnel to https://download.aicompany.biz.id)
 """
 import http.server
@@ -8,7 +8,7 @@ import socketserver
 import os
 
 PORT = 8088
-DIRECTORY = "/home/tvd/AI-Company/releases/AIC-ADE"
+DIRECTORY = "/home/tvd/AI-Company/app/release"
 
 os.chdir(DIRECTORY)
 
@@ -62,34 +62,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         <div class="card primary">
             <div>
-                <strong style="font-size:16px;">Windows Setup (Primary)<span class="badge">RECOMMENDED</span></strong><br>
-                <span style="font-size:12px; color:#8B949E;">AIC-ADE-Setup-1.0.0.exe ({size_label('AIC-ADE-Setup-1.0.0.exe')}) — Start Menu + uninstall</span>
+                <strong style="font-size:16px;">Windows Setup<span class="badge">RECOMMENDED</span></strong><br>
+                <span style="font-size:12px; color:#8B949E;">AIC-ADE-Setup-2.4.0.exe ({size_label('AIC-ADE-Setup-2.4.0.exe')}) — Start Menu + uninstall</span>
             </div>
-            <a href="/AIC-ADE-Setup-1.0.0.exe" class="btn">Download Setup.exe</a>
-        </div>
-
-        <div class="card">
-            <div>
-                <strong style="font-size:16px;">Windows Portable</strong><br>
-                <span style="font-size:12px; color:#8B949E;">AIC-ADE-1.0.0-Windows-Portable.exe ({size_label('AIC-ADE-1.0.0-Windows-Portable.exe')})</span>
-            </div>
-            <a href="/AIC-ADE-1.0.0-Windows-Portable.exe" class="btn secondary">Portable</a>
+            <a href="/AIC-ADE-Setup-2.4.0.exe" class="btn">Download Setup.exe</a>
         </div>
 
         <div class="card">
             <div>
                 <strong style="font-size:16px;">Linux AppImage</strong><br>
-                <span style="font-size:12px; color:#8B949E;">AIC-ADE-1.0.0-linux-x86_64.AppImage ({size_label('AIC-ADE-1.0.0-linux-x86_64.AppImage')})</span>
+                <span style="font-size:12px; color:#8B949E;">AIC-ADE-2.4.0-linux-x86_64.AppImage ({size_label('AIC-ADE-2.4.0-linux-x86_64.AppImage')})</span>
             </div>
-            <a href="/AIC-ADE-1.0.0-linux-x86_64.AppImage" class="btn secondary">AppImage</a>
+            <a href="/AIC-ADE-2.4.0-linux-x86_64.AppImage" class="btn secondary">AppImage</a>
         </div>
 
         <div class="card">
             <div>
                 <strong style="font-size:16px;">Linux Debian / Ubuntu</strong><br>
-                <span style="font-size:12px; color:#8B949E;">AIC-ADE-1.0.0-linux-amd64.deb ({size_label('AIC-ADE-1.0.0-linux-amd64.deb')})</span>
+                <span style="font-size:12px; color:#8B949E;">AIC-ADE-2.4.0-linux-amd64.deb ({size_label('AIC-ADE-2.4.0-linux-amd64.deb')})</span>
             </div>
-            <a href="/AIC-ADE-1.0.0-linux-amd64.deb" class="btn secondary">.deb</a>
+            <a href="/AIC-ADE-2.4.0-linux-amd64.deb" class="btn secondary">.deb</a>
         </div>
 
         <h3 style="margin-top:28px; color:#C9D1D9;">SHA256 Checksums</h3>
