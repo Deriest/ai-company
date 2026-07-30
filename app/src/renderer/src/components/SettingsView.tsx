@@ -10,6 +10,8 @@ import { ProviderSetup } from './auth/ProviderSetup'
 import { api } from '../lib/runtimeClient'
 import { apiClient } from '../lib/api/client'
 import { profileApi } from '../lib/api/profile'
+import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
+import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
 
 const tabs = [
   'General', 'Workspace', 'Appearance', 'Providers',
@@ -131,6 +133,119 @@ function AppearanceTab() {
   )
 }
 
+/* ─── Engine Config Section ─── */
+
+function EngineConfigSection() {
+  const [cfg, setCfg] = useState<EnvConfig | null>(null)
+  const [providers, setProviders] = useState<ProviderRecord[]>([])
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    Promise.all([
+      providerManageApi.getEnvConfig(),
+      providersApi.list()
+    ]).then(([envCfg, pList]) => {
+      setCfg(envCfg)
+      setProviders(pList)
+      
+      const activeP = pList.find(p => p.name === envCfg.provider_name)
+      if (activeP) {
+        setModels(activeP.models || [])
+      }
+    }).finally(() => setLoading(false))
+  }, [])
+
+  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const pName = e.target.value
+    const p = providers.find(x => x.name === pName)
+    if (p) {
+      setModels(p.models || [])
+      setCfg(prev => prev ? { 
+        ...prev, 
+        provider_name: p.name, 
+        base_url: p.endpoint, 
+        api_key: p.apiKey 
+      } : null)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!cfg) return
+    setSaving(true)
+    setMsg('')
+    try {
+      await providerManageApi.updateEnvConfig(cfg)
+      setMsg('Engine updated successfully!')
+      setTimeout(() => setMsg(''), 3000)
+    } catch {
+      setMsg('Failed to update engine')
+    }
+    setSaving(false)
+  }
+
+  if (loading) return <div className="text-sm text-muted-foreground animate-pulse">Loading engine config...</div>
+  if (!cfg) return null
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-semibold flex items-center gap-2"><Cpu className="size-5" /> Execution Engine</h3>
+          <p className="text-xs text-muted-foreground mt-1">Select the active provider and models used by the AI workers.</p>
+        </div>
+        <button onClick={handleSave} disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+          {saving ? 'Applying...' : 'Apply to Engine'}
+        </button>
+      </div>
+
+      {msg && <div className="mb-4 rounded-lg bg-success/10 border border-success/20 px-4 py-2 text-sm text-success">{msg}</div>}
+
+      <div className="grid gap-4 sm:grid-cols-2 mb-4 pb-4 border-b border-border">
+        <div>
+          <label className="text-sm text-muted-foreground">Active Provider</label>
+          <select value={cfg.provider_name} onChange={handleProviderChange} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
+            <option value="default" disabled>Select a configured provider...</option>
+            {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label className="text-sm font-medium text-primary">Thinker Model</label>
+          <p className="text-[10px] text-muted-foreground mb-2">Used by Planner, Architect</p>
+          <select value={cfg.thinker} onChange={e => setCfg({ ...cfg, thinker: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
+            <option value="">-- Select Model --</option>
+            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          </select>
+          <input type="text" value={cfg.thinker} onChange={e => setCfg({ ...cfg, thinker: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-success">Crafter Model</label>
+          <p className="text-[10px] text-muted-foreground mb-2">Used by Backend, Frontend, QA</p>
+          <select value={cfg.crafter} onChange={e => setCfg({ ...cfg, crafter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
+            <option value="">-- Select Model --</option>
+            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          </select>
+          <input type="text" value={cfg.crafter} onChange={e => setCfg({ ...cfg, crafter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-warning">Sprinter Model</label>
+          <p className="text-[10px] text-muted-foreground mb-2">Used by Docs, Governor</p>
+          <select value={cfg.sprinter} onChange={e => setCfg({ ...cfg, sprinter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
+            <option value="">-- Select Model --</option>
+            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+          </select>
+          <input type="text" value={cfg.sprinter} onChange={e => setCfg({ ...cfg, sprinter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 /* ─── Providers Tab ─── */
 
 function ProvidersTab() {
@@ -150,7 +265,9 @@ function ProvidersTab() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-4xl">
+      <EngineConfigSection />
+      
       <Card className="p-6">
         <div className="flex items-center justify-between mb-3">
           <div>

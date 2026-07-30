@@ -15,7 +15,22 @@ export interface TestConnectionResult {
   error?: string;
 }
 
+export interface EnvConfig {
+  base_url: string;
+  api_key: string;
+  provider_name: string;
+  thinker: string;
+  crafter: string;
+  sprinter: string;
+}
+
 export const providerManageApi = {
+  getEnvConfig: () =>
+    apiClient.get<EnvConfig>("/providers/config"),
+
+  updateEnvConfig: (payload: Partial<EnvConfig>) =>
+    apiClient.post<{ success: boolean }>("/providers/config", payload),
+
   testConnection: (endpoint: string, apiKey: string) =>
     apiClient.post<TestConnectionResult>("/providers/test-connection", {
       endpoint,
