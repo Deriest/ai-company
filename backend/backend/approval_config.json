@@ -1,0 +1,16 @@
+{
+  "mode": "manual",
+  "safe_auto_approve_enabled": false,
+  "eligible_types": [
+    "phase.planning",
+    "phase_advance",
+    "task_start"
+  ],
+  "excluded_types": [
+    "deploy",
+    "closeout.commit",
+    "destructive"
+  ],
+  "updated_at": "2026-07-23T08:17:06.138105+00:00",
+  "updated_by": "admin"
+}

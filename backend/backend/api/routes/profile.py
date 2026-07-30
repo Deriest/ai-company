@@ -1,0 +1,74 @@
+"""Local Profile API routes — replaces all auth routes."""
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from backend.database.session import get_db
+from backend.services.profile_service import (
+    get_profile, create_profile, update_profile, complete_onboarding,
+)
+
+router = APIRouter()
+
+
+@router.get("/profile")
+async def read_profile(db: AsyncSession = Depends(get_db)):
+    """Get the local profile. Returns 404 if not created yet (first launch)."""
+    profile = await get_profile(db)
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile — first launch")
+    return {
+        "id": profile.id,
+        "displayName": profile.display_name,
+        "deviceId": profile.device_id,
+        "appVersion": profile.app_version,
+        "onboardingCompleted": profile.onboarding_completed,
+        "createdAt": profile.created_at.isoformat() if profile.created_at else None,
+        "lastSeen": profile.last_seen.isoformat() if profile.last_seen else None,
+    }
+
+
+@router.post("/profile")
+async def create_new_profile(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Create local profile on first launch."""
+    existing = await get_profile(db)
+    if existing:
+        raise HTTPException(status_code=409, detail="Profile already exists")
+    name = payload.get("displayName", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="displayName is required")
+    profile = await create_profile(db, name)
+    return {
+        "id": profile.id,
+        "displayName": profile.display_name,
+        "onboardingCompleted": profile.onboarding_completed,
+    }
+
+
+@router.patch("/profile")
+async def update_local_profile(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Update the local profile."""
+    profile = await update_profile(
+        db,
+        display_name=payload.get("displayName"),
+        app_version=payload.get("appVersion"),
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile")
+    return {
+        "id": profile.id,
+        "displayName": profile.display_name,
+        "onboardingCompleted": profile.onboarding_completed,
+    }
+
+
+@router.post("/profile/complete-onboarding")
+async def finish_onboarding(db: AsyncSession = Depends(get_db)):
+    """Mark onboarding as complete."""
+    profile = await complete_onboarding(db)
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile")
+    return {
+        "id": profile.id,
+        "displayName": profile.display_name,
+        "onboardingCompleted": True,
+    }
