@@ -112,17 +112,6 @@ export function AppShell({
 
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-          <div className="flex items-center gap-2 px-4 py-4">
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold">AIC ADE</span>
-              <span className="text-[11px] text-muted-foreground">AI Company Workspace</span>
-              <span className={cn("mt-0.5 flex items-center gap-1 text-[11px]", connected ? "text-success" : "text-destructive")}>
-                <span className={cn("size-1.5 rounded-full", connected ? "bg-success" : "bg-destructive")} />
-                {connected ? "Connected" : "Offline"}
-              </span>
-            </div>
-          </div>
-
           <nav className="flex-1 space-y-1 px-3 py-2">
             {nav.map((item) => {
               const active =
@@ -220,9 +209,6 @@ export function AppShell({
             <div className="flex items-center gap-2">
               <span className={cn("size-1.5 rounded-full", connected ? "bg-success" : "bg-destructive")} />
               {connected ? "System operational" : "System offline"}
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="font-mono">{modelLabel}</span>
             </div>
           </footer>
         </main>
