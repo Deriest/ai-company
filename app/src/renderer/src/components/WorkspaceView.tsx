@@ -1,28 +1,18 @@
 /**
  * WorkspaceView — Live Office Floor
  *
- * 2D animated open-office visualization showing 15 AI workers at their desks.
- * - Each desk shows worker name, status, and activity
- * - Department color-coded zones
- * - Meeting table in center activates during active tasks
- * - Real-time stats from backend
+ * 2D virtual office with animated workers walking between desks and meeting room.
+ * Uses HTML5 Canvas rendering inspired by my-virtual-office.
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Target,
-  Users,
-  Terminal,
-  UserPlus,
-  Command,
-  X,
-  Coins,
-  Zap,
-  FolderOpen,
+  Target, Users, Terminal, UserPlus, Command, X, Coins, Zap, FolderOpen,
 } from 'lucide-react'
-import { Card, PageHeader, Badge } from './kit'
+import { Card, PageHeader } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
 import { FileTree } from './FileTree'
+import { VirtualOfficeCanvas } from './VirtualOfficeCanvas'
 
 // ── Types ──────────────────────────────────────────────
 
@@ -32,194 +22,15 @@ interface WorkspaceViewProps {
   projectName?: string | null
 }
 
-interface DeskWorker {
-  id: string
-  name: string
-  role: string
-  dept: string
-  color: string
-  status: 'online' | 'working' | 'idle' | 'offline' | 'typing' | 'reviewing' | 'discussing'
-  tasks: number
-  initials: string
-}
-
-// ── Office Layout ──────────────────────────────────────
-
-const OFFICE_WORKERS: DeskWorker[] = [
-  // Leadership (top center)
-  { id: 'hermes', name: 'Hermes', role: 'Dispatcher', dept: 'Leadership', color: '#3ddc97', status: 'online', tasks: 0, initials: 'HE' },
-  { id: 'rex', name: 'Rex', role: 'Governor', dept: 'Leadership', color: '#3ddc97', status: 'online', tasks: 0, initials: 'RX' },
-  // Product (left wing)
-  { id: 'pm', name: 'Aria', role: 'PM', dept: 'Product', color: '#f59e0b', status: 'online', tasks: 0, initials: 'AR' },
-  { id: 'research', name: 'Sage', role: 'Research', dept: 'Product', color: '#f59e0b', status: 'online', tasks: 0, initials: 'SG' },
-  { id: 'designer', name: 'Luna', role: 'Designer', dept: 'Product', color: '#f59e0b', status: 'online', tasks: 0, initials: 'LN' },
-  { id: 'documentation', name: 'Echo', role: 'Docs', dept: 'Product', color: '#f59e0b', status: 'online', tasks: 0, initials: 'EC' },
-  // Engineering (right wing)
-  { id: 'architect', name: 'Atlas', role: 'Architect', dept: 'Engineering', color: '#22d3ee', status: 'online', tasks: 0, initials: 'AT' },
-  { id: 'backend', name: 'Hugo', role: 'Backend', dept: 'Engineering', color: '#22d3ee', status: 'online', tasks: 0, initials: 'HG' },
-  { id: 'frontend', name: 'Leo', role: 'Frontend', dept: 'Engineering', color: '#22d3ee', status: 'online', tasks: 0, initials: 'LE' },
-  { id: 'qa', name: 'Eve', role: 'QA', dept: 'Engineering', color: '#22d3ee', status: 'online', tasks: 0, initials: 'EV' },
-  { id: 'performance', name: 'Pulse', role: 'Perf', dept: 'Engineering', color: '#22d3ee', status: 'online', tasks: 0, initials: 'PL' },
-  // Platform (bottom)
-  { id: 'database', name: 'Nova', role: 'Database', dept: 'Platform', color: '#a78bfa', status: 'online', tasks: 0, initials: 'NV' },
-  { id: 'nexus', name: 'Nexus', role: 'Integration', dept: 'Platform', color: '#a78bfa', status: 'online', tasks: 0, initials: 'NX' },
-  { id: 'flint', name: 'Flint', role: 'Infra', dept: 'Platform', color: '#a78bfa', status: 'online', tasks: 0, initials: 'FL' },
-  { id: 'security', name: 'Sentinel', role: 'Security', dept: 'Platform', color: '#a78bfa', status: 'online', tasks: 0, initials: 'SE' },
-]
-
-const DEPT_COLORS: Record<string, string> = {
-  Leadership: 'from-success/10 to-success/5 border-success/20',
-  Product: 'from-warning/10 to-warning/5 border-warning/20',
-  Engineering: 'from-primary/10 to-primary/5 border-primary/20',
-  Platform: 'from-info/10 to-info/5 border-info/20',
-}
-
-const DEPT_TEXT: Record<string, string> = {
-  Leadership: 'text-success',
-  Product: 'text-warning',
-  Engineering: 'text-primary',
-  Platform: 'text-info',
-}
-
-// ── Desk Component ─────────────────────────────────────
-
-function Desk({ worker, onClick }: { worker: DeskWorker; onClick: () => void }) {
-  const s = worker.status
-  const isWorking = s === 'working' || s === 'typing' || s === 'reviewing' || s === 'discussing'
-
-  return (
-    <button
-      onClick={onClick}
-      className="group relative flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all hover:bg-white/5 hover:scale-105"
-    >
-      {/* Monitor */}
-      <div className={cn(
-        "relative w-12 h-9 rounded-md border-2 flex items-center justify-center transition-colors",
-        isWorking
-          ? "border-success/60 bg-success/10 shadow-[0_0_12px_rgba(52,211,153,0.2)]"
-          : "border-border/60 bg-card/80"
-      )}>
-        {/* Screen content */}
-        {s === 'typing' ? (
-          <div className="flex gap-0.5">
-            <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1 h-1 rounded-full bg-success animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
-        ) : s === 'reviewing' ? (
-          <div className="w-6 h-0.5 rounded bg-success/60" style={{ animation: 'scan 1s ease-in-out infinite' }} />
-        ) : s === 'working' ? (
-          <div className="flex gap-0.5">
-            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite' }} />
-            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite', animationDelay: '0.2s' }} />
-            <span className="w-1 h-1 rounded-full bg-success/80" style={{ animation: 'pulse-dot 1s ease-in-out infinite', animationDelay: '0.4s' }} />
-          </div>
-        ) : s === 'idle' ? (
-          <div className="w-3 h-3 rounded-full bg-muted-foreground/20" style={{ animation: 'breathe 2s ease-in-out infinite' }} />
-        ) : s === 'discussing' ? (
-          <div className="flex gap-1">
-            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite' }} />
-            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite', animationDelay: '0.3s' }} />
-            <span className="w-1 h-1 rounded-full bg-primary/60" style={{ animation: 'bounce-slow 1.5s ease-in-out infinite', animationDelay: '0.6s' }} />
-          </div>
-        ) : (
-          <div className="w-5 h-0.5 rounded bg-muted-foreground/30" />
-        )}
-
-        {/* Monitor stand */}
-        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-1.5 bg-border/40 rounded-b" />
-      </div>
-
-      {/* Status dot */}
-      <span className={cn(
-        "absolute top-1 right-1 w-2 h-2 rounded-full",
-        s === 'online' ? "bg-success" :
-        s === 'working' || s === 'typing' ? "bg-success animate-pulse" :
-        s === 'reviewing' ? "bg-primary animate-pulse" :
-        s === 'discussing' ? "bg-warning animate-pulse" :
-        s === 'idle' ? "bg-warning" : "bg-muted-foreground/30"
-      )} />
-
-      {/* Name */}
-      <span className="text-[10px] font-medium text-foreground/80 leading-none">{worker.name}</span>
-      <span className="text-[8px] text-muted-foreground leading-none">
-        {s === 'typing' ? 'coding...' : s === 'reviewing' ? 'reviewing' : s === 'discussing' ? 'in meeting' : worker.role}
-      </span>
-
-      {/* Task count badge */}
-      {worker.tasks > 0 && (
-        <span className="absolute -top-0.5 -left-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-primary text-[8px] font-bold text-primary-foreground flex items-center justify-center">
-          {worker.tasks}
-        </span>
-      )}
-    </button>
-  )
-}
-
-// ── Meeting Table ──────────────────────────────────────
-
-function MeetingTable({ activeMissions }: { activeMissions: number }) {
-  const isActive = activeMissions > 0
-
-  return (
-    <div className={cn(
-      "relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 transition-all",
-      isActive
-        ? "border-primary/40 bg-primary/5 shadow-[0_0_30px_rgba(52,211,153,0.1)]"
-        : "border-border/30 bg-muted/20"
-    )}>
-      {/* Table surface */}
-      <div className={cn(
-        "w-20 h-12 rounded-lg border flex items-center justify-center transition-colors",
-        isActive
-          ? "border-primary/30 bg-primary/10"
-          : "border-border/30 bg-card/50"
-      )}>
-        {isActive ? (
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[9px] font-bold text-primary">{activeMissions}</span>
-            <span className="text-[7px] text-primary/70">ACTIVE</span>
-          </div>
-        ) : (
-          <span className="text-[8px] text-muted-foreground/50">STANDBY</span>
-        )}
-      </div>
-
-      <span className="mt-2 text-[9px] font-medium text-muted-foreground">
-        {isActive ? 'Mission Control' : 'Meeting Room'}
-      </span>
-
-      {/* Active pulse ring */}
-      {isActive && (
-        <span className="absolute inset-0 rounded-2xl animate-ping bg-primary/5 pointer-events-none" style={{ animationDuration: '3s' }} />
-      )}
-    </div>
-  )
-}
-
 // ── Main Component ─────────────────────────────────────
 
 export function WorkspaceView({ onNavigate, projectRoot, projectName }: WorkspaceViewProps) {
   const [error, setError] = useState('')
-  const [workers, setWorkers] = useState<DeskWorker[]>(OFFICE_WORKERS)
+  const [workers, setWorkers] = useState<{ id: string; state: string; task: string }[]>([])
   const [activeMissions, setActiveMissions] = useState(0)
   const [totalTokens, setTotalTokens] = useState(0)
   const [totalCost, setTotalCost] = useState(0)
   const [loading, setLoading] = useState(true)
-
-  // Animate workers randomly
-  const states: DeskWorker['status'][] = ['online', 'idle', 'typing', 'working', 'reviewing', 'idle', 'online']
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setWorkers(prev => prev.map(w => {
-        if (w.status === 'discussing') return w // Keep discussing workers in meeting
-        const roll = Math.random()
-        const next = roll < 0.6 ? 'online' : roll < 0.75 ? 'idle' : roll < 0.85 ? 'typing' : roll < 0.93 ? 'working' : 'reviewing'
-        return { ...w, status: next }
-      }))
-    }, 4000)
-    return () => clearInterval(interval)
-  }, [])
 
   const loadData = useCallback(async () => {
     try {
@@ -245,16 +56,17 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
         metricsMap[w.role] = w.metrics || {}
       }
 
-      // Update worker statuses based on active tasks
-      setWorkers(prev => prev.map(w => {
-        const metrics = metricsMap[w.id] || {}
-        const hasActiveTask = activeTasks.some((t: any) => t.worker_type === w.id)
+      // Map workers to states
+      const workerStates = runtimeWorkers.map((w: any) => {
+        const hasActiveTask = activeTasks.some((t: any) => t.worker_type === w.role)
+        const task = activeTasks.find((t: any) => t.worker_type === w.role)
         return {
-          ...w,
-          status: hasActiveTask ? 'working' : 'online',
-          tasks: activeTasks.filter((t: any) => t.worker_type === w.id).length,
+          id: w.role,
+          state: hasActiveTask ? 'working' : 'idle',
+          task: task?.title || '',
         }
-      }))
+      })
+      setWorkers(workerStates)
 
       // Process usage
       if (usageRes.status === 'fulfilled' && usageRes.value) {
@@ -270,8 +82,28 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Group workers by department
-  const byDept = (dept: string) => workers.filter(w => w.dept === dept)
+  // Simulate meeting states for demo
+  useEffect(() => {
+    if (workers.length === 0) return
+    const interval = setInterval(() => {
+      setWorkers(prev => prev.map(w => {
+        if (w.state === 'working' && Math.random() < 0.1) {
+          return { ...w, state: 'meeting' }
+        }
+        if (w.state === 'meeting' && Math.random() < 0.15) {
+          return { ...w, state: 'working' }
+        }
+        return w
+      }))
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [workers.length])
+
+  const handleWorkerClick = useCallback((id: string) => {
+    onNavigate?.('live')
+  }, [onNavigate])
+
+  const workingCount = workers.filter(w => w.state === 'working' || w.state === 'meeting').length
 
   return (
     <div className="min-h-full">
@@ -287,7 +119,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
 
       <PageHeader
         title="AIC Engineering Office"
-        subtitle={loading ? "Loading office…" : `${workers.filter(w => w.status !== 'offline').length} workers online · ${activeMissions} active missions`}
+        subtitle={loading ? "Loading office…" : `${workers.length} workers · ${workingCount} active · ${activeMissions} missions`}
         actions={
           <button
             onClick={() => onNavigate?.('hermes')}
@@ -322,8 +154,8 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
               <Users className="size-4 text-success" />
             </div>
             <div>
-              <p className="text-lg font-bold leading-none">{workers.filter(w => w.status !== 'offline').length}</p>
-              <p className="text-[10px] text-muted-foreground">Workers Online</p>
+              <p className="text-lg font-bold leading-none">{workingCount}</p>
+              <p className="text-[10px] text-muted-foreground">Workers Active</p>
             </div>
           </Card>
           <Card className="flex items-center gap-3 py-3">
@@ -360,80 +192,8 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
           </Card>
         )}
 
-        {/* Office Floor */}
-        <Card className="overflow-hidden">
-          <div className="relative bg-[radial-gradient(ellipse_at_center,_rgba(52,211,153,0.03)_0%,_transparent_70%)]">
-            {/* Floor grid pattern */}
-            <div className="absolute inset-0 opacity-[0.03]" style={{
-              backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
-              backgroundSize: '40px 40px'
-            }} />
-
-            <div className="relative p-6">
-              {/* Leadership — top center */}
-              <div className="flex justify-center mb-6">
-                <div className={cn("rounded-2xl bg-gradient-to-b border p-4", DEPT_COLORS.Leadership)}>
-                  <p className={cn("text-[10px] font-semibold uppercase tracking-wider mb-3 text-center", DEPT_TEXT.Leadership)}>
-                    Leadership
-                  </p>
-                  <div className="flex gap-4 justify-center">
-                    {byDept('Leadership').map(w => (
-                      <Desk key={w.id} worker={w} onClick={() => onNavigate?.('live')} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Middle row: Product (left) + Meeting (center) + Engineering (right) */}
-              <div className="grid grid-cols-[1fr_auto_1fr] gap-6 items-start">
-                {/* Product — left wing */}
-                <div className={cn("rounded-2xl bg-gradient-to-b border p-4", DEPT_COLORS.Product)}>
-                  <p className={cn("text-[10px] font-semibold uppercase tracking-wider mb-3 text-center", DEPT_TEXT.Product)}>
-                    Product
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {byDept('Product').map(w => (
-                      <Desk key={w.id} worker={w} onClick={() => onNavigate?.('live')} />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Meeting Table — center */}
-                <div className="flex items-center justify-center pt-8">
-                  <MeetingTable activeMissions={activeMissions} />
-                </div>
-
-                {/* Engineering — right wing */}
-                <div className={cn("rounded-2xl bg-gradient-to-b border p-4", DEPT_COLORS.Engineering)}>
-                  <p className={cn("text-[10px] font-semibold uppercase tracking-wider mb-3 text-center", DEPT_TEXT.Engineering)}>
-                    Engineering
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {byDept('Engineering').map(w => (
-                      <Desk key={w.id} worker={w} onClick={() => onNavigate?.('live')} />
-                    ))}
-                    {/* 5th worker spans */}
-                    {byDept('Engineering').length % 2 === 1 && <div />}
-                  </div>
-                </div>
-              </div>
-
-              {/* Platform — bottom */}
-              <div className="flex justify-center mt-6">
-                <div className={cn("rounded-2xl bg-gradient-to-b border p-4", DEPT_COLORS.Platform)}>
-                  <p className={cn("text-[10px] font-semibold uppercase tracking-wider mb-3 text-center", DEPT_TEXT.Platform)}>
-                    Platform
-                  </p>
-                  <div className="flex gap-4 justify-center">
-                    {byDept('Platform').map(w => (
-                      <Desk key={w.id} worker={w} onClick={() => onNavigate?.('live')} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Card>
+        {/* Virtual Office Canvas */}
+        <VirtualOfficeCanvas workers={workers} onWorkerClick={handleWorkerClick} />
 
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-3">
