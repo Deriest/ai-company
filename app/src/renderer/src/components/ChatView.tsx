@@ -682,7 +682,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
 
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Header — minimal */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-2">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 shrink-0">
             <div className="flex items-center gap-2">
               <Terminal className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
@@ -713,8 +713,8 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               </div>
             )}
             {messages.length === 0 ? (
-              <div className="grid h-full place-items-center">
-                <div className="text-center space-y-2">
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center space-y-3">
                   <div className="mx-auto grid size-10 place-items-center rounded-xl bg-muted/30">
                     <Terminal className="size-5 text-muted-foreground/40" />
                   </div>
@@ -733,7 +733,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           </div>
 
           {/* Status bar */}
-          <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1 text-[9px] text-muted-foreground/50">
+          <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1.5 text-[9px] text-muted-foreground/50 shrink-0">
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1">
                 <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
@@ -751,9 +751,9 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           </div>
 
           {/* Composer */}
-          <div className="border-t border-border px-4 py-2.5">
+          <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="max-w-3xl mx-auto">
-              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 focus-within:border-primary/40">
+              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2 focus-within:border-primary/40">
                 <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
                 <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
                   onKeyDown={e => {
