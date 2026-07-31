@@ -1,0 +1,22 @@
+{
+  "version": "2.4.2",
+  "channel": "stable",
+  "releaseDate": "2026-07-30",
+  "releaseNotes": "AIC ADE v2.4.2",
+  "platforms": {
+    "win32": {
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.2.exe",
+      "sha256": "4989fc7cc3d921de8ab1d448750e1490d7f0289c8681ba63c0fbfed3c6a54599",
+      "size": 133719040,
+      "filename": "AIC-ADE-Setup-2.4.2.exe",
+      "type": "nsis"
+    },
+    "linux": {
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.2-linux-x86_64.AppImage",
+      "sha256": "5ae706712e8a3032cd4f127afede042744146db590b58a22f63a50edee51a969",
+      "size": 178558821,
+      "filename": "AIC-ADE-2.4.2-linux-x86_64.AppImage",
+      "type": "AppImage"
+    }
+  }
+}
