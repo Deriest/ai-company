@@ -56,7 +56,8 @@ function ProviderRegistry() {
   const handleTest = async (p: ProviderRecord) => {
     setTestingId(p.id);
     try {
-      const result = await providerManageApi.testConnection(p.endpoint, p.apiKey === "***" ? "" : p.apiKey);
+      const maskedKey = p.apiKey === "***" ? "***" : p.apiKey;
+      const result = await providerManageApi.testConnection(p.endpoint, maskedKey, p.id);
       setTestResults(prev => ({ ...prev, [p.id]: result }));
     } catch {
       setTestResults(prev => ({ ...prev, [p.id]: { success: false, error: "Request failed" } }));
@@ -124,8 +125,8 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
     setError("");
     try {
       const { providerManageApi } = await import('../../lib/api/provider_manage');
-      const testKey = apiKey || (provider.apiKey === "***" ? "" : provider.apiKey) || "";
-      const res = await providerManageApi.testConnection(endpoint, testKey);
+      const testKey = apiKey || (provider.apiKey === "***" ? "***" : provider.apiKey) || "";
+      const res = await providerManageApi.testConnection(endpoint, testKey, provider.id);
       
       if (res.success) {
         setStatus("connected");
@@ -162,13 +163,18 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
     <Card className="space-y-4 p-6">
       <h3 className="text-lg font-semibold">{provider.id ? "Edit Provider" : "Add Provider"}</h3>
       {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400">{error}</div>}
+      <div><label className="text-sm text-muted-foreground">Nama</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My AI Provider"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
+      </div>
       <div><label className="text-sm text-muted-foreground">Provider</label>
         <select value={name} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setName(p.name); setEndpoint(p.endpoint); } else setName(e.target.value); }}
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground">
+          <option value="">Select preset...</option>
           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       </div>
-      <div><label className="text-sm text-muted-foreground">Endpoint URL</label>
+      <div><label className="text-sm text-muted-foreground">Base URL</label>
         <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://api.openai.com/v1"
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
@@ -243,14 +249,20 @@ function FREProviderSetup() {
     <Card className="space-y-4 p-6">
       <div><h3 className="text-lg font-semibold">Configure AI Provider</h3><p className="text-sm text-muted-foreground">Choose a provider and enter your credentials</p></div>
       {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400">{error}</div>}
+      <div><label className="text-sm text-muted-foreground">Nama</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My AI Provider"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
+      </div>
       <div><label className="text-sm text-muted-foreground">Provider</label>
         <select value={name} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setName(p.name); setEndpoint(p.endpoint); } else setName(e.target.value); }}
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground">
+          <option value="">Select preset...</option>
           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       </div>
-      <div><label className="text-sm text-muted-foreground">Endpoint</label>
-        <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
+      <div><label className="text-sm text-muted-foreground">Base URL</label>
+        <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://api.openai.com/v1"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">API Key</label>
         <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." type="password" autoComplete="off"

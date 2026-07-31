@@ -64,10 +64,20 @@ function WorkspaceTab() {
 function EngineConfigSection() {
   const [cfg, setCfg] = useState<EnvConfig | null>(null)
   const [providers, setProviders] = useState<ProviderRecord[]>([])
-  const [models, setModels] = useState<ModelInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+
+  // Per-tier provider+model state
+  const [thinkerProvider, setThinkerProvider] = useState<string>('')
+  const [crafterProvider, setCrafterProvider] = useState<string>('')
+  const [sprinterProvider, setSprinterProvider] = useState<string>('')
+  const [thinkerModels, setThinkerModels] = useState<ModelInfo[]>([])
+  const [crafterModels, setCrafterModels] = useState<ModelInfo[]>([])
+  const [sprinterModels, setSprinterModels] = useState<ModelInfo[]>([])
+  const [thinkerModel, setThinkerModel] = useState<string>('')
+  const [crafterModel, setCrafterModel] = useState<string>('')
+  const [sprinterModel, setSprinterModel] = useState<string>('')
 
   useEffect(() => {
     Promise.all([
@@ -76,34 +86,73 @@ function EngineConfigSection() {
     ]).then(([envCfg, pList]) => {
       setCfg(envCfg)
       setProviders(pList)
-      
+
+      // Find provider for each tier from env config
       const activeP = pList.find(p => p.name === envCfg.provider_name)
       if (activeP) {
-        setModels(activeP.models || [])
+        setThinkerProvider(activeP.name)
+        setCrafterProvider(activeP.name)
+        setSprinterProvider(activeP.name)
+        setThinkerModels(activeP.models || [])
+        setCrafterModels(activeP.models || [])
+        setSprinterModels(activeP.models || [])
       }
+      setThinkerModel(envCfg.thinker || '')
+      setCrafterModel(envCfg.crafter || '')
+      setSprinterModel(envCfg.sprinter || '')
     }).finally(() => setLoading(false))
   }, [])
 
-  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const pName = e.target.value
+  const handleTierProviderChange = (tier: 'thinker' | 'crafter' | 'sprinter', pName: string) => {
     const p = providers.find(x => x.name === pName)
-    if (p) {
-      setModels(p.models || [])
-      setCfg(prev => prev ? { 
-        ...prev, 
-        provider_name: p.name, 
-        base_url: p.endpoint, 
-        api_key: p.apiKey 
-      } : null)
-    }
+    if (!p) return
+    const pModels = p.models || []
+    if (tier === 'thinker') { setThinkerProvider(pName); setThinkerModels(pModels); setThinkerModel('') }
+    if (tier === 'crafter') { setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel('') }
+    if (tier === 'sprinter') { setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel('') }
+  }
+
+  const fetchAllModels = async () => {
+    setLoading(true)
+    try {
+      const pList: ProviderRecord[] = []
+      for (const p of providers) {
+        try { await providersApi.fetchModelsAndUpdate(p.id, p.endpoint) } catch {}
+        const refreshed = await providersApi.list()
+        const updated = refreshed.find(r => r.id === p.id)
+        if (updated) pList.push(updated)
+      }
+      if (pList.length === 0) {
+        const all = await providersApi.list()
+        setProviders(all)
+      } else {
+        setProviders(pList)
+      }
+      // Refresh current selections
+      const tp = pList.find(p => p.name === thinkerProvider)
+      const cp = pList.find(p => p.name === crafterProvider)
+      const sp = pList.find(p => p.name === sprinterProvider)
+      if (tp) setThinkerModels(tp.models || [])
+      if (cp) setCrafterModels(cp.models || [])
+      if (sp) setSprinterModels(sp.models || [])
+    } catch {}
+    setLoading(false)
   }
 
   const handleSave = async () => {
-    if (!cfg) return
     setSaving(true)
     setMsg('')
     try {
-      await providerManageApi.updateEnvConfig(cfg)
+      // Use the first available provider's credentials
+      const p = providers.find(x => x.name === thinkerProvider) || providers[0]
+      await providerManageApi.updateEnvConfig({
+        provider_name: p?.name || '',
+        base_url: p?.endpoint || '',
+        api_key: p?.apiKey || '',
+        thinker: thinkerModel,
+        crafter: crafterModel,
+        sprinter: sprinterModel,
+      })
       setMsg('Engine updated successfully!')
       setTimeout(() => setMsg(''), 3000)
     } catch {
@@ -117,55 +166,76 @@ function EngineConfigSection() {
 
   return (
     <Card className="p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-lg font-semibold flex items-center gap-2"><Cpu className="size-5" /> Execution Engine</h3>
-          <p className="text-xs text-muted-foreground mt-1">Select the active provider and models used by the AI workers.</p>
+          <p className="text-xs text-muted-foreground mt-1">Select provider and model for each tier.</p>
         </div>
-        <button onClick={handleSave} disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-          {saving ? 'Applying...' : 'Apply to Engine'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={fetchAllModels} disabled={loading} className="rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted">
+            {loading ? 'Scanning...' : 'Fetch Models'}
+          </button>
+          <button onClick={handleSave} disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            {saving ? 'Applying...' : 'Apply to Engine'}
+          </button>
+        </div>
       </div>
 
       {msg && <div className="mb-4 rounded-lg bg-success/10 border border-success/20 px-4 py-2 text-sm text-success">{msg}</div>}
 
-      <div className="grid gap-4 sm:grid-cols-2 mb-4 pb-4 border-b border-border">
-        <div>
-          <label className="text-sm text-muted-foreground">Active Provider</label>
-          <select value={cfg.provider_name} onChange={handleProviderChange} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
-            <option value="default" disabled>Select a configured provider...</option>
-            {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-          </select>
+      <div className="space-y-4">
+        {/* THINKER */}
+        <div className="rounded-lg border border-border/60 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-primary w-24">Thinker</span>
+            <select value={thinkerProvider} onChange={e => handleTierProviderChange('thinker', e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Select Provider...</option>
+              {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select value={thinkerModel} onChange={e => setThinkerModel(e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
+              <option value="">Select Model...</option>
+              {thinkerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Planner, Architect, Research</p>
         </div>
-      </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className="text-sm font-medium text-primary">Thinker Model</label>
-          <p className="text-[10px] text-muted-foreground mb-2">Used by Planner, Architect</p>
-          <select value={cfg.thinker} onChange={e => setCfg({ ...cfg, thinker: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
-            <option value="">-- Select Model --</option>
-            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-          </select>
-          <input type="text" value={cfg.thinker} onChange={e => setCfg({ ...cfg, thinker: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
+        {/* CRAFTER */}
+        <div className="rounded-lg border border-border/60 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-success w-24">Crafter</span>
+            <select value={crafterProvider} onChange={e => handleTierProviderChange('crafter', e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Select Provider...</option>
+              {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select value={crafterModel} onChange={e => setCrafterModel(e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
+              <option value="">Select Model...</option>
+              {crafterModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Backend, Frontend, QA</p>
         </div>
-        <div>
-          <label className="text-sm font-medium text-success">Crafter Model</label>
-          <p className="text-[10px] text-muted-foreground mb-2">Used by Backend, Frontend, QA</p>
-          <select value={cfg.crafter} onChange={e => setCfg({ ...cfg, crafter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
-            <option value="">-- Select Model --</option>
-            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-          </select>
-          <input type="text" value={cfg.crafter} onChange={e => setCfg({ ...cfg, crafter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-warning">Sprinter Model</label>
-          <p className="text-[10px] text-muted-foreground mb-2">Used by Docs, Governor</p>
-          <select value={cfg.sprinter} onChange={e => setCfg({ ...cfg, sprinter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono mb-2">
-            <option value="">-- Select Model --</option>
-            {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-          </select>
-          <input type="text" value={cfg.sprinter} onChange={e => setCfg({ ...cfg, sprinter: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono" placeholder="Or type model ID..." />
+
+        {/* SPRINTER */}
+        <div className="rounded-lg border border-border/60 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-warning w-24">Sprinter</span>
+            <select value={sprinterProvider} onChange={e => handleTierProviderChange('sprinter', e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Select Provider...</option>
+              {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select value={sprinterModel} onChange={e => setSprinterModel(e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
+              <option value="">Select Model...</option>
+              {sprinterModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Docs, Governor</p>
         </div>
       </div>
     </Card>
@@ -175,57 +245,10 @@ function EngineConfigSection() {
 /* ─── Providers Tab ─── */
 
 function ProvidersTab() {
-  const [health, setHealth] = useState<Array<{ id: string; name: string; status: string; latency_ms?: number; error?: string }>>([])
-  const [loading, setLoading] = useState(false)
-  const [tested, setTested] = useState(false)
-
-  const runHealthCheck = async () => {
-    setLoading(true)
-    try {
-      const { providerManageApi } = await import('../lib/api/provider_manage')
-      const result = await providerManageApi.healthCheck()
-      setHealth(result)
-      setTested(true)
-    } catch { setHealth([]) }
-    finally { setLoading(false) }
-  }
-
   return (
     <div className="space-y-6 max-w-4xl">
-      <EngineConfigSection />
-      
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="text-lg font-semibold">Provider Health</h3>
-            <p className="text-xs text-muted-foreground mt-1">Check connectivity of all enabled providers</p>
-          </div>
-          <button onClick={runHealthCheck} disabled={loading}
-            className="rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-muted border border-border">
-            {loading ? 'Checking...' : 'Run Health Check'}
-          </button>
-        </div>
-        {tested && (
-          <div className="space-y-2">
-            {health.length === 0 && <p className="text-xs text-muted-foreground">No enabled providers found.</p>}
-            {health.map((h) => (
-              <div key={h.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <span className="text-sm font-medium">{h.name}</span>
-                {h.status === 'connected' ? (
-                  <span className="flex items-center gap-1.5 text-xs text-green-400">
-                    <span className="size-1.5 rounded-full bg-green-400" /> Connected — {h.latency_ms}ms
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 text-xs text-red-400">
-                    <span className="size-1.5 rounded-full bg-red-400" /> {h.error || 'Error'}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
       <ProviderSetup mode="settings" />
+      <EngineConfigSection />
     </div>
   )
 }
@@ -544,10 +567,10 @@ export function SettingsView({
   }
 
   return (
-    <div>
+    <div className="max-w-3xl mx-auto">
       <PageHeader title="Settings" subtitle="Configure your AIC ADE workspace." />
       <div className="p-6">
-        <div className="mb-6 flex flex-wrap gap-1 border-b border-border">
+        <div className="mb-6 flex flex-wrap justify-center gap-1 border-b border-border">
           {tabs.map((t) => (
             <button
               key={t} type="button" onClick={() => handleTabChange(t)}
@@ -559,12 +582,14 @@ export function SettingsView({
           ))}
         </div>
 
-        {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
-        {tab === 'Workspace' && <WorkspaceTab />}
-        {tab === 'Providers' && <ProvidersTab />}
-        {tab === 'Updates' && <UpdatesTab />}
-        {tab === 'Developer' && <DeveloperTab />}
-        {tab === 'Auto Save' && <AutoSaveTab />}
+        <div className="flex justify-center">
+          {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
+          {tab === 'Workspace' && <WorkspaceTab />}
+          {tab === 'Providers' && <ProvidersTab />}
+          {tab === 'Updates' && <UpdatesTab />}
+          {tab === 'Developer' && <DeveloperTab />}
+          {tab === 'Auto Save' && <AutoSaveTab />}
+        </div>
       </div>
     </div>
   )

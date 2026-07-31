@@ -61,7 +61,14 @@ export function AppShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
+  const [appVersion, setAppVersion] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    window.aic?.getAppVersion?.().then((v: string) => {
+      if (v) setAppVersion(v);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -178,7 +185,7 @@ export function AppShell({
                 </span>
               </div>
             </button>
-            <p className="px-2 pt-2 font-mono text-[10px] text-muted-foreground">v2.4.0</p>
+            <p className="px-2 pt-2 font-mono text-[10px] text-muted-foreground">{appVersion ? `v${appVersion}` : ''}</p>
 
             {menuOpen ? (
               <div className="absolute bottom-full left-3 right-3 z-50 mb-1 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg">

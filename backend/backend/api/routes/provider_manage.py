@@ -15,8 +15,22 @@ async def test_provider_connection(payload: dict):
     """Test connection to a provider endpoint without saving."""
     endpoint = payload.get("endpoint", "").strip()
     api_key = payload.get("api_key", "").strip()
+    provider_id = payload.get("provider_id", "").strip()
     if not endpoint:
         raise HTTPException(status_code=400, detail="Endpoint required")
+
+    # If api_key is "***" (masked) and provider_id is provided, decrypt the stored key
+    if api_key == "***" and provider_id:
+        from sqlalchemy.future import select
+        from backend.database.session import AsyncSessionLocal
+        from backend.models.schema import Provider
+        from backend.services.crypto import decrypt
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Provider).where(Provider.id == provider_id))
+            provider = result.scalar_one_or_none()
+            if provider:
+                api_key = decrypt(provider.api_key) or ""
+
     if not api_key:
         return {"success": False, "error": "API Key is required", "error_type": "missing_api_key"}
 

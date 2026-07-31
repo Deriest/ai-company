@@ -31,10 +31,11 @@ export const providerManageApi = {
   updateEnvConfig: (payload: Partial<EnvConfig>) =>
     apiClient.post<{ success: boolean }>("/providers/config", payload),
 
-  testConnection: (endpoint: string, apiKey: string) =>
+  testConnection: (endpoint: string, apiKey: string, providerId?: string) =>
     apiClient.post<TestConnectionResult>("/providers/test-connection", {
       endpoint,
       api_key: apiKey,
+      provider_id: providerId || "",
     }),
 
   healthCheck: () =>
