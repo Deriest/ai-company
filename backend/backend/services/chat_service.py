@@ -5,7 +5,7 @@ import httpx
 from typing import AsyncGenerator, Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from backend.models.schema import Provider
+from backend.models.schema import Provider, ProviderModel
 from backend.models.conversation import Message
 from backend.models.ai_runtime import GenerationLog, ToolCall, ToolResult
 from backend.services.crypto import decrypt as decrypt_api_key
@@ -59,9 +59,16 @@ class ChatService:
     @staticmethod
     async def _get_provider_config(db: AsyncSession, provider_id: str | None) -> tuple[str, str] | None:
         if not provider_id:
-            return None
-        res = await db.execute(select(Provider).where(Provider.id == provider_id))
-        p = res.scalars().first()
+            # Auto-detect: find first enabled provider
+            res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+            p = res.scalars().first()
+            if p:
+                provider_id = p.id
+            else:
+                return None
+        else:
+            res = await db.execute(select(Provider).where(Provider.id == provider_id))
+            p = res.scalars().first()
         if not p or not p.enabled:
             return None
         base_url = p.base_url.rstrip("/")
@@ -335,7 +342,7 @@ class ChatService:
         
         yield f"data: {json.dumps({'type': 'start', 'message_id': msg.id})}\n\n"
 
-        if not config or not model_id:
+        if not config:
             error_msg = "No AI provider configured. Please add a provider in Settings > Providers to start chatting."
             msg.content = error_msg
             yield f"data: {json.dumps({'type': 'chunk', 'content': error_msg})}\n\n"
@@ -345,6 +352,14 @@ class ChatService:
             await artifact_service.extract_and_store(db, conversation_id, msg.id, msg.content)
             yield f"data: {json.dumps({'type': 'done', 'message_id': msg.id})}\n\n"
             return
+
+        # Auto-detect model if not provided
+        if not model_id:
+            res = await db.execute(
+                select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id).limit(1)
+            )
+            row = res.scalars().first()
+            model_id = row or "gpt-4o"
 
         base_url, api_key = config
         url = f"{base_url}/chat/completions"

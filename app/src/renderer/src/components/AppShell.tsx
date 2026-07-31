@@ -210,7 +210,7 @@ export function AppShell({
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto scroll-thin">{children}</div>
+          <div className="flex-1 min-h-0">{children}</div>
 
           <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border bg-sidebar px-4 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-2">
