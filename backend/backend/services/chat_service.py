@@ -168,6 +168,18 @@ class ChatService:
         start_time = time.time()
         config = await cls._get_provider_config(db, provider_id)
         
+        # Persist user message
+        user_content = messages[-1].get("content", "") if messages else ""
+        if user_content:
+            user_msg = Message(
+                conversation_id=conversation_id,
+                role="user",
+                content=user_content,
+                status="completed",
+            )
+            db.add(user_msg)
+            await db.commit()
+        
         # Graceful fallback when no provider is connected (desktop-first behavior)
         if not config or not model_id:
             content = "No AI provider configured. Please add a provider in Settings > Providers to start chatting."
@@ -339,6 +351,18 @@ class ChatService:
         start_time = time.time()
         config = await cls._get_provider_config(db, provider_id)
         
+        # Persist user message from the last message in the payload
+        user_query = messages[-1].get("content", "") if messages else ""
+        if user_query:
+            user_msg = Message(
+                conversation_id=conversation_id,
+                role="user",
+                content=user_query,
+                status="completed",
+            )
+            db.add(user_msg)
+            await db.commit()
+        
         # create initial streaming message in DB
         msg = Message(
             conversation_id=conversation_id,
@@ -383,7 +407,6 @@ class ChatService:
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
         # WP-01: Build context before LLM call
-        user_query = messages[-1].get("content", "") if messages else ""
         context_str = ""
         try:
             context_str = await build_chat_context(db, conversation_id, user_query)

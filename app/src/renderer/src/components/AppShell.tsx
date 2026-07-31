@@ -12,12 +12,6 @@ import {
   FolderTree,
   ChevronDown,
   ChevronRight,
-  Network,
-  GitBranch,
-  ListTodo,
-  Brain,
-  Database,
-  Zap,
   BarChart3,
   Command,
 } from "lucide-react";
@@ -34,17 +28,8 @@ const nav = [
   { id: "live", label: "Live Company", icon: Users },
   { id: "skills", label: "Skills", icon: Wrench },
   { id: "mcp", label: "MCP Servers", icon: Plug },
-  { id: "settings", label: "Settings", icon: Settings },
-] as const;
-
-const operationsNav = [
-  { id: "orchestration", label: "Orchestration", icon: Network },
-  { id: "workflows", label: "Workflows", icon: GitBranch },
-  { id: "jobs", label: "Jobs", icon: ListTodo },
-  { id: "memory", label: "Memory", icon: Brain },
-  { id: "rag", label: "RAG", icon: Database },
-  { id: "automation", label: "Automation", icon: Zap },
   { id: "observability", label: "Observability", icon: BarChart3 },
+  { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
 export function AppShell({
@@ -76,7 +61,6 @@ export function AppShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
-  const [operationsOpen, setOperationsOpen] = useState(() => operationsNav.some((item) => item.id === view));
   const [appVersion, setAppVersion] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -94,10 +78,6 @@ export function AppShell({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
-
-  useEffect(() => {
-    if (operationsNav.some((item) => item.id === view)) setOperationsOpen(true);
-  }, [view]);
 
   const initial = profile?.displayName?.charAt(0)?.toUpperCase() || "A";
   const name = profile?.displayName || "User";
@@ -142,40 +122,6 @@ export function AppShell({
                 </button>
               );
             })}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setOperationsOpen((open) => !open)}
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-expanded={operationsOpen}
-              >
-                <Command className="size-4" />
-                <span className="flex-1 text-left">Operations</span>
-                {operationsOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-              </button>
-              {operationsOpen && (
-                <div className="mt-1 space-y-0.5 border-l border-sidebar-border/80 pl-3 ml-5">
-                  {operationsNav.map((item) => {
-                    const active = view === item.id;
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onViewChange?.(item.id)}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-                          active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                        )}
-                      >
-                        <Icon className={cn("size-3.5", active && "text-primary")} />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </nav>
 
           <div className="border-t border-sidebar-border px-2 py-2">

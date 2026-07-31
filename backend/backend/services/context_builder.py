@@ -156,6 +156,7 @@ class WorkerContext:
         messages = []
         history_limit = policy.max_history if policy else max_history
         tool_limit = 5 if policy and policy.max_history <= 10 else 10
+        max_tokens_limit = policy.max_tokens if policy else 0
 
         # System prompt with all context baked in
         system_parts = [self.system_prompt]
@@ -186,14 +187,30 @@ class WorkerContext:
                 "content": msg.get("content", ""),
             })
 
-        # Token estimation (rough: ~4 chars per token)
+        # Conservative token estimation: ~4 chars per token with 1.3x safety buffer
         total_chars = sum(len(m.get("content", "")) for m in messages)
-        estimated_tokens = total_chars // 4
+        estimated_tokens = int(total_chars // 4 * 1.3)
+
+        # Token-budget trimming: drop oldest conversation messages (preserve system)
+        # until estimated_tokens <= max_tokens_limit
+        dropped_count = 0
+        if max_tokens_limit > 0 and estimated_tokens > max_tokens_limit:
+            # Keep system prompt (index 0), drop oldest non-system messages first
+            for i in range(len(messages) - 1, 0, -1):
+                if estimated_tokens <= max_tokens_limit:
+                    break
+                removed = messages.pop(i)
+                dropped_count += 1
+                total_chars = sum(len(m.get("content", "")) for m in messages)
+                estimated_tokens = int(total_chars // 4 * 1.3)
 
         metadata = {
             "estimated_tokens": estimated_tokens,
             "message_count": len(messages),
             "max_history": history_limit,
+            "max_tokens_budget": max_tokens_limit,
+            "truncated": dropped_count > 0,
+            "dropped_messages": dropped_count,
         }
 
         return messages, metadata

@@ -163,11 +163,22 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': f'Execution failed: {str(e)[:200]}'})}\n\n"
                 return
 
-            # Step 3: Store response in conversation
+            # Step 3: Store messages in conversation
             try:
                 async with AsyncSessionLocal() as session:
                     from datetime import datetime, timezone
                     now = datetime.now(timezone.utc)
+                    # Persist user message
+                    user_msg = Message(
+                        conversation_id=payload.conversation_id,
+                        role="user",
+                        content=user_content,
+                        created_at=now,
+                        updated_at=now,
+                        status="completed",
+                    )
+                    session.add(user_msg)
+                    # Persist assistant response
                     msg = Message(
                         conversation_id=payload.conversation_id,
                         role="assistant",
@@ -280,6 +291,22 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
 
         async def tool_event_generator():
             try:
+                # Persist user message
+                from datetime import datetime, timezone
+                from storage.models import Message
+                user_content = messages_list[-1].get("content", "") if messages_list else ""
+                if user_content:
+                    user_msg = Message(
+                        conversation_id=payload.conversation_id,
+                        role="user",
+                        content=user_content,
+                        status="completed",
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    db.add(user_msg)
+                    await db.commit()
+
                 async for sse_event in tool_service.stream_with_tools(
                     messages=messages_list,
                     system_prompt=system_prompt,

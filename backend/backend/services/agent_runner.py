@@ -69,6 +69,12 @@ class AgentRunner:
 
         # Convert context to messages using policy limits
         messages, ctx_metadata = ctx.to_messages(policy=policy)
+        if ctx_metadata.get("truncated"):
+            logger.warning(
+                f"Context truncated: dropped {ctx_metadata['dropped_messages']} messages, "
+                f"estimated {ctx_metadata['estimated_tokens']} tokens "
+                f"(budget {ctx_metadata['max_tokens_budget']})"
+            )
         messages.append({"role": "user", "content": prompt})
         
         tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER}

@@ -212,39 +212,83 @@ class LLMProvider:
             try:
                 resp = await self.client.post("/chat/completions", json=payload)
                 resp.raise_for_status()
-                # Parse JSON robustly — providers may prepend whitespace/SSE noise
-                import json as _json
-                import re as _re_json
                 text = (resp.text or "").strip()
                 if not text:
-                    raise LLMError("Empty LLM response body")
+                    raise LLMError(
+                        f"Empty LLM response body from {model} "
+                        f"at {self.config.base_url}/chat/completions "
+                        f"(HTTP {resp.status_code})"
+                    )
                 data = None
                 try:
                     data = resp.json()
                 except Exception:
                     pass
                 if data is None:
-                    # Prefer first complete JSON object; tolerate leading noise
-                    start = text.find("{")
-                    if start < 0:
-                        raise LLMError(f"Non-JSON LLM response: {text[:120]!r}")
-                    brace = 0
-                    end = 0
-                    for i, ch in enumerate(text[start:], start):
-                        if ch == "{":
-                            brace += 1
-                        elif ch == "}":
-                            brace -= 1
-                            if brace == 0:
-                                end = i + 1
-                                break
-                    if end <= start:
-                        raise LLMError(f"Incomplete JSON LLM response: {text[:120]!r}")
-                    data = _json.loads(text[start:end])
+                    # Providers like VansRouter always return SSE even for
+                    # non-streaming requests.  Parse leading `data: {...}` lines.
+                    import json as _json
+                    import re as _re
+                    sse_lines = _re.findall(r'^data:\s*(.*)', text, _re.MULTILINE)
+                    if sse_lines:
+                        merged = []
+                        for line in sse_lines:
+                            stripped = line.strip()
+                            if stripped and stripped != "[DONE]":
+                                try:
+                                    parsed = _json.loads(stripped)
+                                    merged.append(parsed)
+                                except _json.JSONDecodeError:
+                                    pass
+                        if merged:
+                            # Merge choices from multiple SSE chunks.
+                            # SSE chunks use "delta" instead of "message" —
+                            # convert to "message" for the non-streaming parser.
+                            full_content = ""
+                            usage = {}
+                            for m in merged:
+                                if m.get("usage"):
+                                    usage = m["usage"]
+                                ch = m.get("choices", [])
+                                if ch:
+                                    delta = ch[0].get("delta", {})
+                                    if delta.get("content"):
+                                        full_content += delta["content"]
+                            data = {
+                                "choices": [{"message": {"content": full_content, "role": "assistant"}}],
+                                "usage": usage,
+                            }
+                    if data is None:
+                        # Prefer first complete JSON object; tolerate leading noise
+                        start = text.find("{")
+                        if start < 0:
+                            raise LLMError(
+                                f"Non-JSON LLM response from {model} "
+                                f"at {self.config.base_url}: {text[:120]!r}"
+                            )
+                        brace = 0
+                        end = 0
+                        for i, ch in enumerate(text[start:], start):
+                            if ch == "{":
+                                brace += 1
+                            elif ch == "}":
+                                brace -= 1
+                                if brace == 0:
+                                    end = i + 1
+                                    break
+                        if end <= start:
+                            raise LLMError(
+                                f"Incomplete JSON LLM response from {model}: {text[:120]!r}"
+                            )
+                        data = _json.loads(text[start:end])
 
                 choices = data.get("choices") if isinstance(data, dict) else None
                 if not choices:
-                    raise LLMError(f"LLM response missing choices: {str(data)[:200]}")
+                    raise LLMError(
+                        f"LLM response missing choices from {model} "
+                        f"at {self.config.base_url} (HTTP {resp.status_code}). "
+                        f"Raw keys: {list(data.keys()) if isinstance(data, dict) else 'not-a-dict'}"
+                    )
                 msg = choices[0].get("message") or {}
                 content = msg.get("content") or ""
                 # OpenRouter / VansRouter may put answer in reasoning or content
@@ -283,7 +327,10 @@ class LLMProvider:
                             content = msg[field]
                             break
                 if not content:
-                    logger.warning(f"LLM empty content. Keys: {list(msg.keys())}")
+                    logger.warning(
+                        f"LLM empty content. Model={model} URL={self.config.base_url} "
+                        f"Keys: {list(msg.keys())}"
+                    )
                 usage = data.get("usage", {})
 
                 # Track usage
@@ -306,7 +353,11 @@ class LLMProvider:
 
             except httpx.HTTPStatusError as e:
                 last_error = e
-                logger.warning(f"LLM HTTP error (attempt {attempt+1}): {e.response.status_code} {e.response.text[:200]}")
+                logger.warning(
+                    f"LLM HTTP error (attempt {attempt+1}): "
+                    f"{e.response.status_code} for {model} "
+                    f"at {self.config.base_url}: {e.response.text[:200]}"
+                )
                 if e.response.status_code in (429, 502, 503, 504):
                     # Rate limit / proxy busy / 502 ResourceExhausted — wait with exponential backoff
                     import asyncio

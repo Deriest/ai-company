@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Search, Terminal, Users, Wrench, Plug, Settings, MessageSquare, LayoutDashboard, Network, GitBranch, ListTodo, Brain, Database, Zap, BarChart3, PanelBottom, PanelLeft } from 'lucide-react'
+import { Search, Terminal, Users, Wrench, Plug, Settings, MessageSquare, LayoutDashboard, BarChart3, PanelBottom, PanelLeft } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 interface Command {
@@ -23,14 +23,8 @@ export function CommandPalette({ open, onClose, onNavigate, onNewSession, onTogg
     { id: 'company', label: 'Go to Live Company', category: 'Navigation', icon: Users, action: () => { onNavigate('live'); onClose() } },
     { id: 'skills', label: 'Go to Skills', category: 'Navigation', icon: Wrench, action: () => { onNavigate('skills'); onClose() } },
     { id: 'mcp', label: 'Go to MCP Servers', category: 'Navigation', icon: Plug, action: () => { onNavigate('mcp'); onClose() } },
-    { id: 'settings', label: 'Open Settings', category: 'Navigation', icon: Settings, action: () => { onNavigate('settings'); onClose() } },
-    { id: 'orchestration', label: 'Go to Orchestration', category: 'Navigation', icon: Network, action: () => { onNavigate('orchestration'); onClose() } },
-    { id: 'workflows', label: 'Go to Workflows', category: 'Navigation', icon: GitBranch, action: () => { onNavigate('workflows'); onClose() } },
-    { id: 'jobs', label: 'Go to Jobs', category: 'Navigation', icon: ListTodo, action: () => { onNavigate('jobs'); onClose() } },
-    { id: 'memory', label: 'Go to Memory', category: 'Navigation', icon: Brain, action: () => { onNavigate('memory'); onClose() } },
-    { id: 'rag', label: 'Go to RAG', category: 'Navigation', icon: Database, action: () => { onNavigate('rag'); onClose() } },
-    { id: 'automation', label: 'Go to Automation', category: 'Navigation', icon: Zap, action: () => { onNavigate('automation'); onClose() } },
     { id: 'observability', label: 'Go to Observability', category: 'Navigation', icon: BarChart3, action: () => { onNavigate('observability'); onClose() } },
+    { id: 'settings', label: 'Open Settings', category: 'Navigation', icon: Settings, action: () => { onNavigate('settings'); onClose() } },
     { id: 'new-conversation', label: 'New Conversation', category: 'Actions', icon: Terminal, action: () => { onNewSession(); onClose() } },
     { id: 'toggle-terminal', label: 'Toggle Terminal', category: 'Actions', icon: PanelBottom, action: () => { onToggleTerminal?.(); onClose() } },
     { id: 'toggle-file-tree', label: 'Toggle File Tree', category: 'Actions', icon: PanelLeft, action: () => { onToggleFileTree?.(); onClose() } },
