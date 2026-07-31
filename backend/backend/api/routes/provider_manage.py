@@ -147,8 +147,18 @@ async def update_env_config(payload: dict):
             if v is not None:
                 new_lines.append(f"{k}={v}")
                 
-        with open(env_path, "w") as f:
-            f.write("\n".join(new_lines) + "\n")
+# Write to .env file (try backend dir first, fallback to data dir)
+        env_path = Path(__file__).parent.parent.parent.parent / ".env"
+        try:
+            with open(env_path, "w") as f:
+                f.write("\n".join(new_lines) + "\n")
+        except (PermissionError, OSError):
+            # Fallback: write to data directory
+            data_dir = os.environ.get("AIC_DATA_DIR", "")
+            if data_dir:
+                env_path = Path(data_dir) / ".env"
+                with open(env_path, "w") as f:
+                    f.write("\n".join(new_lines) + "\n")
             
         # Reload provider manager
         from llm.provider import provider_manager, init_provider_from_env
