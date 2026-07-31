@@ -119,7 +119,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
 
       <PageHeader
         title="AIC Engineering Office"
-        subtitle={loading ? "Loading office…" : `${workers.length} workers · ${workingCount} active · ${activeMissions} missions`}
+        subtitle={loading ? "Loading office…" : `15 workers · ${workingCount} active · ${activeMissions} missions`}
         actions={
           <button
             onClick={() => onNavigate?.('hermes')}

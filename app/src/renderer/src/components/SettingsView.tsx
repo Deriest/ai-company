@@ -25,13 +25,29 @@ type Tab = SettingsTab
 function WorkspaceTab() {
   const [root, setRoot] = useState('')
   const [saved, setSaved] = useState(false)
+  const [autoOpen, setAutoOpen] = useState(true)
+  const [rememberSession, setRememberSession] = useState(true)
+  const [sessionName, setSessionName] = useState('')
 
   useEffect(() => {
     profileApi.get().then(p => { if (p?.projectRoot) setRoot(p.projectRoot) }).catch(() => {})
+    try {
+      const s = localStorage.getItem('aic-ade-workspace')
+      if (s) {
+        const cfg = JSON.parse(s)
+        if (cfg.autoOpen !== undefined) setAutoOpen(cfg.autoOpen)
+        if (cfg.rememberSession !== undefined) setRememberSession(cfg.rememberSession)
+        if (cfg.sessionName) setSessionName(cfg.sessionName)
+      }
+    } catch {}
   }, [])
 
   const handleSave = async () => {
-    try { await profileApi.update({ projectRoot: root }); setSaved(true); setTimeout(() => setSaved(false), 2000) }
+    try { 
+      await profileApi.update({ projectRoot: root })
+      localStorage.setItem('aic-ade-workspace', JSON.stringify({ autoOpen, rememberSession, sessionName }))
+      setSaved(true); setTimeout(() => setSaved(false), 2000) 
+    }
     catch { /* ignore */ }
   }
 
@@ -49,6 +65,26 @@ function WorkspaceTab() {
               placeholder="/home/user/projects"
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground font-mono text-sm outline-none focus:border-primary"
             />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">Auto-open last project</label>
+              <p className="text-xs text-muted-foreground">Open the last used project on startup</p>
+            </div>
+            <button onClick={() => setAutoOpen(!autoOpen)}
+              className={cn('relative h-5 w-9 rounded-full transition-colors', autoOpen ? 'bg-primary' : 'bg-muted')}>
+              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', autoOpen ? 'left-4' : 'left-0.5')} />
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">Remember session</label>
+              <p className="text-xs text-muted-foreground">Restore the last conversation on startup</p>
+            </div>
+            <button onClick={() => setRememberSession(!rememberSession)}
+              className={cn('relative h-5 w-9 rounded-full transition-colors', rememberSession ? 'bg-primary' : 'bg-muted')}>
+              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', rememberSession ? 'left-4' : 'left-0.5')} />
+            </button>
           </div>
           <button onClick={handleSave} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             {saved ? 'Saved' : 'Save'}
@@ -444,6 +480,7 @@ function AutoSaveTab() {
           <div>
             <label className="text-sm text-muted-foreground">Save Interval (seconds)</label>
             <input type="number" value={interval} onChange={(e) => setInterval(Number(e.target.value))} disabled={!enabled}
+              placeholder="30"
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary disabled:opacity-50" />
           </div>
           <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2, RefreshCw, Plus, Zap, Cpu } from "lucide-react";
+import { Check, Loader2, RefreshCw, Plus, Zap, Cpu, Eye, EyeOff } from "lucide-react";
 import { Card, Badge } from "../kit";
 import { providersApi, type ProviderRecord, type ModelInfo } from "../../lib/api/providers";
 import { providerManageApi, type TestConnectionResult } from "../../lib/api/provider_manage";
@@ -116,6 +116,7 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
   const [providerType, setProviderType] = useState<string>(PROVIDER_PRESETS[0].name);
   const [endpoint, setEndpoint] = useState(provider.endpoint || "");
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [apiKeyPlaceholder, setApiKeyPlaceholder] = useState(provider.apiKey === "***" ? "••••••••" : "sk-...");
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
   const [saving, setSaving] = useState(false);
@@ -181,8 +182,13 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">API Key</label>
-        <input value={apiKey} onChange={(e) => { setApiKey(e.target.value); setApiKeyPlaceholder(''); }} placeholder={apiKeyPlaceholder} type="password" autoComplete="off"
-          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
+        <div className="relative">
+        <input value={apiKey} onChange={(e) => { setApiKey(e.target.value); setApiKeyPlaceholder(''); }} placeholder={apiKeyPlaceholder} type={apiKeyVisible ? "text" : "password"} autoComplete="off"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 pr-10 text-foreground" />
+        <button type="button" onClick={() => setApiKeyVisible(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+          {apiKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
       </div>
       <div className="flex items-center gap-3">
         <button onClick={testConnection} disabled={!endpoint} className="rounded-lg px-4 py-2 text-sm hover:bg-muted">
@@ -208,6 +214,7 @@ function FREProviderSetup() {
   const [endpoint, setEndpoint] = useState<string>(PROVIDER_PRESETS[0].endpoint);
   const [endpointEdited, setEndpointEdited] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -348,8 +355,13 @@ function FREProviderSetup() {
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">API Key</label>
-        <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." type="password" autoComplete="off"
-          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
+        <div className="relative">
+        <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." type={apiKeyVisible ? "text" : "password"} autoComplete="off"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 pr-10 text-foreground" />
+        <button type="button" onClick={() => setApiKeyVisible(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+          {apiKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
       </div>
       <div className="flex items-center gap-3">
         <button onClick={testConnection} disabled={!endpoint} className="rounded-lg px-4 py-2 text-sm hover:bg-muted">

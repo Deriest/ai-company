@@ -502,6 +502,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
   const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
@@ -586,9 +587,10 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   }
 
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || sending) return
     const text = input.trim()
     setInput('')
+    setSending(true)
 
     // Auto-create session if none active
     let convId = activeId
@@ -662,17 +664,20 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           onDone: () => {
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, status: 'completed' } : m))
+            setSending(false)
             void loadMessages(convId)
           },
           onError: (err) => {
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, content: s.content || `Error: ${err}` }))
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + `\n\nError: ${err}`, status: 'completed' } : m))
+            setSending(false)
           },
         },
       )
     } catch (err: any) {
       const errMsg = err?.message || String(err)
       setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: `Failed to send: ${errMsg}`, status: 'completed' } : m))
+      setSending(false)
     }
   }
 
@@ -767,9 +772,9 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
                   disabled={false} rows={1}
                   placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
-                <button onClick={() => void handleSend()}
-                  className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-20">
-                  <Send className="size-3" />
+<button onClick={() => void handleSend()}
+                  className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25">
+                  {sending ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
                 </button>
               </div>
             </div>
