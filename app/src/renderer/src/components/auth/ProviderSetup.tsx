@@ -168,7 +168,7 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">Provider</label>
-        <select value={name} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setName(p.name); setEndpoint(p.endpoint); } else setName(e.target.value); }}
+        <select value={providerType} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setProviderType(p.name); setEndpoint(p.endpoint); } }}
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground">
           <option value="">Select preset...</option>
           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
@@ -254,7 +254,7 @@ function FREProviderSetup() {
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">Provider</label>
-        <select value={name} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setName(p.name); setEndpoint(p.endpoint); } else setName(e.target.value); }}
+        <select value={providerType} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setProviderType(p.name); setEndpoint(p.endpoint); } }}
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground">
           <option value="">Select preset...</option>
           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
