@@ -165,7 +165,7 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
     <Card className="space-y-4 p-6">
       <h3 className="text-lg font-semibold">{provider.id ? "Edit Provider" : "Add Provider"}</h3>
       {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400">{error}</div>}
-      <div><label className="text-sm text-muted-foreground">Nama</label>
+      <div><label className="text-sm text-muted-foreground">Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My AI Provider"
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
@@ -206,6 +206,7 @@ function FREProviderSetup() {
   const [name, setName] = useState<string>("");
   const [providerType, setProviderType] = useState<string>(PROVIDER_PRESETS[0].name);
   const [endpoint, setEndpoint] = useState<string>(PROVIDER_PRESETS[0].endpoint);
+  const [endpointEdited, setEndpointEdited] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
   const [saving, setSaving] = useState(false);
@@ -331,19 +332,19 @@ function FREProviderSetup() {
     <Card className="space-y-4 p-6">
       <div><h3 className="text-lg font-semibold">Configure AI Provider</h3><p className="text-sm text-muted-foreground">Choose a provider and enter your credentials</p></div>
       {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400">{error}</div>}
-      <div><label className="text-sm text-muted-foreground">Nama</label>
+      <div><label className="text-sm text-muted-foreground">Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My AI Provider"
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">Provider</label>
-        <select value={providerType} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setProviderType(p.name); setEndpoint(p.endpoint); } }}
+        <select value={providerType} onChange={(e) => { const p = PROVIDER_PRESETS.find(x => x.name === e.target.value); if (p) { setProviderType(p.name); if (!endpointEdited) setEndpoint(p.endpoint); } }}
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground">
           <option value="">Select preset...</option>
           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       </div>
       <div><label className="text-sm text-muted-foreground">Base URL</label>
-        <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://api.openai.com/v1"
+        <input value={endpoint} onChange={(e) => { setEndpoint(e.target.value); setEndpointEdited(true); }} placeholder="https://api.openai.com/v1"
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">API Key</label>
