@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.database.session import get_db
 from backend.models.schema import Provider, ProviderModel
@@ -213,7 +213,7 @@ async def fetch_provider_models(id: str, db: AsyncSession = Depends(get_db)):
 
         provider.status = "connected"
         provider.latency_ms = latency_ms
-        provider.last_refresh_at = datetime.utcnow()
+        provider.last_refresh_at = datetime.now(tz=timezone.utc)
         provider.enabled = True
 
         await db.commit()

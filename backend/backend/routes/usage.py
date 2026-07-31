@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from backend.database.session import get_db
 from storage.models import LLMUsageLog
@@ -27,7 +27,7 @@ async def get_usage_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Get usage statistics for the specified period."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
 
     # Get LLM usage logs
     result = await db.execute(
@@ -99,7 +99,7 @@ async def get_daily_usage(
     db: AsyncSession = Depends(get_db),
 ):
     """Get daily usage statistics."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
 
     result = await db.execute(
         select(

@@ -117,7 +117,7 @@ function EngineConfigSection() {
     try {
       const pList: ProviderRecord[] = []
       for (const p of providers) {
-        try { await providersApi.fetchModelsAndUpdate(p.id, p.endpoint) } catch {}
+        try { await providersApi.fetchModelsAndUpdate(p.id, p.endpoint) } catch (e) { console.error('Fetch models failed for', p.name, e) }
         const refreshed = await providersApi.list()
         const updated = refreshed.find(r => r.id === p.id)
         if (updated) pList.push(updated)
@@ -135,7 +135,7 @@ function EngineConfigSection() {
       if (tp) setThinkerModels(tp.models || [])
       if (cp) setCrafterModels(cp.models || [])
       if (sp) setSprinterModels(sp.models || [])
-    } catch {}
+    } catch (e) { console.error('Fetch models failed', e) }
     setLoading(false)
   }
 

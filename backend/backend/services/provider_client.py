@@ -100,7 +100,7 @@ class ProviderClient:
                 try:
                     err_json = response.json()
                     error_detail = str(err_json.get("error", err_json.get("message", err_json)))
-                except:
+                except (ValueError, KeyError):
                     error_detail = response.text[:200]
 
             if response.status_code == 401:
