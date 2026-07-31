@@ -183,7 +183,7 @@ export function AutomationView() {
         }
       />
 
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-3">
         {error && (
           <Card className="border-destructive/40 bg-destructive/5 text-sm text-destructive flex items-center justify-between">
             <span>{error}</span>

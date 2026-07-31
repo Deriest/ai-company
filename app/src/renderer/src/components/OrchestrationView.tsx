@@ -117,7 +117,7 @@ export function OrchestrationView() {
         }
       />
 
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-3">
         {error && (
           <Card className="border-destructive/40 bg-destructive/5 text-sm text-destructive flex items-center justify-between">
             <span>{error}</span>
@@ -126,7 +126,7 @@ export function OrchestrationView() {
         )}
 
         {showCreate && (
-          <Card className="space-y-3">
+          <Card className="space-y-2.5">
             <h3 className="text-sm font-semibold">Create Orchestration Session</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>

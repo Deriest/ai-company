@@ -1,21 +1,21 @@
 {
-  "version": "2.4.7",
+  "version": "2.4.8",
   "channel": "stable",
-  "releaseDate": "2026-07-31",
-  "releaseNotes": "v2.4.7: fixed non-task tool chat, repaired corrupted message timestamps, improved SQLite reliability, and exposed Operations tools.",
+  "releaseDate": "2026-08-01",
+  "releaseNotes": "v2.4.8: fixed inline form whitespace in Orchestration/RAG/Automation views.",
   "platforms": {
     "win32": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.7.exe",
-      "sha256": "7f8ee6050d8bab2776007dd42ec472252c38ab65bbfc00ae358a42b904f15b16",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.8.exe",
+      "sha256": "38a92eaedd5322ef692cda1ec05e3eb6e701faf2cf6f22a413c08af2befa0fc1",
       "size": 134313024,
-      "filename": "AIC-ADE-Setup-2.4.7.exe",
+      "filename": "AIC-ADE-Setup-2.4.8.exe",
       "type": "nsis"
     },
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.7-linux-x86_64.AppImage",
-      "sha256": "b664a125244d67c38e26b48c97a05f4c294fe8dbbffe76eefb02dfed38c90a07",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.8-linux-x86_64.AppImage",
+      "sha256": "88a95f7559cec20903537ebc4b7cda4a72b43a4633e3febdd98ee20971c74042",
       "size": 180530689,
-      "filename": "AIC-ADE-2.4.7-linux-x86_64.AppImage",
+      "filename": "AIC-ADE-2.4.8-linux-x86_64.AppImage",
       "type": "AppImage"
     }
   }
