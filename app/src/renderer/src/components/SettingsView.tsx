@@ -307,7 +307,7 @@ function UpdatesTab() {
               </button>
             )}
             {updateState?.status === 'ready_to_install' && (
-              <button onClick={() => window.aic?.updateInstall?.()}
+              <button onClick={() => window.aic?.updateQuitAndInstall?.()}
                 className="rounded-lg bg-success px-4 py-2 text-sm font-medium text-white">
                 Install & Restart
               </button>

@@ -66,7 +66,7 @@ export function GeneralTab({
   };
 
   const handleDownload = () => { window.aic?.updateDownload?.(); };
-  const handleInstall = () => { window.aic?.updateInstall?.(); };
+  const handleInstall = () => { window.aic?.updateQuitAndInstall?.(); };
   const handleDismiss = () => {
     setUpdatesOpen(false);
     window.aic?.updateDismiss?.();
