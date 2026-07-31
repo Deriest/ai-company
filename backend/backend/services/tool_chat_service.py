@@ -26,7 +26,6 @@ from typing import AsyncGenerator
 
 from llm.provider import provider_manager, ModelTier
 from workers.tools import ToolExecutor
-from backend.services.tool_executor import ToolExecutor as RealToolExecutor
 
 logger = logging.getLogger("aic.tool_chat")
 

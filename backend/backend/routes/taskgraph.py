@@ -45,7 +45,7 @@ async def get_graph(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a Task Graph by ID."""
-    from storage.models import TaskGraph as TaskGraphModel
+    from storage.models import TaskGraphModel
 
     result = await session.execute(
         select(TaskGraphModel).where(TaskGraphModel.id == graph_id)
@@ -73,7 +73,7 @@ async def get_graph_for_plan(
     session: AsyncSession = Depends(get_session),
 ):
     """Get Task Graph for a Plan."""
-    from storage.models import TaskGraph as TaskGraphModel
+    from storage.models import TaskGraphModel
 
     result = await session.execute(
         select(TaskGraphModel)
