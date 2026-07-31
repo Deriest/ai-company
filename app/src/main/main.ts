@@ -351,7 +351,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: "#05060A",
-    title: "AIC ADE (Agentic Development Environment)",
+    title: "AI Company ADE",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "preload.js"),

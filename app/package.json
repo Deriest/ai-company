@@ -2,7 +2,7 @@
   "name": "aic-ade",
   "version": "2.4.5",
   "private": true,
-  "description": "AIC ADE — Agentic Development Environment (autonomous AI software company)",
+  "description": "AI Company ADE",
   "author": "TVD <tvd@local>",
   "homepage": "https://download.aicompany.biz.id",
   "main": "dist-electron/main/main.js",
@@ -63,8 +63,8 @@
   },
   "build": {
     "appId": "id.aicompany.ade",
-    "productName": "AIC ADE",
-    "executableName": "AIC ADE",
+    "productName": "AI Company ADE",
+    "executableName": "AI Company ADE",
     "icon": "build/icon.png",
     "publish": {
       "provider": "generic",
@@ -146,8 +146,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AIC ADE",
-      "uninstallDisplayName": "AIC ADE",
+      "shortcutName": "AI Company ADE",
+      "uninstallDisplayName": "AI Company ADE",
       "artifactName": "AIC-ADE-Setup-${version}.${ext}"
     },
     "mac": {
