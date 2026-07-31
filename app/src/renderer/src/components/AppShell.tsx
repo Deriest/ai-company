@@ -4,9 +4,6 @@ import {
   Terminal,
   Users,
   Settings,
-  Minus,
-  Square,
-  X,
   User,
   Bug,
   Info,
@@ -90,30 +87,17 @@ export function AppShell({
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-sidebar px-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <img src="./aic-ade-logo.png" alt="AIC ADE" width={18} height={18} className="rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-            <span className="text-xs font-semibold tracking-wide">AIC ADE</span>
-            <span className="text-xs text-muted-foreground">— AI Company Workspace</span>
-          </div>
+      <header className="shrink-0 border-b border-border bg-sidebar">
+        <div className="flex items-center gap-2 px-3 py-1.5">
+          <img src="./aic-ade-logo.png" alt="AIC ADE" width={16} height={16} className="rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          <span className="text-[11px] font-semibold tracking-wide">AI Company Workspace</span>
         </div>
-
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <button type="button" className="grid size-6 place-items-center rounded hover:bg-muted" aria-label="Minimize" onClick={() => window.aic?.minimize?.()}>
-            <Minus className="size-3.5" />
-          </button>
-          <button type="button" className="grid size-6 place-items-center rounded hover:bg-muted" aria-label="Maximize" onClick={() => window.aic?.maximize?.()}>
-            <Square className="size-3" />
-          </button>
-          <button
-            type="button"
-            className="grid size-6 place-items-center rounded hover:bg-destructive hover:text-destructive-foreground"
-            aria-label="Close"
-            onClick={() => window.aic?.close?.()}
-          >
-            <X className="size-3.5" />
-          </button>
+        <div className="flex items-center gap-1 px-3 pb-1.5 text-[11px] text-muted-foreground/70">
+          <span className="px-1 cursor-default">File</span>
+          <span className="px-1 cursor-default">Edit</span>
+          <span className="px-1 cursor-default">View</span>
+          <span className="px-1 cursor-default">Window</span>
+          <span className="px-1 cursor-default">Help</span>
         </div>
       </header>
 

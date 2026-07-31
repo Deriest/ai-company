@@ -873,6 +873,7 @@ app.whenReady().then(async () => {
   registerIpc();
   buildAppMenu();
   await ensureBackendRunning();
+  updateManager?.setBackendProc(backendProc);
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

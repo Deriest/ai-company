@@ -408,21 +408,19 @@ function DeveloperTab() {
 function AutoSaveTab() {
   const [enabled, setEnabled] = useState(true)
   const [interval, setInterval] = useState(30)
-  const [saveFormat, setSaveFormat] = useState('json')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    const saved = localStorage.getItem('aic-ade-autosave')
-    if (saved) {
-      const s = JSON.parse(saved)
-      if (s.enabled !== undefined) setEnabled(s.enabled)
-      if (s.interval) setInterval(s.interval)
-      if (s.saveFormat) setSaveFormat(s.saveFormat)
+    const s = localStorage.getItem('aic-ade-autosave')
+    if (s) {
+      const cfg = JSON.parse(s)
+      if (cfg.enabled !== undefined) setEnabled(cfg.enabled)
+      if (cfg.interval) setInterval(cfg.interval)
     }
   }, [])
 
   const save = () => {
-    localStorage.setItem('aic-ade-autosave', JSON.stringify({ enabled, interval, saveFormat }))
+    localStorage.setItem('aic-ade-autosave', JSON.stringify({ enabled, interval }))
     setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
@@ -436,7 +434,7 @@ function AutoSaveTab() {
           <div className="flex items-center justify-between">
             <div>
               <label className="text-sm font-medium">Enable Auto Save</label>
-              <p className="text-xs text-muted-foreground">Automatically save conversations and project state</p>
+              <p className="text-xs text-muted-foreground">Automatically save conversations and project state to SQLite</p>
             </div>
             <button onClick={() => setEnabled(!enabled)}
               className={cn('relative h-5 w-9 rounded-full transition-colors', enabled ? 'bg-primary' : 'bg-muted')}>
@@ -447,18 +445,6 @@ function AutoSaveTab() {
             <label className="text-sm text-muted-foreground">Save Interval (seconds)</label>
             <input type="number" value={interval} onChange={(e) => setInterval(Number(e.target.value))} disabled={!enabled}
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary disabled:opacity-50" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground">Save Format</label>
-            <div className="flex gap-2 mt-1">
-              {['json', 'sqlite', 'markdown'].map(f => (
-                <button key={f} onClick={() => setSaveFormat(f)} disabled={!enabled}
-                  className={cn('rounded-md border px-3 py-1 text-xs font-mono uppercase transition-colors disabled:opacity-50',
-                    saveFormat === f ? 'border-primary bg-primary/10 text-primary' : 'border-border')}>
-                  {f}
-                </button>
-              ))}
-            </div>
           </div>
           <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             {saved ? 'Saved' : 'Save'}
@@ -567,10 +553,10 @@ export function SettingsView({
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div>
       <PageHeader title="Settings" subtitle="Configure your AIC ADE workspace." />
       <div className="p-6">
-        <div className="mb-6 flex flex-wrap justify-center gap-1 border-b border-border">
+        <div className="mb-6 flex flex-wrap gap-1 border-b border-border">
           {tabs.map((t) => (
             <button
               key={t} type="button" onClick={() => handleTabChange(t)}
@@ -582,14 +568,12 @@ export function SettingsView({
           ))}
         </div>
 
-        <div className="flex justify-center">
-          {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
-          {tab === 'Workspace' && <WorkspaceTab />}
-          {tab === 'Providers' && <ProvidersTab />}
-          {tab === 'Updates' && <UpdatesTab />}
-          {tab === 'Developer' && <DeveloperTab />}
-          {tab === 'Auto Save' && <AutoSaveTab />}
-        </div>
+        {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
+        {tab === 'Workspace' && <WorkspaceTab />}
+        {tab === 'Providers' && <ProvidersTab />}
+        {tab === 'Updates' && <UpdatesTab />}
+        {tab === 'Developer' && <DeveloperTab />}
+        {tab === 'Auto Save' && <AutoSaveTab />}
       </div>
     </div>
   )

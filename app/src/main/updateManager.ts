@@ -161,6 +161,9 @@ export class UpdateManager {
   private config: UpdateConfig;
   private checking = false;
   private abortDownload = false;
+  private _backendProc: any = null;
+
+  setBackendProc(proc: any) { this._backendProc = proc; }
 
   constructor(config?: Partial<UpdateConfig>) {
     this.config = defaultUpdateConfig(config);
@@ -369,28 +372,12 @@ export class UpdateManager {
     }
     this.setState({ status: "installing" });
     try {
-      if (process.platform === "win32") {
-        spawn(file, ["/S"], { detached: true, stdio: "ignore" }).unref();
-        this.setState({ status: "installing" });
-        return this.getState();
+      if (process.platform === "linux" && file.endsWith(".AppImage")) {
+        try { fs.chmodSync(file, 0o755); } catch { /* ignore */ }
+        spawn(file, [], { detached: true, stdio: "ignore" }).unref();
+      } else {
+        await shell.openPath(file);
       }
-      if (process.platform === "linux") {
-        try {
-          fs.chmodSync(file, 0o755);
-        } catch {
-          /* ignore */
-        }
-        // Since it's AppImage, it can run directly in the background via detached spawn.
-        // Wait, Debian packages usually require sudo if doing dpkg -i. We assume AppImage.
-        if (file.endsWith(".AppImage")) {
-           spawn(file, [], { detached: true, stdio: "ignore" }).unref();
-        } else {
-           await shell.openPath(path.dirname(file));
-        }
-        this.setState({ status: "installing" });
-        return this.getState();
-      }
-      await shell.openPath(file);
       this.setState({ status: "installing" });
       return this.getState();
     } catch (e) {
@@ -401,22 +388,11 @@ export class UpdateManager {
   }
 
   quitAndInstall(): void {
-    if (app.isPackaged) {
-       // Stop the backend safely if it's running
-       try {
-         const { getBackendProc } = require("./main");
-         const proc = getBackendProc();
-         if (proc) {
-           proc.kill("SIGTERM");
-         }
-       } catch (e) {
-         console.error("Failed to kill backend cleanly", e);
-       }
-    }
+    try {
+      if (this._backendProc) this._backendProc.kill("SIGTERM");
+    } catch {}
     void this.installUpdate().finally(() => {
-      setTimeout(() => {
-        app.exit(0); // forcibly exit electron processes immediately so installer is clear to overwrite
-      }, 500);
+      setTimeout(() => app.exit(0), 1000);
     });
   }
 

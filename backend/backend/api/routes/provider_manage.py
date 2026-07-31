@@ -90,17 +90,15 @@ async def provider_health(db: AsyncSession = Depends(get_db)):
 @router.get("/providers/config")
 async def get_env_config():
     """Get current provider config from .env."""
-    import os
-    from llm.provider import init_provider_from_env
-    config = init_provider_from_env()
+    from backend.config import settings
     
     return {
-        "base_url": os.environ.get("AIC_LLM_BASE_URL", ""),
-        "api_key": "***" if os.environ.get("AIC_LLM_API_KEY") else "",
-        "provider_name": os.environ.get("AIC_LLM_PROVIDER_NAME", "default"),
-        "thinker": os.environ.get("AIC_MODEL_THINKER", ""),
-        "crafter": os.environ.get("AIC_MODEL_CRAFTER", ""),
-        "sprinter": os.environ.get("AIC_MODEL_SPRINTER", ""),
+        "base_url": settings.AIC_LLM_BASE_URL or "",
+        "api_key": "***" if settings.AIC_LLM_API_KEY else "",
+        "provider_name": settings.AIC_LLM_PROVIDER_NAME or "default",
+        "thinker": settings.AIC_MODEL_THINKER or "",
+        "crafter": settings.AIC_MODEL_CRAFTER or "",
+        "sprinter": settings.AIC_MODEL_SPRINTER or "",
     }
 
 @router.post("/providers/config")

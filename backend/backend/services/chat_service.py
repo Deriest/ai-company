@@ -64,18 +64,30 @@ class ChatService:
             p = res.scalars().first()
             if p:
                 provider_id = p.id
-            else:
-                return None
         else:
             res = await db.execute(select(Provider).where(Provider.id == provider_id))
             p = res.scalars().first()
-        if not p or not p.enabled:
-            return None
-        base_url = p.base_url.rstrip("/")
-        if not base_url.endswith("/v1"):
-            base_url += "/v1"
-        api_key = decrypt_api_key(p.api_key)
-        return base_url, api_key
+            if not p or not p.enabled:
+                p = None
+        
+        if p and p.enabled:
+            base_url = p.base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+            api_key = decrypt_api_key(p.api_key)
+            return base_url, api_key
+        
+        # Fallback: try .env file via backend config
+        from backend.config import settings
+        base_url = settings.AIC_LLM_BASE_URL or ""
+        api_key = settings.AIC_LLM_API_KEY or ""
+        if base_url and api_key:
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+            return base_url, api_key
+        
+        return None
 
     @staticmethod
     def _build_tools_schema() -> list[dict]:
@@ -355,11 +367,16 @@ class ChatService:
 
         # Auto-detect model if not provided
         if not model_id:
-            res = await db.execute(
-                select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id).limit(1)
-            )
-            row = res.scalars().first()
-            model_id = row or "gpt-4o"
+            if provider_id:
+                res = await db.execute(
+                    select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id).limit(1)
+                )
+                row = res.scalars().first()
+                model_id = row
+            if not model_id:
+                # Fallback: try .env via backend config
+                from backend.config import settings
+                model_id = settings.AIC_MODEL_CRAFTER or settings.AIC_MODEL_SPRINTER or "gpt-4o"
 
         base_url, api_key = config
         url = f"{base_url}/chat/completions"

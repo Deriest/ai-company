@@ -116,6 +116,7 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
   const [providerType, setProviderType] = useState<string>(PROVIDER_PRESETS[0].name);
   const [endpoint, setEndpoint] = useState(provider.endpoint || "");
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyPlaceholder, setApiKeyPlaceholder] = useState(provider.apiKey === "***" ? "••••••••" : "sk-...");
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -180,7 +181,7 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div><label className="text-sm text-muted-foreground">API Key</label>
-        <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." type="password" autoComplete="off"
+        <input value={apiKey} onChange={(e) => { setApiKey(e.target.value); setApiKeyPlaceholder(''); }} placeholder={apiKeyPlaceholder} type="password" autoComplete="off"
           className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground" />
       </div>
       <div className="flex items-center gap-3">

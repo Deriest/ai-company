@@ -674,7 +674,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
         <Sidebar conversations={conversations} activeId={activeId} onSelect={setActiveId}
           onCreate={handleCreate} onDelete={handleDelete} onArchive={handleArchive}
@@ -761,10 +761,10 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
                       e.preventDefault(); void handleSend()
                     }
                   }}
-                  disabled={!activeId} rows={1}
-                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'create a session first'}
+                  disabled={false} rows={1}
+                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
-                <button onClick={() => void handleSend()} disabled={!activeId || !input.trim()}
+                <button onClick={() => void handleSend()} disabled={!input.trim()}
                   className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-20">
                   <Send className="size-3" />
                 </button>

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 const TILE = 28
-const COLS = 30
-const ROWS = 18
+const COLS = 32
+const ROWS = 20
 const W = COLS * TILE
 const H = ROWS * TILE
 const SPEED = 0.8
@@ -31,27 +31,32 @@ const WORKERS: AgentDef[] = [
 ]
 
 const DESKS: Record<string, Pos> = {
-  hermes: { x: 13, y: 3 }, rex: { x: 17, y: 3 },
-  aria: { x: 3, y: 7 }, sage: { x: 7, y: 7 },
-  luna: { x: 3, y: 10 }, echo: { x: 7, y: 10 },
-  atlas: { x: 22, y: 7 }, hugo: { x: 26, y: 7 },
-  leo: { x: 28, y: 7 }, eve: { x: 22, y: 10 },
-  pulse: { x: 26, y: 10 },
-  nova: { x: 13, y: 14 }, nexus: { x: 16, y: 14 },
-  flint: { x: 19, y: 14 }, sentinel: { x: 16, y: 16 },
+  // Leadership — above meeting
+  hermes: { x: 14, y: 3 }, rex: { x: 18, y: 3 },
+  // Product — left of meeting
+  aria: { x: 3, y: 8 }, sage: { x: 6, y: 8 },
+  luna: { x: 3, y: 11 }, echo: { x: 6, y: 11 },
+  // Engineering — right of meeting
+  atlas: { x: 25, y: 8 }, hugo: { x: 28, y: 8 },
+  leo: { x: 30, y: 8 }, eve: { x: 25, y: 11 },
+  pulse: { x: 28, y: 11 },
+  // Platform — below meeting
+  nova: { x: 14, y: 16 }, nexus: { x: 17, y: 16 },
+  flint: { x: 20, y: 16 }, sentinel: { x: 17, y: 18 },
 }
 
-const MEETING_CENTER = { x: 15, y: 7 }
-const MEETING_SLOTS: Pos[] = [
-  { x: 12, y: 6 }, { x: 14, y: 5 }, { x: 16, y: 5 }, { x: 18, y: 6 },
-  { x: 12, y: 9 }, { x: 14, y: 10 }, { x: 16, y: 10 }, { x: 18, y: 9 },
+const ZONES = [
+  { x: 12, y: 1, w: 8, h: 4, label: 'Leadership',  border: 'rgba(61,220,151,0.12)' },
+  { x: 1,  y: 6, w: 8, h: 7, label: 'Product',     border: 'rgba(245,158,11,0.12)' },
+  { x: 23, y: 6, w: 8, h: 7, label: 'Engineering', border: 'rgba(34,211,238,0.12)' },
+  { x: 12, y: 14, w: 10, h: 5, label: 'Platform',    border: 'rgba(167,139,250,0.12)' },
 ]
 
-const ZONES = [
-  { x: 11, y: 1, w: 8, h: 4, label: 'Leadership', border: 'rgba(61,220,151,0.12)' },
-  { x: 1, y: 5, w: 10, h: 7, label: 'Product', border: 'rgba(245,158,11,0.12)' },
-  { x: 20, y: 5, w: 10, h: 7, label: 'Engineering', border: 'rgba(34,211,238,0.12)' },
-  { x: 11, y: 12, w: 10, h: 5, label: 'Platform', border: 'rgba(167,139,250,0.12)' },
+const MEETING_CENTER = { x: 16, y: 10 }
+const MEETING_SLOTS: Pos[] = [
+  { x: 13, y: 8 }, { x: 16, y: 7 }, { x: 19, y: 8 },
+  { x: 13, y: 12 }, { x: 16, y: 13 }, { x: 19, y: 12 },
+  { x: 12, y: 10 }, { x: 20, y: 10 },
 ]
 
 // ── A* ──
@@ -103,6 +108,8 @@ function drawZone(ctx: CanvasRenderingContext2D, z: typeof ZONES[0]) {
 function drawDesk(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, active: boolean) {
   const dx = x * TILE, dy = y * TILE
   ctx.save(); ctx.translate(dx, dy)
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(-30, -18, 60, 40)
   // Desk surface
   ctx.fillStyle = '#5d4037'; ctx.fillRect(-28, -20, 56, 36)
   ctx.fillStyle = '#795548'; ctx.fillRect(-26, -18, 52, 32)
@@ -114,7 +121,7 @@ function drawDesk(ctx: CanvasRenderingContext2D, x: number, y: number, color: st
   // Monitor
   ctx.fillStyle = '#263238'; ctx.fillRect(-16, -40, 32, 20)
   ctx.fillStyle = active ? 'rgba(79,195,247,0.25)' : 'rgba(33,150,243,0.1)'; ctx.fillRect(-14, -38, 28, 16)
-  // Code lines on screen
+  // Code lines
   if (active) {
     ctx.fillStyle = 'rgba(79,195,247,0.3)'; ctx.fillRect(-12, -35, 20, 1); ctx.fillRect(-12, -32, 16, 1); ctx.fillRect(-12, -29, 22, 1)
   }
@@ -230,16 +237,16 @@ function drawFurniture(ctx: CanvasRenderingContext2D) {
   // Water cooler (top-right)
   ctx.fillStyle = 'rgba(33,150,243,0.08)'; ctx.fillRect(21 * TILE, 2 * TILE, 8, 14)
   ctx.fillStyle = 'rgba(33,150,243,0.15)'; ctx.fillRect(21 * TILE + 1, 2 * TILE + 2, 6, 6)
-  // Plants
-  const plants = [[1, 1], [29, 1], [1, 16], [29, 16]]
+  // Plants at corners
+  const plants: [number, number][] = [[1, 1], [30, 1], [1, 18], [30, 18]]
   for (const [px, py] of plants) {
     ctx.fillStyle = 'rgba(52,211,153,0.1)'; ctx.beginPath(); ctx.arc(px * TILE + 5, py * TILE, 4, 0, Math.PI * 2); ctx.fill()
     ctx.beginPath(); ctx.arc(px * TILE + 2, py * TILE + 3, 3, 0, Math.PI * 2); ctx.fill()
     ctx.fillStyle = 'rgba(139,92,42,0.1)'; ctx.fillRect(px * TILE + 2, py * TILE + 5, 5, 4)
   }
   // Bookshelf
-  ctx.fillStyle = 'rgba(139,92,42,0.08)'; ctx.fillRect(10 * TILE, 14 * TILE, 20, 12)
-  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(10 * TILE + 2, 14 * TILE + 2, 5, 3); ctx.fillRect(10 * TILE + 9, 14 * TILE + 2, 5, 3)
+  ctx.fillStyle = 'rgba(139,92,42,0.08)'; ctx.fillRect(10 * TILE, 15 * TILE, 20, 12)
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(10 * TILE + 2, 15 * TILE + 2, 5, 3); ctx.fillRect(10 * TILE + 9, 15 * TILE + 2, 5, 3)
 }
 
 // ── Component ──

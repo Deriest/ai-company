@@ -64,7 +64,7 @@ async def health_check():
         llm_configured = bool(getattr(provider_manager, "_providers", {}))
     except Exception:
         pass
-    return {"status": "healthy", "version": "2.4.3", "service": "AIC-ADE Backend", "llm_configured": llm_configured}
+    return {"status": "healthy", "version": "2.4.4", "service": "AIC-ADE Backend", "llm_configured": llm_configured}
 
 
 @router.get("/providers", response_model=List[ProviderWithModelsResponse])
