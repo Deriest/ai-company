@@ -391,9 +391,27 @@ export class UpdateManager {
     try {
       if (this._backendProc) this._backendProc.kill("SIGTERM");
     } catch {}
-    void this.installUpdate().finally(() => {
-      setTimeout(() => app.exit(0), 1000);
-    });
+    
+    const file = this.state.downloadPath;
+    if (!file || !fs.existsSync(file)) {
+      this.setState({ status: "error", error: "Installer file missing. Download the update first." });
+      return;
+    }
+
+    if (process.platform === "win32") {
+      // Spawn cmd that waits 2s for app to exit, then runs installer
+      const cmd = `timeout /t 2 /nobreak >nul && start "" "${file}"`;
+      spawn('cmd', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } else if (process.platform === "linux" && file.endsWith(".AppImage")) {
+      try { fs.chmodSync(file, 0o755); } catch {}
+      const cmd = `sleep 2 && "${file}"`;
+      spawn('sh', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
+    }
+    
+    // Exit immediately so installer can overwrite files
+    setImmediate(() => app.exit(0));
   }
 
   dismiss(): void {
