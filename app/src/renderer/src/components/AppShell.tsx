@@ -102,7 +102,7 @@ export function AppShell({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        <aside className="flex w-48 lg:w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-y-auto">
           <nav className="flex-1 space-y-1 px-3 py-2">
             {nav.map((item) => {
               const active =

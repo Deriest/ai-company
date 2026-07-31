@@ -445,7 +445,7 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
   useEffect(() => { onSearch(query) }, [query])
 
   return (
-    <aside className="flex w-52 shrink-0 flex-col border-r border-border bg-sidebar">
+    <aside className="flex w-44 lg:w-52 shrink-0 flex-col border-r border-border bg-sidebar">
       <div className="p-2 space-y-1.5">
         <button onClick={onCreate}
           className="flex w-full items-center gap-1.5 rounded-md bg-primary/15 px-2.5 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/25">
@@ -775,7 +775,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
 
         {/* Inspector Panel — right side */}
         {inspectorOpen && active && (
-          <div className="w-72 shrink-0 border-l border-border bg-sidebar/50 flex flex-col">
+          <div className="w-60 lg:w-72 shrink-0 border-l border-border bg-sidebar/50 flex flex-col">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="text-[10px] font-semibold tracking-wide">Inspector</span>
               <button onClick={() => setInspectorOpen(false)} className="text-muted-foreground/60 hover:text-foreground">
