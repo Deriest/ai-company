@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2, RefreshCw, Plus, Zap } from "lucide-react";
+import { Check, Loader2, RefreshCw, Plus, Zap, Cpu } from "lucide-react";
 import { Card, Badge } from "../kit";
 import { providersApi, type ProviderRecord, type ModelInfo } from "../../lib/api/providers";
 import { providerManageApi, type TestConnectionResult } from "../../lib/api/provider_manage";
@@ -211,6 +211,16 @@ function FREProviderSetup() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [savedProviderId, setSavedProviderId] = useState<string>("");
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+
+  // Tier model selection
+  const [thinkerModel, setThinkerModel] = useState<string>("");
+  const [crafterModel, setCrafterModel] = useState<string>("");
+  const [sprinterModel, setSprinterModel] = useState<string>("");
+  const [applyingEngine, setApplyingEngine] = useState(false);
+  const [engineMsg, setEngineMsg] = useState("");
 
   const testConnection = async () => {
     setStatus("testing");
@@ -234,16 +244,85 @@ function FREProviderSetup() {
     setSaving(true);
     setError("");
     try {
-      await providersApi.create({ name, endpoint, apiKey });
+      const p = await providersApi.create({ name, endpoint, apiKey });
+      setSavedProviderId(p.id);
       setSaved(true);
+      // Auto-fetch models
+      setFetchingModels(true);
+      try {
+        await providersApi.fetchModelsAndUpdate(p.id, p.endpoint);
+        const updated = await providersApi.list();
+        const fresh = updated.find(r => r.id === p.id);
+        if (fresh) setModels(fresh.models || []);
+      } catch {}
+      setFetchingModels(false);
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
+  };
+
+  const applyEngine = async () => {
+    setApplyingEngine(true);
+    setEngineMsg("");
+    try {
+      const { providerManageApi } = await import('../../lib/api/provider_manage');
+      const p = await providersApi.list();
+      const provider = p.find(x => x.id === savedProviderId);
+      await providerManageApi.updateEnvConfig({
+        provider_name: provider?.name || "",
+        base_url: endpoint,
+        api_key: apiKey,
+        thinker: thinkerModel,
+        crafter: crafterModel,
+        sprinter: sprinterModel,
+      });
+      setEngineMsg("Engine configured! Ready to start.");
+    } catch {
+      setEngineMsg("Failed to apply engine config");
+    }
+    setApplyingEngine(false);
   };
 
   if (saved) {
     return (
-      <Card className="p-6 text-center space-y-4">
+      <Card className="space-y-4 p-6">
         <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2 text-sm text-green-400">Provider configured successfully!</div>
-        <div className="text-muted-foreground text-sm">You're ready to start using AIC-ADE.</div>
+        
+        <div className="rounded-lg border border-border/60 p-4 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2"><Cpu className="size-4" /> Select Models</h3>
+          {fetchingModels ? (
+            <p className="text-xs text-muted-foreground">Fetching models...</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-primary w-16">Thinker</span>
+                <select value={thinkerModel} onChange={e => setThinkerModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
+                  <option value="">Select...</option>
+                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-success w-16">Crafter</span>
+                <select value={crafterModel} onChange={e => setCrafterModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
+                  <option value="">Select...</option>
+                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-warning w-16">Sprinter</span>
+                <select value={sprinterModel} onChange={e => setSprinterModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
+                  <option value="">Select...</option>
+                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+        </div>
+
+        {engineMsg && <div className="rounded-lg bg-success/10 border border-success/20 px-4 py-2 text-sm text-success">{engineMsg}</div>}
+
+        <button onClick={applyEngine} disabled={applyingEngine}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          {applyingEngine ? "Applying..." : "Apply to Engine"}
+        </button>
       </Card>
     );
   }
