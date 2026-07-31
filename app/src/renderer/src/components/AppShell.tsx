@@ -87,7 +87,10 @@ export function AppShell({
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-background text-foreground">
-      <header className="shrink-0 border-b border-border bg-sidebar h-1" />
+      <header className="shrink-0 border-b border-border bg-sidebar flex items-center gap-2 px-3 py-1.5">
+        <img src="./aic-ade-logo.png" alt="AI Company ADE" width={16} height={16} className="rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        <span className="text-[11px] font-semibold tracking-wide">AI Company ADE</span>
+      </header>
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-48 lg:w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-y-auto">
           <nav className="flex-1 space-y-1 px-3 py-2">
