@@ -155,8 +155,8 @@ function EngineConfigSection() {
       })
       setMsg('Engine updated successfully!')
       setTimeout(() => setMsg(''), 3000)
-    } catch {
-      setMsg('Failed to update engine')
+    } catch (e: any) {
+      setMsg('Failed: ' + (e?.message || String(e)))
     }
     setSaving(false)
   }

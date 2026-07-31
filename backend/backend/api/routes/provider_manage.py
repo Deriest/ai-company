@@ -104,56 +104,62 @@ async def get_env_config():
 @router.post("/providers/config")
 async def update_env_config(payload: dict):
     """Update provider config in .env and reload provider_manager live."""
-    import os
+    import os, traceback
     from pathlib import Path
     
-    # Update current process env
-    if "base_url" in payload: os.environ["AIC_LLM_BASE_URL"] = payload["base_url"]
-    if "api_key" in payload: os.environ["AIC_LLM_API_KEY"] = payload["api_key"]
-    if "provider_name" in payload: os.environ["AIC_LLM_PROVIDER_NAME"] = payload["provider_name"]
-    if "thinker" in payload: os.environ["AIC_MODEL_THINKER"] = payload["thinker"]
-    if "crafter" in payload: os.environ["AIC_MODEL_CRAFTER"] = payload["crafter"]
-    if "sprinter" in payload: os.environ["AIC_MODEL_SPRINTER"] = payload["sprinter"]
-    
-    # Write to .env file
-    env_path = Path(__file__).parent.parent.parent.parent / ".env"
-    env_content = ""
-    if env_path.exists():
-        with open(env_path, "r") as f:
-            env_content = f.read()
-            
-    lines = env_content.splitlines()
-    env_vars = {
-        "AIC_LLM_BASE_URL": payload.get("base_url"),
-        "AIC_LLM_API_KEY": payload.get("api_key"),
-        "AIC_LLM_PROVIDER_NAME": payload.get("provider_name"),
-        "AIC_MODEL_THINKER": payload.get("thinker"),
-        "AIC_MODEL_CRAFTER": payload.get("crafter"),
-        "AIC_MODEL_SPRINTER": payload.get("sprinter"),
-    }
-    
-    new_lines = []
-    for line in lines:
-        if "=" in line and not line.startswith("#"):
-            k = line.split("=")[0].strip()
-            if k in env_vars and env_vars[k] is not None:
-                new_lines.append(f"{k}={env_vars[k]}")
-                del env_vars[k]
-                continue
-        new_lines.append(line)
+    try:
+        # Update current process env
+        if "base_url" in payload: os.environ["AIC_LLM_BASE_URL"] = payload["base_url"]
+        if "api_key" in payload: os.environ["AIC_LLM_API_KEY"] = payload["api_key"]
+        if "provider_name" in payload: os.environ["AIC_LLM_PROVIDER_NAME"] = payload["provider_name"]
+        if "thinker" in payload: os.environ["AIC_MODEL_THINKER"] = payload["thinker"]
+        if "crafter" in payload: os.environ["AIC_MODEL_CRAFTER"] = payload["crafter"]
+        if "sprinter" in payload: os.environ["AIC_MODEL_SPRINTER"] = payload["sprinter"]
         
-    for k, v in env_vars.items():
-        if v is not None:
-            new_lines.append(f"{k}={v}")
-            
-    with open(env_path, "w") as f:
-        f.write("\n".join(new_lines) + "\n")
+        # Write to .env file
+        env_path = Path(__file__).parent.parent.parent.parent / ".env"
+        env_content = ""
+        if env_path.exists():
+            with open(env_path, "r") as f:
+                env_content = f.read()
+                
+        lines = env_content.splitlines()
+        env_vars = {
+            "AIC_LLM_BASE_URL": payload.get("base_url"),
+            "AIC_LLM_API_KEY": payload.get("api_key"),
+            "AIC_LLM_PROVIDER_NAME": payload.get("provider_name"),
+            "AIC_MODEL_THINKER": payload.get("thinker"),
+            "AIC_MODEL_CRAFTER": payload.get("crafter"),
+            "AIC_MODEL_SPRINTER": payload.get("sprinter"),
+        }
         
-    # Reload provider manager
-    from llm.provider import provider_manager, init_provider_from_env
-    config = init_provider_from_env()
-    if config:
-        provider_manager.register(config)
+        new_lines = []
+        for line in lines:
+            if "=" in line and not line.startswith("#"):
+                k = line.split("=")[0].strip()
+                if k in env_vars and env_vars[k] is not None:
+                    new_lines.append(f"{k}={env_vars[k]}")
+                    del env_vars[k]
+                    continue
+            new_lines.append(line)
+            
+        for k, v in env_vars.items():
+            if v is not None:
+                new_lines.append(f"{k}={v}")
+                
+        with open(env_path, "w") as f:
+            f.write("\n".join(new_lines) + "\n")
+            
+        # Reload provider manager
+        from llm.provider import provider_manager, init_provider_from_env
+        config = init_provider_from_env()
+        if config:
+            provider_manager.register(config)
+            
+        return {"success": True}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
         
     return {"success": True}
 
