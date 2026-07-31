@@ -598,9 +598,13 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
         setConversations(prev => [conv, ...prev])
         convId = conv.id
         setActiveId(convId)
-      } catch (e) {
-        console.error('Failed to create session', e)
-        setInput(text)
+      } catch (e: any) {
+        const errMsg = e?.message || String(e)
+        const tempErr: MessageRecord = {
+          id: 'err-' + Date.now(), conversation_id: '', role: 'assistant', content: `Failed to create session: ${errMsg}`,
+          status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
+        }
+        setMessages(prev => [...prev, tempErr])
         return
       }
     }
@@ -661,15 +665,14 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
             void loadMessages(convId)
           },
           onError: (err) => {
-            console.error('Execute error', err)
-            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
-            void loadMessages(convId)
+            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, content: s.content || `Error: ${err}` }))
+            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + `\n\nError: ${err}`, status: 'completed' } : m))
           },
         },
       )
-    } catch (err) {
-      console.error('Send failed', err)
-      setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id && m.id !== tempAsstId))
+    } catch (err: any) {
+      const errMsg = err?.message || String(err)
+      setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: `Failed to send: ${errMsg}`, status: 'completed' } : m))
     }
   }
 
