@@ -399,9 +399,10 @@ export class UpdateManager {
     }
 
     if (process.platform === "win32") {
-      // Spawn cmd that waits 2s for app to exit, then runs installer
-      const cmd = `timeout /t 2 /nobreak >nul && start "" "${file}"`;
-      spawn('cmd', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      // Write a temp batch script that waits 2s then runs installer
+      const batFile = file + '.update.bat';
+      fs.writeFileSync(batFile, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart "AIC ADE Update" "${file}"\r\ndel "%~f0"\r\n`);
+      spawn('cmd', ['/c', batFile], { detached: true, stdio: 'ignore' }).unref();
     } else if (process.platform === "linux" && file.endsWith(".AppImage")) {
       try { fs.chmodSync(file, 0o755); } catch {}
       const cmd = `sleep 2 && "${file}"`;
