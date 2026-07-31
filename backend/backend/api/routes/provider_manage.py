@@ -43,7 +43,7 @@ async def test_provider_connection(payload: dict):
         return {
             "success": True,
             "latency_ms": result.get("latency_ms", 0),
-            "model_count": result.get("model_count", 0),
+            "modelCount": result.get("model_count", 0),
         }
     except ProviderAPIError as e:
         await client.close()

@@ -28,7 +28,7 @@ export function ProjectsView() {
 
     try {
       const active = await projectsApi.getActive()
-      setActiveProjectId(active.id)
+      setActiveProjectId(active?.id ?? null)
     } catch {
       setActiveProjectId(null)
     }

@@ -205,8 +205,8 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
               <Terminal className="size-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold">New Mission</p>
-              <p className="text-[11px] text-muted-foreground">Open Command Center</p>
+              <p className="text-sm font-semibold">Start a Mission</p>
+              <p className="text-[11px] text-muted-foreground">Create work in Command Center</p>
             </div>
           </button>
           <button

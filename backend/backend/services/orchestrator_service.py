@@ -16,7 +16,6 @@ from backend.models.orchestration import (
     OrchestrationSession, OrchestrationTask, OrchestrationApproval,
     WorkflowDefinition, Checkpoint,
 )
-from backend.models.conversation import Message
 from backend.services.worker_runtime_service import worker_runtime_service
 from backend.services.chat_service import chat_service
 

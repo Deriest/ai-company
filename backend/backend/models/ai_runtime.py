@@ -11,7 +11,9 @@ class Artifact(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Message lives in storage metadata; keep an application-level reference
+    # instead of a cross-registry foreign key.
+    message_id = Column(String, nullable=True, index=True)
     type = Column(String, nullable=False) # markdown, code, json, html, diff, terminal, logs, tables
     title = Column(String, nullable=False)
     content = Column(String, nullable=False)
@@ -23,7 +25,7 @@ class ToolCall(Base):
     __tablename__ = "tool_calls"
     
     id = Column(String, primary_key=True, default=generate_uuid)
-    message_id = Column(String, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String, nullable=False, index=True)
     tool_name = Column(String, nullable=False, index=True)
     arguments = Column(JSON, nullable=False)
     status = Column(String, default="pending") # pending, executed, error
@@ -44,7 +46,7 @@ class GenerationLog(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id = Column(String, nullable=True, index=True)
     provider_id = Column(String, nullable=True)
     model_id = Column(String, nullable=True)
     latency_ms = Column(Integer, default=0)
@@ -62,7 +64,7 @@ class WorkerExecution(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     worker_role = Column(String, nullable=False, index=True) # thinker, crafter, reviewer, planner, manager
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id = Column(String, nullable=True, index=True)
     provider_id = Column(String, nullable=True)
     model_id = Column(String, nullable=True)
     status = Column(String, default="running") # running, completed, error, cancelled

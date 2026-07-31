@@ -1,21 +1,21 @@
 {
-  "version": "2.4.6",
+  "version": "2.4.7",
   "channel": "stable",
   "releaseDate": "2026-07-31",
-  "releaseNotes": "v2.4.6 \u2014 CRITICAL FIX: shared module bundled in AppImage",
+  "releaseNotes": "v2.4.7: fixed non-task tool chat, repaired corrupted message timestamps, improved SQLite reliability, and exposed Operations tools.",
   "platforms": {
     "win32": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.5.exe",
-      "sha256": "418b659bcb70cc42a67c92008487ca03c6e774eb0253e55be8a0fc1a8c0dca1a",
-      "size": 133974504,
-      "filename": "AIC-ADE-Setup-2.4.5.exe",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.7.exe",
+      "sha256": "7f8ee6050d8bab2776007dd42ec472252c38ab65bbfc00ae358a42b904f15b16",
+      "size": 134313024,
+      "filename": "AIC-ADE-Setup-2.4.7.exe",
       "type": "nsis"
     },
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.5-linux-x86_64.AppImage",
-      "sha256": "82ac38b7c13d4723f33089f732a6560f6bfad5fe630bc9a10c60000848e58f0a",
-      "size": 178829891,
-      "filename": "AIC-ADE-2.4.5-linux-x86_64.AppImage",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.7-linux-x86_64.AppImage",
+      "sha256": "b664a125244d67c38e26b48c97a05f4c294fe8dbbffe76eefb02dfed38c90a07",
+      "size": 180530689,
+      "filename": "AIC-ADE-2.4.7-linux-x86_64.AppImage",
       "type": "AppImage"
     }
   }

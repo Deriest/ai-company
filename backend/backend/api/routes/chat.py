@@ -10,7 +10,7 @@ from typing import List
 
 from backend.database.session import get_db, AsyncSessionLocal
 from backend.models.ai_runtime import Artifact
-from backend.models.conversation import Message
+from storage.models import Message
 from backend.schemas.ai_runtime_schemas import (
     ChatRequest, ChatCancelRequest, ChatRegenerateRequest,
     ArtifactResponse,

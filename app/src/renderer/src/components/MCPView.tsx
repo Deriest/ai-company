@@ -165,7 +165,7 @@ export function MCPView() {
         {error && (
           <Card className="border-destructive/40 bg-destructive/5 text-sm text-destructive flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)}><X className="size-4" /></button>
+            <button onClick={() => setError(null)} aria-label="Dismiss error"><X className="size-4" /></button>
           </Card>
         )}
 
@@ -233,7 +233,7 @@ export function MCPView() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold flex items-center gap-2"><Server className="size-4" /> Servers</h3>
-              <button onClick={loadServers} className="text-muted-foreground hover:text-foreground">
+              <button onClick={loadServers} className="text-muted-foreground hover:text-foreground" aria-label="Refresh servers">
                 <RefreshCw className="size-4" />
               </button>
             </div>
@@ -281,7 +281,7 @@ export function MCPView() {
                 <h3 className="text-sm font-semibold flex items-center gap-2">
                   <Wrench className="size-4" /> Tools {selectedServer ? '(filtered)' : '(all)'}
                 </h3>
-                <button onClick={() => loadTools(selectedServer || undefined)} className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => loadTools(selectedServer || undefined)} className="text-muted-foreground hover:text-foreground" aria-label="Refresh tools">
                   <RefreshCw className="size-4" />
                 </button>
               </div>
@@ -344,7 +344,7 @@ export function MCPView() {
             <Card>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold">Execution History</h3>
-                <button onClick={loadExecutions} className="text-muted-foreground hover:text-foreground">
+                <button onClick={loadExecutions} className="text-muted-foreground hover:text-foreground" aria-label="Refresh execution history">
                   <RefreshCw className="size-4" />
                 </button>
               </div>

@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AIC-ADE Backend",
-    version="2.4.6",
+    version="2.4.7",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,

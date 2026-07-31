@@ -6,9 +6,11 @@ import { BugReportDialog, UpdatesDialog } from "./Dialogs";
 export function GeneralTab({
   updateDialogOpen,
   onUpdateDialogOpenChange,
+  onProfileUpdated,
 }: {
   updateDialogOpen?: boolean
   onUpdateDialogOpenChange?: (open: boolean) => void
+  onProfileUpdated?: (profile: LocalProfile) => void
 } = {}) {
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -53,6 +55,7 @@ export function GeneralTab({
     try {
       const updated = await profileApi.update({ displayName });
       setProfile(updated);
+      onProfileUpdated?.(updated);
       setMsg("Saved");
     } catch {
       setMsg("Failed to save");

@@ -9,7 +9,7 @@ import { GeneralTab } from './auth/AccountSettings'
 import { ProviderSetup } from './auth/ProviderSetup'
 import { api } from '../lib/runtimeClient'
 import { apiClient } from '../lib/api/client'
-import { profileApi } from '../lib/api/profile'
+import { profileApi, type LocalProfile } from '../lib/api/profile'
 import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
 import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
 
@@ -571,11 +571,12 @@ function AutoApproveTab() {
 /* ─── Main Settings View ─── */
 
 export function SettingsView({
-  initialTab, updateDialogOpen, onUpdateDialogOpenChange,
+  initialTab, updateDialogOpen, onUpdateDialogOpenChange, onProfileUpdated,
 }: {
   initialTab?: Tab
   updateDialogOpen?: boolean
   onUpdateDialogOpenChange?: (open: boolean) => void
+  onProfileUpdated?: (profile: LocalProfile) => void
 } = {}) {
   const [tab, setTab] = useState<Tab>(() => {
     const saved = localStorage.getItem('aic-ade-settings-tab')
@@ -605,7 +606,7 @@ export function SettingsView({
           ))}
         </div>
 
-        {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} />}
+        {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} onProfileUpdated={onProfileUpdated} />}
         {tab === 'Workspace' && <WorkspaceTab />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}

@@ -142,6 +142,7 @@ export function App() {
             initialTab={settingsTab}
             updateDialogOpen={boot.updateDialogOpen}
             onUpdateDialogOpenChange={boot.setUpdateDialogOpen}
+            onProfileUpdated={setProfile}
           />
         );
       case "orchestration":

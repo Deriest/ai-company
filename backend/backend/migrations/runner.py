@@ -92,6 +92,26 @@ MIGRATIONS = [
         "up": "ALTER TABLE local_profile ADD COLUMN approval_config VARCHAR",
         "down": "SELECT 1",
     },
+    {
+        "version": "012",
+        "name": "repair_conversation_timestamps",
+        "description": "Repair nullable timestamps created by the legacy conversation mapper",
+        "up": """
+            UPDATE messages
+            SET created_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+            WHERE created_at IS NULL;
+            UPDATE messages
+            SET updated_at = created_at
+            WHERE updated_at IS NULL;
+            UPDATE conversations
+            SET created_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+            WHERE created_at IS NULL;
+            UPDATE conversations
+            SET updated_at = created_at
+            WHERE updated_at IS NULL;
+        """,
+        "down": "SELECT 1",
+    },
 ]
 
 

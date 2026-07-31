@@ -5,7 +5,8 @@ from sqlalchemy.future import select
 from typing import List
 
 from backend.database.session import get_db
-from backend.models.conversation import Conversation, Message, Attachment
+from storage.models import Conversation, Message
+from backend.models.conversation import Attachment
 from backend.schemas.conversation_schemas import (
     MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
 )

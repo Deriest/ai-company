@@ -85,7 +85,7 @@ function ProviderRegistry() {
             {testResults[p.id] && (
               <div className={`mt-1 text-xs ${testResults[p.id].success ? "text-green-400" : "text-red-400"}`}>
                 {testResults[p.id].success
-                  ? `Connected — ${testResults[p.id].latency_ms}ms, ${testResults[p.id].models} models`
+                  ? `Connected — ${testResults[p.id].latency_ms}ms, ${testResults[p.id].modelCount ?? 0} models`
                   : `Failed — ${testResults[p.id].error}`}
               </div>
             )}

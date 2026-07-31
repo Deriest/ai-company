@@ -20,6 +20,10 @@ const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>
   'custom': Wrench,
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  devops: 'DevOps',
+}
+
 const WORKER_OPTIONS = [
   'hermes', 'rex', 'pm', 'research', 'designer', 'documentation',
   'architect', 'backend', 'frontend', 'qa', 'performance', 'database',
@@ -119,7 +123,7 @@ export function SkillsView() {
               <div key={cat}>
                 <div className="mb-3 flex items-center gap-2">
                   <Icon className="size-4 text-primary" />
-                  <h2 className="text-sm font-semibold capitalize">{cat.replace('-', ' ')}</h2>
+                  <h2 className="text-sm font-semibold capitalize">{CATEGORY_LABELS[cat] || cat.replace('-', ' ')}</h2>
                   <span className="text-xs text-muted-foreground">({catSkills.length})</span>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

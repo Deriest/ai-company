@@ -7,8 +7,9 @@ from typing import List, Optional
 import json
 
 from backend.database.session import get_db
+from storage.models import Conversation, Message
 from backend.models.conversation import (
-    Conversation, Message, Attachment,
+    Attachment,
     ConversationTag, ConversationPin, ConversationFolder,
 )
 from backend.schemas.conversation_schemas import (

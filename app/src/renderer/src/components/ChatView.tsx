@@ -478,10 +478,10 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
                     {new Date(c.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <div className="absolute right-1 top-1 hidden items-center gap-px rounded bg-muted/80 px-0.5 py-0.5 group-hover:flex">
-                    <button onClick={e => onDuplicate(c.id, e)} className="p-0.5 text-muted-foreground hover:text-foreground">
+                    <button onClick={e => onDuplicate(c.id, e)} className="p-0.5 text-muted-foreground hover:text-foreground" aria-label={`Duplicate ${c.title}`}>
                       <Copy className="size-2" />
                     </button>
-                    <button onClick={e => onDelete(c.id, e)} className="p-0.5 text-muted-foreground hover:text-destructive">
+                    <button onClick={e => onDelete(c.id, e)} className="p-0.5 text-muted-foreground hover:text-destructive" aria-label={`Delete ${c.title}`}>
                       <Trash2 className="size-2" />
                     </button>
                   </div>
@@ -715,7 +715,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               <div className="mx-auto max-w-3xl mb-3 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-primary">
                 <Loader2 className="size-3 animate-spin" />
                 <span>Context optimized — older messages summarized</span>
-                <button onClick={() => setContextOptimized(false)} className="ml-auto text-primary/60 hover:text-primary">
+                <button onClick={() => setContextOptimized(false)} className="ml-auto text-primary/60 hover:text-primary" aria-label="Dismiss context optimization notice">
                   <X className="size-3" />
                 </button>
               </div>
@@ -750,7 +750,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               <span className="font-mono">{agentMode} agent</span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setInspectorOpen(!inspectorOpen)} className="hover:text-foreground flex items-center gap-1">
+              <button onClick={() => setInspectorOpen(!inspectorOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}>
                 <PanelRight className="size-3" />
                 {inspectorOpen ? 'inspector' : ''}
               </button>
@@ -772,7 +772,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
                   disabled={false} rows={1}
                   placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
-<button onClick={() => void handleSend()}
+<button onClick={() => void handleSend()} aria-label="Send message"
                   className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25">
                   {sending ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
                 </button>
@@ -786,7 +786,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           <div className="w-60 lg:w-72 shrink-0 border-l border-border bg-sidebar/50 flex flex-col">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="text-[10px] font-semibold tracking-wide">Inspector</span>
-              <button onClick={() => setInspectorOpen(false)} className="text-muted-foreground/60 hover:text-foreground">
+              <button onClick={() => setInspectorOpen(false)} className="text-muted-foreground/60 hover:text-foreground" aria-label="Close inspector">
                 <X className="size-3" />
               </button>
             </div>
@@ -873,7 +873,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
         )}
 
         {!inspectorOpen && active && (
-          <button onClick={() => setInspectorOpen(true)}
+          <button onClick={() => setInspectorOpen(true)} aria-label="Open inspector"
             className="absolute right-0 top-12 z-10 rounded-l-md border border-border bg-sidebar p-1 text-muted-foreground/60 hover:text-foreground">
             <PanelRight className="size-3.5" />
           </button>

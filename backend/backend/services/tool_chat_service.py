@@ -158,7 +158,7 @@ class ToolAwareChatService:
                     res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
                     p = res.scalars().first()
                     if p and p.enabled:
-                        from llm.provider import ProviderConfig, ModelTier
+                        from llm.provider import ProviderConfig
                         config = ProviderConfig(
                             name=p.name,
                             base_url=p.base_url,

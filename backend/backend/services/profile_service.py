@@ -15,7 +15,7 @@ from backend.models.local_profile import LocalProfile
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = "2.3.0"
+CURRENT_VERSION = "2.4.7"
 
 
 def _generate_device_id() -> str:

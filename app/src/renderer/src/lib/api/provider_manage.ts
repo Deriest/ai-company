@@ -11,7 +11,7 @@ export interface HealthCheckResult {
 export interface TestConnectionResult {
   success: boolean;
   latency_ms?: number;
-  models?: number;
+  modelCount?: number;
   error?: string;
 }
 

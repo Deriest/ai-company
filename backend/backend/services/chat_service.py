@@ -6,7 +6,7 @@ from typing import AsyncGenerator, Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.models.schema import Provider, ProviderModel
-from backend.models.conversation import Message
+from storage.models import Message
 from backend.models.ai_runtime import GenerationLog, ToolCall, ToolResult
 from backend.services.crypto import decrypt as decrypt_api_key
 from backend.services.tool_dispatcher import tool_dispatcher

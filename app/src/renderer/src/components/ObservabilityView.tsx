@@ -63,8 +63,8 @@ export default function ObservabilityView() {
       const context = await apiClient.get<ContextStats>('/api/context/stats')
       setContextStats(context)
 
-      // Worker metrics loaded from backend
-      setWorkerMetrics({})
+      const workers = await apiClient.get<Array<{ role: string; metrics: WorkerMetrics }>>('/runtime/workers')
+      setWorkerMetrics(Object.fromEntries(workers.map((worker) => [worker.role, worker.metrics])))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {

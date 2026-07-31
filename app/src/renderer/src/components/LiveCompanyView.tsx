@@ -253,13 +253,16 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
 
       {/* Side Panel: Worker Detail */}
       {selectedWorker && (
-        <aside className="hidden w-80 shrink-0 border-l border-border bg-sidebar lg:block">
-          <WorkerDetail
-            worker={selectedWorker}
-            stats={workerStats[selectedWorker.id] || {}}
-            onClose={() => setSelectedWorker(null)}
-          />
-        </aside>
+        <>
+          <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSelectedWorker(null)} aria-hidden="true" />
+          <aside className="fixed inset-x-3 bottom-3 top-16 z-50 overflow-hidden rounded-xl border border-border bg-sidebar shadow-2xl lg:static lg:inset-auto lg:z-auto lg:w-80 lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-r-0 lg:border-l lg:shadow-none">
+            <WorkerDetail
+              worker={selectedWorker}
+              stats={workerStats[selectedWorker.id] || {}}
+              onClose={() => setSelectedWorker(null)}
+            />
+          </aside>
+        </>
       )}
     </div>
   )
@@ -294,6 +297,7 @@ function WorkerDetail({
         <button
           onClick={onClose}
           className="text-muted-foreground hover:text-foreground"
+          aria-label="Close worker details"
         >
           ×
         </button>

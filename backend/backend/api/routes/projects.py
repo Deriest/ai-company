@@ -8,14 +8,8 @@ from typing import Optional
 from backend.database.session import get_db
 from backend.models.local_profile import LocalProfile
 from storage.models import Project
-from storage.database import async_session as _storage_async_session
 
 router = APIRouter()
-
-
-async def get_storage_db():
-    async with _storage_async_session() as session:
-        yield session
 
 
 async def _get_active_project_id(db: AsyncSession) -> Optional[str]:
@@ -77,7 +71,7 @@ def _slugify(name: str) -> str:
 async def list_projects(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_storage_db),
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Project).offset(skip).limit(limit))
     projects = result.scalars().all()
@@ -87,7 +81,7 @@ async def list_projects(
 # ── POST /projects — Create project ─────────────────────────────
 
 @router.post("/projects", status_code=201)
-async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_storage_db)):
+async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
     slug = _slugify(body.name)
 
     existing = await db.execute(select(Project).where(Project.slug == slug))
@@ -109,16 +103,16 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_sto
 # ── GET /projects/active — Get active project ───────────────────
 
 @router.get("/projects/active")
-async def get_active_project(db: AsyncSession = Depends(get_storage_db)):
+async def get_active_project(db: AsyncSession = Depends(get_db)):
     active_id = await _get_active_project_id(db)
     if not active_id:
-        raise HTTPException(status_code=404, detail="No active project set")
+        return None
 
     result = await db.execute(select(Project).where(Project.id == active_id))
     project = result.scalars().first()
     if not project:
         await _set_active_project_id(db, None)
-        raise HTTPException(status_code=404, detail="Active project no longer exists")
+        return None
 
     return _project_dict(project)
 
@@ -126,7 +120,7 @@ async def get_active_project(db: AsyncSession = Depends(get_storage_db)):
 # ── GET /projects/{id} — Get project detail ─────────────────────
 
 @router.get("/projects/{project_id}")
-async def get_project(project_id: str, db: AsyncSession = Depends(get_storage_db)):
+async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
     if not project:
@@ -140,7 +134,7 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_storage_db
 async def update_project(
     project_id: str,
     body: ProjectUpdate,
-    db: AsyncSession = Depends(get_storage_db),
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
@@ -165,7 +159,7 @@ async def update_project(
 # ── DELETE /projects/{id} — Delete project ──────────────────────
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(project_id: str, db: AsyncSession = Depends(get_storage_db)):
+async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
     if not project:
@@ -183,7 +177,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_storage
 # ── POST /projects/{id}/activate — Set active project ───────────
 
 @router.post("/projects/{project_id}/activate")
-async def activate_project(project_id: str, db: AsyncSession = Depends(get_storage_db)):
+async def activate_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
     if not project:

@@ -20,5 +20,5 @@ export const projectsApi = {
     apiClient.patch<ProjectRecord>(`/projects/${id}`, data),
   delete: (id: string) => apiClient.delete(`/projects/${id}`),
   activate: (id: string) => apiClient.post(`/projects/${id}/activate`),
-  getActive: () => apiClient.get<ProjectRecord>("/projects/active"),
+  getActive: () => apiClient.get<ProjectRecord | null>("/projects/active"),
 };

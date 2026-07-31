@@ -61,3 +61,6 @@ app/packaging/runtimes/
 # === Data ===
 backend/data/
 app/data/
+
+# === Local deepwork state ===
+.slim/deepwork/

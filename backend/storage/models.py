@@ -322,6 +322,16 @@ class Message(Base):
 
     conversation = relationship("Conversation", back_populates="messages")
 
+    # The primary API historically exposed this name while the canonical model
+    # uses `meta`. Keep the public field stable without a second ORM mapper.
+    @property
+    def message_metadata(self):
+        return self.meta
+
+    @message_metadata.setter
+    def message_metadata(self, value):
+        self.meta = value
+
 
 # ── Engineering Discovery Engine ────────────────────────
 
@@ -809,4 +819,3 @@ class ContextAssemblyRecord(Base):
     assembly_time_ms = Column(Float, default=0.0)
     extra_metadata = Column(JSON, default=dict)
     created_at = Column(DateTime, default=_utcnow, index=True)
-

@@ -59,7 +59,7 @@ export function ProjectPicker({ onProjectChange }: { onProjectChange?: (project:
               <span className="truncate">{p.name}</span>
             </button>
           ))}
-          {projects.length === 0 && <p className="px-3 py-2 text-[10px] text-muted-foreground">No projects</p>}
+          {projects.length === 0 && <p className="border-b border-border px-3 py-2 text-[10px] text-muted-foreground">No saved projects yet</p>}
           <button onClick={handleBrowse} disabled={browsing}
             className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-primary hover:bg-muted/50 disabled:opacity-50">
             <FolderSearch className="size-3" />
