@@ -1,21 +1,21 @@
 {
-  "version": "2.4.8",
+  "version": "2.4.9",
   "channel": "stable",
   "releaseDate": "2026-08-01",
-  "releaseNotes": "v2.4.8: fixed inline form whitespace in Orchestration/RAG/Automation views.",
+  "releaseNotes": "v2.4.9: fix SSE parsing, token budget, message persistence, sidebar navigation.",
   "platforms": {
     "win32": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.8.exe",
-      "sha256": "38a92eaedd5322ef692cda1ec05e3eb6e701faf2cf6f22a413c08af2befa0fc1",
-      "size": 134313024,
-      "filename": "AIC-ADE-Setup-2.4.8.exe",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.9.exe",
+      "sha256": "dadb51ef00097c62f194caae3cccbe8982ed3007a552e56e0a09878986505270",
+      "size": 134315466,
+      "filename": "AIC-ADE-Setup-2.4.9.exe",
       "type": "nsis"
     },
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.8-linux-x86_64.AppImage",
-      "sha256": "88a95f7559cec20903537ebc4b7cda4a72b43a4633e3febdd98ee20971c74042",
-      "size": 180530689,
-      "filename": "AIC-ADE-2.4.8-linux-x86_64.AppImage",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.9-linux-x86_64.AppImage",
+      "sha256": "f12412d3bc1f8c0e8cdd67f686802e1aa45de377f88fc982200d73a8fe2ed92d",
+      "size": 180797295,
+      "filename": "AIC-ADE-2.4.9-linux-x86_64.AppImage",
       "type": "AppImage"
     }
   }
