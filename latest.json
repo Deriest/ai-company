@@ -1,21 +1,21 @@
 {
-  "version": "2.4.2",
+  "version": "2.4.3",
   "channel": "stable",
-  "releaseDate": "2026-07-30",
-  "releaseNotes": "AIC ADE v2.4.2",
+  "releaseDate": "2026-07-31",
+  "releaseNotes": "AIC ADE v2.4.3 \u2014 Bugfix release\n\n- ChatService auto-detect provider/model\n- Command Center UI layout fix\n- Provider Form Name/Provider decoupled\n- All datetime.utcnow() deprecated fixes\n- Bare except: cleanup\n- Typecheck: 0 errors\n- Tests: 92/92 passed",
   "platforms": {
     "win32": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.2.exe",
-      "sha256": "44ba972270f3da5187146a3d1d7e1e976822acff12ca7ff236b3032b5ae396df",
-      "size": 133719109,
-      "filename": "AIC-ADE-Setup-2.4.2.exe",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.3.exe",
+      "sha256": "bf39705c11d3b987c8cb1876190c32450df3773d385bca936c39c31587101ee1",
+      "size": 133727907,
+      "filename": "AIC-ADE-Setup-2.4.3.exe",
       "type": "nsis"
     },
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.2-linux-x86_64.AppImage",
-      "sha256": "61bcf971937299f5647d233405058240a2f381bec73523bbe6eba778d3ea1885",
-      "size": 178558887,
-      "filename": "AIC-ADE-2.4.2-linux-x86_64.AppImage",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.3-linux-x86_64.AppImage",
+      "sha256": "f28d23838f276b75e729e0c09e3aecf47f27933f302291459578c86bb66cf30c",
+      "size": 178567479,
+      "filename": "AIC-ADE-2.4.3-linux-x86_64.AppImage",
       "type": "AppImage"
     }
   }
