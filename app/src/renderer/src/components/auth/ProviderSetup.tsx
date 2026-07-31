@@ -113,6 +113,7 @@ function ProviderRegistry() {
 
 function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<ProviderRecord>; onSaved: (p: ProviderRecord) => void; onCancel: () => void }) {
   const [name, setName] = useState(provider.name || "");
+  const [providerType, setProviderType] = useState<string>(PROVIDER_PRESETS[0].name);
   const [endpoint, setEndpoint] = useState(provider.endpoint || "");
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
@@ -201,7 +202,8 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
 }
 
 function FREProviderSetup() {
-  const [name, setName] = useState<string>(PROVIDER_PRESETS[0].name);
+  const [name, setName] = useState<string>("");
+  const [providerType, setProviderType] = useState<string>(PROVIDER_PRESETS[0].name);
   const [endpoint, setEndpoint] = useState<string>(PROVIDER_PRESETS[0].endpoint);
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");

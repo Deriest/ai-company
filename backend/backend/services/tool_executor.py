@@ -97,7 +97,7 @@ class WorkerToolExecutor:
                             if pattern.lower() in line.lower():
                                 rel_path = os.path.relpath(filepath, self.workspace_root)
                                 matches.append(f"{rel_path}:{line_num}: {line.strip()[:200]}")
-                except:
+                except (IOError, UnicodeDecodeError, OSError):
                     continue
                 if len(matches) > 100:
                     break
