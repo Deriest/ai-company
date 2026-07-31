@@ -2,19 +2,19 @@
   "version": "2.4.6",
   "channel": "stable",
   "releaseDate": "2026-07-31",
-  "releaseNotes": "v2.4.6 \u2014 All QA bugs fixed",
+  "releaseNotes": "v2.4.6 \u2014 CRITICAL FIX: shared module bundled in AppImage",
   "platforms": {
     "win32": {
       "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.5.exe",
-      "sha256": "fc1972848d0c19fd4b7edc6916512cb1850b06ce3facf2754a16f27bdd25fac1",
-      "size": 133730234,
+      "sha256": "7c4f7fa8d95a4a46a35ee5e70267df0657009282f186d7a0dda68d1595bca662",
+      "size": 133974529,
       "filename": "AIC-ADE-Setup-2.4.5.exe",
       "type": "nsis"
     },
     "linux": {
       "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.5-linux-x86_64.AppImage",
-      "sha256": "9166974e43aae58821b8503ea808383288d5d834e90cda70d8d59a0d2d95ed3e",
-      "size": 178571523,
+      "sha256": "4c73c3d20fef0cff6c3a14c00fe212ca62ca6b1efc21cd562e8f40db9510f26c",
+      "size": 178829889,
       "filename": "AIC-ADE-2.4.5-linux-x86_64.AppImage",
       "type": "AppImage"
     }

@@ -113,6 +113,14 @@
           "dispatcher/**/*",
           "policy/**/*",
           "events/**/*",
+          "shared/**/*",
+          "context/**/*",
+          "autonomy/**/*",
+          "verification/**/*",
+          "discovery/**/*",
+          "planning/**/*",
+          "taskgraph/**/*",
+          "delivery/**/*",
           "requirements.txt",
           "pytest.ini"
         ]
