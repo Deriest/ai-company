@@ -6,8 +6,8 @@
   "platforms": {
     "win32": {
       "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.5.exe",
-      "sha256": "fe3fbdc09dddc06f4e06cc8908f4555e03ca65142ca3c1ac36c5c13cdbb3c52d",
-      "size": 133729864,
+      "sha256": "6a40ed2c3b304c65b80d00e5dab646cf6055bcebc0067ad88d7d3efb5300cbb6",
+      "size": 133729920,
       "filename": "AIC-ADE-Setup-2.4.5.exe",
       "type": "nsis"
     },
