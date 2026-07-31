@@ -275,8 +275,8 @@ function FREProviderSetup() {
         sprinter: sprinterModel,
       });
       setEngineMsg("Engine configured! Ready to start.");
-    } catch {
-      setEngineMsg("Failed to apply engine config");
+    } catch (e: any) {
+      setEngineMsg("Failed: " + (e?.message || String(e)));
     }
     setApplyingEngine(false);
   };
