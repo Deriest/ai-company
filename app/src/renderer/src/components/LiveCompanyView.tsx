@@ -140,7 +140,7 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   }
 
   return (
-    <div className="flex min-h-full">
+    <div className="flex flex-col h-full overflow-y-auto">
       {/* Main: Org Chart */}
       <div className="min-w-0 flex-1">
         <PageHeader
