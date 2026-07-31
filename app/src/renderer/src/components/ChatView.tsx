@@ -674,7 +674,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   }
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex flex-col absolute inset-0">
       <div className="flex min-h-0 flex-1">
         <Sidebar conversations={conversations} activeId={activeId} onSelect={setActiveId}
           onCreate={handleCreate} onDelete={handleDelete} onArchive={handleArchive}
