@@ -142,7 +142,35 @@ class ToolAwareChatService:
         """
         provider = provider_manager.get_active()
         if not provider:
-            yield f"data: {json.dumps({'type': 'error', 'error': 'No AI provider configured'})}\n\n"
+            # Fallback: try to load from .env
+            from llm.provider import init_provider_from_env
+            config = init_provider_from_env()
+            if config:
+                provider_manager.register(config)
+                provider = provider_manager.get_active()
+        if not provider:
+            # Fallback: try DB provider
+            try:
+                from backend.database.session import AsyncSessionLocal
+                from backend.models.schema import Provider
+                from backend.services.crypto import decrypt as decrypt_api_key
+                from sqlalchemy.future import select
+                async with AsyncSessionLocal() as db:
+                    res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+                    p = res.scalars().first()
+                    if p and p.enabled:
+                        from llm.provider import ProviderConfig, ModelTier
+                        config = ProviderConfig(
+                            name=p.name,
+                            base_url=p.base_url,
+                            api_key=decrypt_api_key(p.api_key),
+                        )
+                        provider_manager.register(config)
+                        provider = provider_manager.get_active()
+            except Exception:
+                pass
+        if not provider:
+            yield f"data: {json.dumps({'type': 'error', 'error': 'No AI provider configured. Please add a provider in Settings > Providers.'})}\n\n"
             return
 
         # Build messages with tool addendum + MCP tools
