@@ -1,20 +1,20 @@
 {
-  "version": "2.4.5",
+  "version": "2.4.6",
   "channel": "stable",
   "releaseDate": "2026-07-31",
-  "releaseNotes": "AIC ADE v2.4.5\n\n- Responsive sidebar, inspector, session list\n- Lounge/reception in office\n- ToolAwareChatService provider fallback\n- Command Center layout fix\n- Auto-update installer fix",
+  "releaseNotes": "v2.4.6 \u2014 All QA bugs fixed",
   "platforms": {
     "win32": {
       "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.5.exe",
-      "sha256": "8c963f1a9ce585e03947e583c408dae379203d4a714752a0b490554819fc522b",
-      "size": 133730068,
+      "sha256": "fc1972848d0c19fd4b7edc6916512cb1850b06ce3facf2754a16f27bdd25fac1",
+      "size": 133730234,
       "filename": "AIC-ADE-Setup-2.4.5.exe",
       "type": "nsis"
     },
     "linux": {
       "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.5-linux-x86_64.AppImage",
-      "sha256": "bf672a51eb3f4650356722fee08471933735c781ed340be173599a343421fede",
-      "size": 178566878,
+      "sha256": "9166974e43aae58821b8503ea808383288d5d834e90cda70d8d59a0d2d95ed3e",
+      "size": 178571523,
       "filename": "AIC-ADE-2.4.5-linux-x86_64.AppImage",
       "type": "AppImage"
     }
