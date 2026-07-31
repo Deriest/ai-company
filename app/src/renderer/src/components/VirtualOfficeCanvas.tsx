@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 const TILE = 28
-const COLS = 32
-const ROWS = 20
+const COLS = 38
+const ROWS = 22
 const W = COLS * TILE
 const H = ROWS * TILE
 const SPEED = 0.8
@@ -31,32 +31,29 @@ const WORKERS: AgentDef[] = [
 ]
 
 const DESKS: Record<string, Pos> = {
-  // Leadership — above meeting
-  hermes: { x: 14, y: 3 }, rex: { x: 18, y: 3 },
-  // Product — left of meeting
+  hermes: { x: 15, y: 3 }, rex: { x: 19, y: 3 },
   aria: { x: 3, y: 8 }, sage: { x: 6, y: 8 },
   luna: { x: 3, y: 11 }, echo: { x: 6, y: 11 },
-  // Engineering — right of meeting
   atlas: { x: 25, y: 8 }, hugo: { x: 28, y: 8 },
   leo: { x: 30, y: 8 }, eve: { x: 25, y: 11 },
   pulse: { x: 28, y: 11 },
-  // Platform — below meeting
-  nova: { x: 14, y: 16 }, nexus: { x: 17, y: 16 },
-  flint: { x: 20, y: 16 }, sentinel: { x: 17, y: 18 },
+  nova: { x: 15, y: 16 }, nexus: { x: 18, y: 16 },
+  flint: { x: 21, y: 16 }, sentinel: { x: 18, y: 18 },
 }
 
 const ZONES = [
-  { x: 12, y: 1, w: 8, h: 4, label: 'Leadership',  border: 'rgba(61,220,151,0.12)' },
+  { x: 13, y: 1, w: 8, h: 4, label: 'Leadership',  border: 'rgba(61,220,151,0.12)' },
   { x: 1,  y: 6, w: 8, h: 7, label: 'Product',     border: 'rgba(245,158,11,0.12)' },
-  { x: 23, y: 6, w: 8, h: 7, label: 'Engineering', border: 'rgba(34,211,238,0.12)' },
-  { x: 12, y: 14, w: 10, h: 5, label: 'Platform',    border: 'rgba(167,139,250,0.12)' },
+  { x: 23, y: 6, w: 9, h: 7, label: 'Engineering', border: 'rgba(34,211,238,0.12)' },
+  { x: 13, y: 14, w: 10, h: 5, label: 'Platform',    border: 'rgba(167,139,250,0.12)' },
+  { x: 33, y: 6, w: 4, h: 7, label: 'Lounge',       border: 'rgba(245,158,11,0.1)' },
 ]
 
-const MEETING_CENTER = { x: 16, y: 10 }
+const MEETING_CENTER = { x: 17, y: 10 }
 const MEETING_SLOTS: Pos[] = [
-  { x: 13, y: 8 }, { x: 16, y: 7 }, { x: 19, y: 8 },
-  { x: 13, y: 12 }, { x: 16, y: 13 }, { x: 19, y: 12 },
-  { x: 12, y: 10 }, { x: 20, y: 10 },
+  { x: 14, y: 8 }, { x: 17, y: 7 }, { x: 20, y: 8 },
+  { x: 14, y: 12 }, { x: 17, y: 13 }, { x: 20, y: 12 },
+  { x: 13, y: 10 }, { x: 21, y: 10 },
 ]
 
 // ── A* ──
@@ -89,11 +86,11 @@ function findPath(sx: number, sy: number, ex: number, ey: number): Pos[] {
   return [{ x: ex, y: ey }]
 }
 
-// ── Pixel Art Drawing ──
+// ── Drawing ────────────────────────────────────────────
 
 function drawFloor(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H)
-  ctx.strokeStyle = 'rgba(255,255,255,0.02)'; ctx.lineWidth = 1
+  ctx.strokeStyle = 'rgba(255,255,255,0.015)'; ctx.lineWidth = 1
   for (let x = 0; x <= W; x += TILE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke() }
   for (let y = 0; y <= H; y += TILE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke() }
 }
@@ -108,29 +105,20 @@ function drawZone(ctx: CanvasRenderingContext2D, z: typeof ZONES[0]) {
 function drawDesk(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, active: boolean) {
   const dx = x * TILE, dy = y * TILE
   ctx.save(); ctx.translate(dx, dy)
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(-30, -18, 60, 40)
-  // Desk surface
   ctx.fillStyle = '#5d4037'; ctx.fillRect(-28, -20, 56, 36)
   ctx.fillStyle = '#795548'; ctx.fillRect(-26, -18, 52, 32)
   ctx.fillStyle = '#8d6e63'; ctx.fillRect(-24, -16, 48, 28)
-  // Edge
   ctx.fillStyle = '#4e342e'; ctx.fillRect(-28, 14, 56, 3)
-  // Legs
   ctx.fillStyle = '#3e2723'; ctx.fillRect(-26, 16, 3, 5); ctx.fillRect(23, 16, 3, 5)
-  // Monitor
   ctx.fillStyle = '#263238'; ctx.fillRect(-16, -40, 32, 20)
   ctx.fillStyle = active ? 'rgba(79,195,247,0.25)' : 'rgba(33,150,243,0.1)'; ctx.fillRect(-14, -38, 28, 16)
-  // Code lines
   if (active) {
     ctx.fillStyle = 'rgba(79,195,247,0.3)'; ctx.fillRect(-12, -35, 20, 1); ctx.fillRect(-12, -32, 16, 1); ctx.fillRect(-12, -29, 22, 1)
   }
-  // Stand
   ctx.fillStyle = '#37474f'; ctx.fillRect(-4, -20, 8, 3)
-  // Keyboard
   ctx.fillStyle = '#455a64'; ctx.fillRect(-12, -14, 24, 6)
   ctx.fillStyle = '#546e7a'; for (let i = 0; i < 4; i++) ctx.fillRect(-10 + i * 5, -12, 3, 2)
-  // Mouse
   ctx.fillStyle = '#78909c'; ctx.fillRect(16, -3, 5, 6); ctx.fillStyle = '#90a4ae'; ctx.fillRect(17, -2, 3, 2)
   ctx.restore()
 }
@@ -138,123 +126,94 @@ function drawDesk(ctx: CanvasRenderingContext2D, x: number, y: number, color: st
 function drawMeetingTable(ctx: CanvasRenderingContext2D) {
   const cx = MEETING_CENTER.x * TILE, cy = MEETING_CENTER.y * TILE
   ctx.save(); ctx.translate(cx, cy)
-  // Table shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(0, 2, 50, 28, 0, 0, Math.PI * 2); ctx.fill()
-  // Table surface (oval/round)
-  ctx.fillStyle = '#5d4037'; ctx.beginPath(); ctx.ellipse(0, 0, 48, 26, 0, 0, Math.PI * 2); ctx.fill()
-  ctx.fillStyle = '#795548'; ctx.beginPath(); ctx.ellipse(0, -2, 44, 22, 0, 0, Math.PI * 2); ctx.fill()
-  ctx.fillStyle = '#8d6e63'; ctx.beginPath(); ctx.ellipse(0, -3, 40, 18, 0, 0, Math.PI * 2); ctx.fill()
-  // Table edge highlight
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(0, 2, 55, 30, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#5d4037'; ctx.beginPath(); ctx.ellipse(0, 0, 52, 28, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#795548'; ctx.beginPath(); ctx.ellipse(0, -2, 48, 24, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#8d6e63'; ctx.beginPath(); ctx.ellipse(0, -3, 44, 20, 0, 0, Math.PI * 2); ctx.fill()
   ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1
-  ctx.beginPath(); ctx.ellipse(0, -3, 40, 18, 0, 0, Math.PI * 2); ctx.stroke()
+  ctx.beginPath(); ctx.ellipse(0, -3, 44, 20, 0, 0, Math.PI * 2); ctx.stroke()
   ctx.restore()
-
-  // Chairs around table
   for (const s of MEETING_SLOTS) {
     const sx = s.x * TILE, sy = s.y * TILE
-    ctx.fillStyle = '#37474f'; ctx.fillRect(sx - 4, sy - 4, 8, 8)
-    ctx.fillStyle = '#455a64'; ctx.fillRect(sx - 3, sy - 3, 6, 6)
+    ctx.fillStyle = '#37474f'; ctx.fillRect(sx - 5, sy - 5, 10, 10)
+    ctx.fillStyle = '#455a64'; ctx.fillRect(sx - 4, sy - 4, 8, 8)
   }
 }
 
 function drawCharacter(ctx: CanvasRenderingContext2D, a: Agent, now: number) {
   const x = a.x * TILE + TILE / 2, y = a.y * TILE + TILE / 2
-  const moving = a.isWalking
-  const bob = moving ? Math.sin(now / 80) * 1.5 : 0
-  const breathe = !moving ? Math.sin(now / 600) * 0.5 : 0
-
+  const moving = a.isWalking, bob = moving ? Math.sin(now / 80) * 1.5 : 0, breathe = !moving ? Math.sin(now / 600) * 0.5 : 0
   ctx.save(); ctx.translate(x, y + bob)
-
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(0, 10, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill()
-
-  // Legs
   const legOff = moving ? Math.sin(now / 70) * 2.5 : 0
-  ctx.fillStyle = '#1a1a2e'
-  ctx.fillRect(-6, -1 + breathe + legOff, 4, 7)
-  ctx.fillRect(2, -1 + breathe - legOff, 4, 7)
-
-  // Body
-  ctx.fillStyle = a.color
-  ctx.fillRect(-7, -14 + breathe, 14, 13)
-
-  // Arms
-  const armColor = a.color
-  if (a.state === 'working') {
-    const t = Math.sin(now / 150) * 1.5
-    ctx.fillStyle = armColor; ctx.fillRect(-10, -10 + t + breathe, 3, 7); ctx.fillRect(7, -10 - t + breathe, 3, 7)
-  } else if (moving) {
-    const sw = Math.sin(now / 70) * 3
-    ctx.fillStyle = armColor; ctx.fillRect(-10, -10 + sw + breathe, 3, 7); ctx.fillRect(7, -10 - sw + breathe, 3, 7)
-  } else {
-    ctx.fillStyle = armColor; ctx.fillRect(-10, -10 + breathe, 3, 7); ctx.fillRect(7, -10 + breathe, 3, 7)
-  }
-
-  // Head
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(-6, -1 + breathe + legOff, 4, 7); ctx.fillRect(2, -1 + breathe - legOff, 4, 7)
+  ctx.fillStyle = a.color; ctx.fillRect(-7, -14 + breathe, 14, 13)
+  if (a.state === 'working') { const t = Math.sin(now / 150) * 1.5; ctx.fillStyle = a.color; ctx.fillRect(-10, -10 + t + breathe, 3, 7); ctx.fillRect(7, -10 - t + breathe, 3, 7) }
+  else if (moving) { const sw = Math.sin(now / 70) * 3; ctx.fillStyle = a.color; ctx.fillRect(-10, -10 + sw + breathe, 3, 7); ctx.fillRect(7, -10 - sw + breathe, 3, 7) }
+  else { ctx.fillStyle = a.color; ctx.fillRect(-10, -10 + breathe, 3, 7); ctx.fillRect(7, -10 + breathe, 3, 7) }
   ctx.fillStyle = a.skin; ctx.fillRect(-8, -28 + breathe, 16, 14)
-
-  // Hair
-  ctx.fillStyle = a.hair; ctx.fillRect(-8, -30 + breathe, 16, 5)
-  ctx.fillRect(-9, -28 + breathe, 2, 4); ctx.fillRect(7, -28 + breathe, 2, 4)
-
-  // Eyes
+  ctx.fillStyle = a.hair; ctx.fillRect(-8, -30 + breathe, 16, 5); ctx.fillRect(-9, -28 + breathe, 2, 4); ctx.fillRect(7, -28 + breathe, 2, 4)
   const ed = a.faceDir === 1 ? 1 : -1
   ctx.fillStyle = '#fff'; ctx.fillRect(-4 + ed, -23 + breathe, 4, 3); ctx.fillRect(3 + ed, -23 + breathe, 4, 3)
   ctx.fillStyle = '#1a1a2e'; ctx.fillRect(-3 + ed, -22 + breathe, 2, 2); ctx.fillRect(4 + ed, -22 + breathe, 2, 2)
-
-  // Working dots
-  if (a.state === 'working') {
-    const d = Math.floor(now / 180) % 3
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = i <= d ? 'rgba(52,211,153,0.8)' : 'rgba(52,211,153,0.2)'
-      ctx.fillRect(-2 + i * 2, -33 + breathe, 1, 1)
-    }
-  }
-
-  // Meeting bubble
-  if (a.state === 'meeting') {
-    ctx.fillStyle = 'rgba(34,211,238,0.7)'; ctx.beginPath()
-    ctx.roundRect(7, -32 + breathe, 10, 7, 2); ctx.fill()
-    ctx.fillStyle = '#fff'; ctx.font = '5px sans-serif'; ctx.textAlign = 'center'
-    ctx.fillText('💬', 12, -27 + breathe)
-  }
-
-  // State dot
-  const dc = { idle: '#f59e0b', working: '#3ddc97', meeting: '#22d3ee', walking: '#a78bfa' }[a.state]
-  ctx.fillStyle = dc; ctx.fillRect(7, -14 + breathe, 3, 3)
-
-  // Name
-  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '7px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'
-  ctx.fillText(a.name, 0, 15)
-
+  if (a.state === 'working') { const d = Math.floor(now / 180) % 3; for (let i = 0; i < 3; i++) { ctx.fillStyle = i <= d ? 'rgba(52,211,153,0.8)' : 'rgba(52,211,153,0.2)'; ctx.fillRect(-2 + i * 2, -33 + breathe, 1, 1) } }
+  if (a.state === 'meeting') { ctx.fillStyle = 'rgba(34,211,238,0.7)'; ctx.beginPath(); ctx.roundRect(7, -32 + breathe, 10, 7, 2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '5px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💬', 12, -27 + breathe) }
+  const dc = { idle: '#f59e0b', working: '#3ddc97', meeting: '#22d3ee', walking: '#a78bfa' }[a.state]; ctx.fillStyle = dc; ctx.fillRect(7, -14 + breathe, 3, 3)
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '7px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText(a.name, 0, 15)
   ctx.restore()
+}
+
+function drawLounge(ctx: CanvasRenderingContext2D) {
+  const lx = 33 * TILE, ly = 6 * TILE
+  // Couch
+  ctx.fillStyle = '#37474f'; ctx.fillRect(lx + 4, ly + 30, 70, 22)
+  ctx.fillStyle = '#455a64'; ctx.fillRect(lx + 6, ly + 32, 66, 18)
+  ctx.fillStyle = '#546e7a'; ctx.fillRect(lx + 8, ly + 34, 22, 14); ctx.fillRect(lx + 34, ly + 34, 22, 14); ctx.fillRect(lx + 60, ly + 34, 10, 14)
+  // Coffee table
+  ctx.fillStyle = '#5d4037'; ctx.fillRect(lx + 20, ly + 60, 40, 16)
+  ctx.fillStyle = '#795548'; ctx.fillRect(lx + 22, ly + 62, 36, 12)
+  // TV
+  ctx.fillStyle = '#263238'; ctx.fillRect(lx + 50, ly + 8, 40, 26)
+  ctx.fillStyle = 'rgba(79,195,247,0.15)'; ctx.fillRect(lx + 52, ly + 10, 36, 22)
+  // Whiteboard
+  ctx.fillStyle = '#fff'; ctx.fillRect(lx + 4, ly + 8, 40, 26)
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(lx + 4, ly + 8, 40, 26)
+  ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(lx + 10, ly + 15, 20, 2); ctx.fillRect(lx + 10, ly + 19, 15, 2)
+  ctx.fillStyle = 'rgba(33,150,243,0.3)'; ctx.fillRect(lx + 10, ly + 23, 25, 2)
+  // Label
+  ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.font = 'bold 8px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'
+  ctx.fillText('Lounge', lx + 45, ly + 8)
 }
 
 function drawFurniture(ctx: CanvasRenderingContext2D) {
   // Coffee machine (top-left)
   ctx.fillStyle = 'rgba(139,92,42,0.12)'; ctx.fillRect(10 * TILE, 2 * TILE, 12, 16)
-  ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(10 * TILE + 2, 2 * TILE + 2, 8, 5)
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(10 * TILE + 2, 2 * TILE + 2, 8, 5)
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.font = '7px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('☕', 10 * TILE + 6, 2 * TILE + 14)
   // Water cooler (top-right)
-  ctx.fillStyle = 'rgba(33,150,243,0.08)'; ctx.fillRect(21 * TILE, 2 * TILE, 8, 14)
-  ctx.fillStyle = 'rgba(33,150,243,0.15)'; ctx.fillRect(21 * TILE + 1, 2 * TILE + 2, 6, 6)
-  // Plants at corners
-  const plants: [number, number][] = [[1, 1], [30, 1], [1, 18], [30, 18]]
+  ctx.fillStyle = 'rgba(33,150,243,0.08)'; ctx.fillRect(22 * TILE, 2 * TILE, 8, 14)
+  ctx.fillStyle = 'rgba(33,150,243,0.15)'; ctx.fillRect(22 * TILE + 1, 2 * TILE + 2, 6, 6)
+  // Plants
+  const plants: [number, number][] = [[1, 1], [36, 1], [1, 20], [36, 20], [22, 1], [11, 20]]
   for (const [px, py] of plants) {
     ctx.fillStyle = 'rgba(52,211,153,0.1)'; ctx.beginPath(); ctx.arc(px * TILE + 5, py * TILE, 4, 0, Math.PI * 2); ctx.fill()
     ctx.beginPath(); ctx.arc(px * TILE + 2, py * TILE + 3, 3, 0, Math.PI * 2); ctx.fill()
     ctx.fillStyle = 'rgba(139,92,42,0.1)'; ctx.fillRect(px * TILE + 2, py * TILE + 5, 5, 4)
   }
   // Bookshelf
-  ctx.fillStyle = 'rgba(139,92,42,0.08)'; ctx.fillRect(10 * TILE, 15 * TILE, 20, 12)
-  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(10 * TILE + 2, 15 * TILE + 2, 5, 3); ctx.fillRect(10 * TILE + 9, 15 * TILE + 2, 5, 3)
+  ctx.fillStyle = 'rgba(139,92,42,0.08)'; ctx.fillRect(11 * TILE, 15 * TILE, 18, 12)
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(11 * TILE + 2, 15 * TILE + 2, 4, 3); ctx.fillRect(11 * TILE + 8, 15 * TILE + 2, 4, 3); ctx.fillRect(11 * TILE + 14, 15 * TILE + 2, 3, 3)
+  // Reception desk
+  ctx.fillStyle = '#5d4037'; ctx.fillRect(2 * TILE, 2 * TILE + 4, 24, 20)
+  ctx.fillStyle = '#795548'; ctx.fillRect(3 * TILE, 2 * TILE + 6, 20, 16)
+  ctx.fillStyle = '#8d6e63'; ctx.fillRect(4 * TILE, 2 * TILE + 8, 18, 12)
+  ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.font = '7px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'
+  ctx.fillText('Reception', 2.5 * TILE, 2 * TILE + 4)
 }
 
 // ── Component ──
 
-interface Props { 
-  workers?: { id: string; state: string; task?: string }[]
-  onWorkerClick?: (id: string) => void
-}
+interface Props { workers?: { id: string; state: string; task?: string }[]; onWorkerClick?: (id: string) => void }
 
 export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -299,6 +258,7 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: Props) {
       drawFloor(ctx)
       for (const z of ZONES) drawZone(ctx, z)
       drawFurniture(ctx)
+      drawLounge(ctx)
       drawMeetingTable(ctx)
 
       for (const [id, pos] of Object.entries(DESKS)) {
