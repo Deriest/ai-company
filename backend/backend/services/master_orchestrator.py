@@ -521,6 +521,12 @@ class MasterOrchestrator:
                 "node_id": node_id,
                 "parent_task_id": parent_task.id,
                 "graph_node": node_data,
+                # BUG-12 FIX: Propagate parent triage data to child tasks
+                # so that guardrail-enforced workers (security, flint, nexus)
+                # are preserved across the execution pipeline.
+                "triage": (parent_task.context or {}).get("triage", {}),
+                "execution_level": (parent_task.context or {}).get("execution_level", "STANDARD"),
+                "phase_semantics": {},
             },
         )
         self.session.add(child_task)

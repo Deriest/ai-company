@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from backend.database.session import init_db, AsyncSessionLocal, engine
+from backend.config import settings
 from backend.services.search_service import init_fts5
 from backend.middleware.logging_middleware import logging_middleware
 from backend.middleware.metrics import metrics_middleware, metrics_endpoint
@@ -30,13 +31,93 @@ async def lifespan(app: FastAPI):
     await run_migrations()
 
     # Initialize LLM provider from environment
-    from llm.provider import provider_manager, init_provider_from_env
+    from llm.provider import provider_manager, init_provider_from_env, ProviderConfig
     config = init_provider_from_env()
     if config:
         provider_manager.register(config)
         logger.info(f"LLM provider initialized: {config.name} ({config.base_url})")
     else:
         logger.warning("No LLM provider configured (AIC_LLM_BASE_URL not set) — workers will use fallback templates")
+    
+    # BUG-01 FIX: Register providers from database
+    from backend.models.schema import Provider, ProviderModel, WorkerRuntime
+    from backend.services.crypto import decrypt as decrypt_api_key
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Provider).where(Provider.enabled == True))
+        db_providers = result.scalars().all()
+        for p in db_providers:
+            try:
+                base_url = p.base_url.rstrip("/")
+                if not base_url.endswith("/v1"):
+                    base_url += "/v1"
+                api_key = decrypt_api_key(p.api_key)
+                
+                # Get models for this provider
+                model_result = await db.execute(
+                    select(ProviderModel).where(ProviderModel.provider_id == p.id)
+                )
+                provider_models = model_result.scalars().all()
+                
+                # R2 FIX: Build models dict from worker_runtime, not first_model
+                models = {}
+                
+                # Query worker_runtime to get role-specific model assignments
+                worker_result = await db.execute(
+                    select(WorkerRuntime).where(WorkerRuntime.provider_id == p.id)
+                )
+                workers = worker_result.scalars().all()
+                
+                # Map worker roles to their assigned models
+                for worker in workers:
+                    if worker.model_id:
+                        # Map worker role to provider tier
+                        role_to_tier = {
+                            "thinker": "thinker",
+                            "crafter": "crafter",
+                            "planner": "thinker",  # planner uses thinker tier
+                            "reviewer": "thinker",
+                            "manager": "thinker",
+                        }
+                        tier = role_to_tier.get(worker.role)
+                        if tier:
+                            models[tier] = worker.model_id
+                
+                # Fallback: if no worker_runtime models, find a valid non-combo model
+                if not models and provider_models:
+                    # Filter out models that are known-bad defaults:
+                    #   combo/*       — combo strategies, no direct credentials
+                    #   IAMHC/*       — provider without reliable credentials (525 errors)
+                    #   *free*        — free tiers may be rate-limited/unreliable
+                    #   *big-pickle*  — known unreliable alias
+                    excluded_prefixes = ("combo/", "IAMHC/")
+                    excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+                    valid_models = [
+                        m for m in provider_models
+                        if not m.model_id.startswith(excluded_prefixes)
+                        and not any(s in m.model_id.lower() for s in excluded_substrings)
+                    ]
+                    # If everything got filtered (unlikely), fall back to any non-combo
+                    if not valid_models:
+                        valid_models = [m for m in provider_models if not m.model_id.startswith("combo/")]
+                    if valid_models:
+                        fallback_model = valid_models[0].model_id
+                        models = {
+                            "thinker": fallback_model,
+                            "crafter": fallback_model,
+                            "sprinter": fallback_model,
+                        }
+                
+                db_config = ProviderConfig(
+                    name=p.name,
+                    base_url=base_url,
+                    api_key=api_key,
+                    models=models if models else None,
+                )
+                provider_manager.register(db_config)
+                logger.info(f"LLM provider from DB registered: {p.name} ({base_url}) with {len(provider_models)} models")
+            except Exception as e:
+                logger.error(f"Failed to register provider {p.name} from DB: {e}")
 
     # Validate embedding provider
     from backend.services.embedding_provider import validate_embedding_provider
@@ -62,7 +143,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AIC-ADE Backend",
-    version="2.4.9",
+    version=settings.VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -203,6 +284,10 @@ from backend.api.routes.provider_manage import router as provider_manage_router
 app.include_router(provider_manage_router, prefix="")
 from backend.api.routes.tasks import router as tasks_router
 app.include_router(tasks_router, prefix="")
+
+# BUG-03 FIX: Mount workers_router — was orphan (PATCH /runtime/workers/{role} returned 404)
+from backend.api.routes.workers import router as workers_router
+app.include_router(workers_router, prefix="")
 
 # Agent execution route (OpenCode-style real tool execution)
 from backend.api.routes.agent import router as agent_router

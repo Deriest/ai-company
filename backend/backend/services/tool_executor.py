@@ -255,11 +255,23 @@ WORKER_PERMISSIONS: dict[str, set[str]] = {
 }
 
 def check_permission(worker_type: str, tool_name: str) -> bool:
-    """Check if a worker is allowed to use a tool. Returns True if allowed."""
+    """Check if a worker is allowed to use a tool. Returns True if allowed.
+
+    BUG-17 FIX: Workers with 'mcp_call' permission can also use mcp_* prefixed tools.
+    """
     allowed = WORKER_PERMISSIONS.get(worker_type)
     if allowed is None:
         return True  # Not in dict = full access
-    return tool_name in allowed
+
+    # Direct match
+    if tool_name in allowed:
+        return True
+
+    # BUG-17 FIX: mcp_* prefixed tools require mcp_call permission
+    if tool_name.startswith("mcp_") and "mcp_call" in allowed:
+        return True
+
+    return False
 
 def get_tools_for_worker(worker_type: str) -> list:
     """Get tool definitions filtered by worker type permissions."""

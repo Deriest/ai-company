@@ -31,6 +31,8 @@ class ProviderModel(Base):
     
     # Capabilities (Inferred)
     context_window = Column(Integer, nullable=True)
+    context_source = Column(String, nullable=True)  # "user_override", "probe", "cache", "models_dev", "catalog", "pattern", "fallback"
+    context_cached_at = Column(DateTime(timezone=True), nullable=True)
     max_output_tokens = Column(Integer, nullable=True)
     supports_vision = Column(Boolean, default=False)
     supports_tool_calling = Column(Boolean, default=False)

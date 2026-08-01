@@ -9,12 +9,20 @@ from backend.services.search_service import init_fts5
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
+    # Pre-cleanup: ensure clean state before test (handles cross-file isolation)
+    from storage.models import Base as StorageBase
+    async with engine.begin() as conn:
+        await conn.run_sync(StorageBase.metadata.drop_all)
+        await conn.run_sync(Base.metadata.drop_all)
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
     yield
+    # Post-cleanup: drop and recreate using BOTH StorageBase and Base
     async with engine.begin() as conn:
+        await conn.run_sync(StorageBase.metadata.drop_all)
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(StorageBase.metadata.create_all)
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await init_fts5(db)

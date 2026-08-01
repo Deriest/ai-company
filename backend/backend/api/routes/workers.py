@@ -62,8 +62,21 @@ async def list_worker_runtimes(db: AsyncSession = Depends(get_db)):
 async def update_worker_runtime(role: str, update: WorkerRuntimeUpdate, db: AsyncSession = Depends(get_db)):
     runtime = await worker_runtime_service.get_worker(db, role)
 
+    # BUG-03 FIX: Auto-create worker_runtime row if role doesn't exist yet
+    # (e.g. "sprinter" is not in WORKER_DEFAULTS but is a valid tier role)
     if not runtime:
-        raise HTTPException(status_code=404, detail=f"Worker '{role}' not found")
+        runtime = WorkerRuntime(
+            role=role.lower(),
+            label=role.title(),
+            description=f"Auto-created worker runtime for {role}",
+            system_prompt="",
+            temperature=0.4,
+            top_p=1.0,
+            is_enabled=True,
+        )
+        db.add(runtime)
+        await db.commit()
+        await db.refresh(runtime)
 
     if update.providerId is not None: runtime.provider_id = update.providerId
     if update.modelId is not None: runtime.model_id = update.modelId

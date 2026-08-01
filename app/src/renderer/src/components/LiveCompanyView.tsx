@@ -9,7 +9,7 @@ import {
   UserCog, Brain, Coins,
 } from 'lucide-react'
 
-// ── Workforce data (canonical 15 workers × 4 departments) ──
+// ── Workforce data (canonical workers × 4 departments) ──
 
 interface WorkerDef {
   id: string
@@ -86,6 +86,10 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   const [usageStats, setUsageStats] = useState<{ total_tokens: number; total_cost: number; total_requests: number } | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // BUG-10 FIX: Compute total worker count dynamically from DEPARTMENTS
+  const totalWorkers = DEPARTMENTS.reduce((sum, dept) => sum + dept.workers.length, 0);
+  const totalDepts = DEPARTMENTS.length;
+
   useEffect(() => {
     // Fetch worker runtime stats
     apiClient.get<any[]>('/runtime/workers')
@@ -145,7 +149,7 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
       <div className="min-w-0 flex-1">
         <PageHeader
           title="Engineering Workforce"
-          subtitle="15 specialized AI workers across 4 departments"
+          subtitle={`${totalWorkers} specialized AI workers across ${totalDepts} departments`}
         />
 
         {/* Token Cost Summary */}

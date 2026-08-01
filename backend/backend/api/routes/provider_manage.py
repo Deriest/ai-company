@@ -192,4 +192,24 @@ async def update_provider_config(provider_id: str, payload: dict, db: AsyncSessi
 
     await db.commit()
     await db.refresh(provider)
+
+    # BUG-15 FIX: Re-register provider live after config update
+    try:
+        from llm.provider import provider_manager, ProviderConfig
+        base_url = provider.base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url += "/v1"
+        api_key = decrypt(provider.api_key) if provider.api_key else ""
+        config = ProviderConfig(
+            name=provider.name,
+            base_url=base_url,
+            api_key=api_key,
+        )
+        await provider_manager.aregister(config)
+        if not provider_manager.get_active():
+            provider_manager.set_active(provider.name)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"BUG-15: Failed to register provider live: {e}")
+
     return {"id": provider.id, "name": provider.name, "status": provider.status}

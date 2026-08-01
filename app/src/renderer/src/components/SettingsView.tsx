@@ -115,6 +115,14 @@ function EngineConfigSection() {
   const [crafterModel, setCrafterModel] = useState<string>('')
   const [sprinterModel, setSprinterModel] = useState<string>('')
 
+  // BUG-16 FIX: Filter out known-bad models from dropdowns
+  const filterValidModels = (models: ModelInfo[]) => models.filter(m => {
+    const id = m.id.toLowerCase();
+    if (id.startsWith("combo/") || id.startsWith("iamhc/")) return false;
+    if (id.includes("free") || id.includes("big-pickle") || id.includes("deepseek") || id.includes("r1")) return false;
+    return true;
+  })
+
   useEffect(() => {
     Promise.all([
       providerManageApi.getEnvConfig(),
@@ -232,7 +240,7 @@ function EngineConfigSection() {
             <select value={thinkerModel} onChange={e => setThinkerModel(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
               <option value="">Select Model...</option>
-              {thinkerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+              {filterValidModels(thinkerModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
           <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Planner, Architect, Research</p>
@@ -250,7 +258,7 @@ function EngineConfigSection() {
             <select value={crafterModel} onChange={e => setCrafterModel(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
               <option value="">Select Model...</option>
-              {crafterModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+              {filterValidModels(crafterModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
           <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Backend, Frontend, QA</p>
@@ -268,7 +276,7 @@ function EngineConfigSection() {
             <select value={sprinterModel} onChange={e => setSprinterModel(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
               <option value="">Select Model...</option>
-              {sprinterModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+              {filterValidModels(sprinterModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
           <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Docs, Governor</p>

@@ -63,6 +63,7 @@ export interface DeliverableSummary {
 /** All event types from the backend SSE stream */
 export type StreamEvent =
   | { type: "chunk"; content: string }
+  | { type: "rewrite"; content: string }
   | { type: "tool_start"; tool: string; args: Record<string, any> }
   | { type: "tool_result"; tool_call: ToolCallData }
   | { type: "file_diff"; path: string; before: string; after: string; action: string }
@@ -77,6 +78,7 @@ export type StreamEvent =
 /** Callback interface for stream events */
 export interface StreamCallbacks {
   onChunk: (content: string) => void;
+  onRewrite?: (content: string) => void;
   onToolStart: (tool: string, args: Record<string, any>) => void;
   onToolResult: (toolCall: ToolCallData) => void;
   onFileDiff: (diff: FileDiffData) => void;
@@ -152,6 +154,9 @@ export const chatApi = {
               case "chunk":
                 callbacks.onChunk(evt.content);
                 break;
+              case "rewrite":
+                callbacks.onRewrite?.(evt.content);
+                break;
               case "tool_start":
                 callbacks.onToolStart(evt.tool, evt.args);
                 break;
@@ -201,6 +206,7 @@ export const chatApi = {
   }, onChunk: (chunk: string) => void, onDone: () => void, onError: (err: any) => void): Promise<() => void> {
     return chatApi.streamWithTools(payload, {
       onChunk,
+      onRewrite: () => {},
       onToolStart: () => {},
       onToolResult: () => {},
       onFileDiff: () => {},

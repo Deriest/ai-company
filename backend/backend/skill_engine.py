@@ -16,6 +16,28 @@ logger = logging.getLogger("aic.skills")
 
 BUILTIN_SKILLS = [
     {
+        "skill_id": "taste",
+        "name": "Anti-AI-Slop Taste",
+        "description": "Writing standard that eliminates AI slop patterns. Output must sound human, specific, and direct.",
+        "category": "quality",
+        "instructions": (
+            "WRITING STANDARD (anti-slop):\n"
+            "NEVER use: delve, crucial, pivotal, comprehensive, testament, underscore, vibrant, seamless, "
+            "groundbreaking, 'It's important to note', 'I'd be happy to', 'Let's dive in', "
+            "'Here's what you need to know', 'In conclusion', 'The future looks bright', "
+            "'at the end of the day', 'when it comes to', 'moving forward', 'circle back', "
+            "'game-changer', 'In today's fast-paced world'.\n"
+            "NEVER: em-dash overuse, forced rule-of-three, elegant variation (synonym swapping), "
+            "'-ing' superficial openers ('Highlighting...', 'Underscoring...'), Title Case headings, "
+            "emoji in headings, curly quotes.\n"
+            "AVOID: 'not only... but also', 'It's not just X; it's Y', ad-copy sentences "
+            "('no guessing', 'it just works'), rhetorical questions immediately answered, mic-drop closings.\n"
+            "MUST: vary sentence length, use specifics (numbers/names/context), state opinions clearly, "
+            "prefer simple words ('is'/'has' over 'serves as'), active voice."
+        ),
+        "assigned_workers": ["documentation", "rex", "pm", "qa", "coding", "research"],
+    },
+    {
         "skill_id": "api-completeness-audit",
         "name": "API Completeness Audit",
         "description": "Audit backend/frontend API completeness for commercial operations.",

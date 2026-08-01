@@ -241,6 +241,38 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
             except Exception as e:
                 logger.debug(f"Skill/Memory resolution exception: {e}")
 
+            # FITUR 1: Query MCP Memory graph for task-relevant knowledge
+            mcp_memory_context = []
+            try:
+                from backend.services.mcp_service import mcp_service
+                from backend.database.session import AsyncSessionLocal
+                async with AsyncSessionLocal() as mcp_db:
+                    mcp_schemas = await mcp_service.get_all_mcp_tool_schemas(mcp_db)
+                    # Check if memory server tools are available
+                    memory_tool_names = {"search_nodes", "read_graph", "open_nodes"}
+                    has_memory_tools = any(t["name"] in memory_tool_names for t in mcp_schemas)
+                    if has_memory_tools:
+                        # Query MCP memory via search_nodes with task keywords
+                        from backend.services.mcp_client import mcp_pool
+                        search_keywords = f"{task.title} {task.description or ''}".split()[:5]
+                        for keyword in search_keywords:
+                            if len(keyword) < 3:
+                                continue
+                            try:
+                                result = await mcp_pool.call_tool("search_nodes", {"query": keyword})
+                                content_parts = result.get("content", [])
+                                text = "\n".join(p.get("text", "") for p in content_parts if p.get("type") == "text")
+                                if text and len(text) > 10:
+                                    mcp_memory_context.append({"keyword": keyword, "memory": text[:500]})
+                                    break  # one good match is enough
+                            except Exception:
+                                pass
+                        if mcp_memory_context:
+                            active_project_memories.extend(mcp_memory_context)
+                            logger.info(f"MCP memory: found {len(mcp_memory_context)} relevant memories for task {task.id[:8]}")
+            except Exception as e:
+                logger.debug(f"MCP memory query exception (non-critical): {e}")
+
             task_ctx = {
                 "task_id": task.id,
                 "title": task.title,
@@ -576,6 +608,30 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
 
     # 6. Completion Integrity
     block_reason = None
+
+    # FITUR 2 Lapis 3: Taste checker — scan deliverable text for AI-isms during closeout
+    taste_findings = []
+    try:
+        from backend.services.taste_checker import scan_text
+        for phase_name, phase_results in results.items():
+            for worker_name, worker_result in phase_results.items():
+                if worker_name in ("documentation", "pm", "rex", "research", "qa"):
+                    output = worker_result.get("output", "")
+                    if output and len(output) > 50:
+                        findings = scan_text(output)
+                        if findings:
+                            taste_findings.extend([
+                                {"phase": phase_name, "worker": worker_name, **f.to_dict()}
+                                for f in findings
+                            ])
+        if taste_findings:
+            ctx["taste_findings"] = taste_findings
+            task.context = ctx
+            flag_modified(task, 'context')
+            logger.info(f"Task {task.id[:8]} taste checker: {len(taste_findings)} findings (reported, not blocking)")
+    except Exception as taste_err:
+        logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+
     if verification_failed:
         block_reason = "verification_failed"
     elif fallback_used:

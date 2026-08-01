@@ -21,9 +21,12 @@ async def test_list_models_normalization_and_deduplication():
 
     models = await provider.list_models()
     assert len(models) == 3
-    assert models[0] == {"id": "gpt-4", "owned_by": "openai"}
-    assert models[1] == {"id": "claude-3", "owned_by": "anthropic"}
-    assert models[2] == {"id": "raw-model-name", "owned_by": ""}
+    assert models[0]["id"] == "gpt-4"
+    assert models[0]["owned_by"] == "openai"
+    assert models[1]["id"] == "claude-3"
+    assert models[1]["owned_by"] == "anthropic"
+    assert models[2]["id"] == "raw-model-name"
+    assert models[2]["owned_by"] == ""
 
 @pytest.mark.asyncio
 async def test_list_models_fallback_v1():

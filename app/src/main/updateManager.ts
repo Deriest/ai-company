@@ -234,7 +234,7 @@ export class UpdateManager {
       if (!newer) {
         this.setState({
           status: "up_to_date",
-          availableVersion: manifest.version,
+          availableVersion: undefined,
           lastCheckedAt: now,
           releaseNotes: manifest.releaseNotes,
           mandatory: Boolean(manifest.mandatory),

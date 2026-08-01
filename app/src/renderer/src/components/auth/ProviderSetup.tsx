@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2, RefreshCw, Plus, Zap, Cpu, Eye, EyeOff } from "lucide-react";
 import { Card, Badge } from "../kit";
+import { apiClient } from "../../lib/api/client";
 import { providersApi, type ProviderRecord, type ModelInfo } from "../../lib/api/providers";
 import { providerManageApi, type TestConnectionResult } from "../../lib/api/provider_manage";
 
@@ -230,6 +231,14 @@ function FREProviderSetup() {
   const [applyingEngine, setApplyingEngine] = useState(false);
   const [engineMsg, setEngineMsg] = useState("");
 
+  // BUG-16 FIX: Filter out known-bad models from dropdown
+  const validModels = models.filter(m => {
+    const id = m.id.toLowerCase();
+    if (id.startsWith("combo/") || id.startsWith("iamhc/")) return false;
+    if (id.includes("free") || id.includes("big-pickle") || id.includes("deepseek") || id.includes("r1")) return false;
+    return true;
+  });
+
   const testConnection = async () => {
     setStatus("testing");
     setError("");
@@ -282,6 +291,37 @@ function FREProviderSetup() {
         crafter: crafterModel,
         sprinter: sprinterModel,
       });
+
+      // BUG-03 FIX: Also persist model assignments to worker_runtime table
+      // so that worker_runtime.model_id / provider_id are correctly set.
+      const providerId = savedProviderId || provider?.id || "";
+      const tierMap: Record<string, string> = {
+        thinker: thinkerModel,
+        crafter: crafterModel,
+        sprinter: sprinterModel,
+      };
+      for (const [role, modelId] of Object.entries(tierMap)) {
+        if (modelId && providerId) {
+          try {
+            await apiClient.patch(`/runtime/workers/${role}`, {
+              providerId,
+              modelId,
+            });
+          } catch {
+            // Worker might not exist in runtime yet — create it
+            try {
+              await apiClient.patch(`/runtime/workers/${role}`, {
+                providerId,
+                modelId,
+                isEnabled: true,
+              });
+            } catch {
+              // graceful — env config is still set
+            }
+          }
+        }
+      }
+
       setEngineMsg("Engine configured! Ready to start.");
     } catch (e: any) {
       setEngineMsg("Failed: " + (e?.message || String(e)));
@@ -304,21 +344,21 @@ function FREProviderSetup() {
                 <span className="text-xs font-medium text-primary w-16">Thinker</span>
                 <select value={thinkerModel} onChange={e => setThinkerModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
                   <option value="">Select...</option>
-                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  {validModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-success w-16">Crafter</span>
                 <select value={crafterModel} onChange={e => setCrafterModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
                   <option value="">Select...</option>
-                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  {validModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-warning w-16">Sprinter</span>
                 <select value={sprinterModel} onChange={e => setSprinterModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
                   <option value="">Select...</option>
-                  {models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  {validModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
                 </select>
               </div>
             </>

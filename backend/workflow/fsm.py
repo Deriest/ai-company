@@ -128,6 +128,47 @@ def can_advance(
     return next_phase(p) is not None
 
 
+def _get_normal_workers_for_phase(phase: str, target_worker: str) -> list[str]:
+    """Return normal (non-guardrail) workers for a phase based on target worker."""
+    p = normalize_phase(phase)
+    plan = PHASE_WORKERS.get(p, [])
+    all_workers = [entry["worker"] for entry in plan]
+
+    if p == "discovery":
+        return ["hermes", "pm"]
+
+    if p == "investigate":
+        return ["pm", "research"]
+
+    if p == "planning":
+        if target_worker in ("frontend", "ui", "design"):
+            return ["architect", "designer"]
+        elif target_worker in ("backend", "database", "api"):
+            return ["architect", "database"]
+        elif target_worker in ("devops", "infrastructure", "flint"):
+            return ["architect", "flint", "nexus"]
+        elif target_worker in ("integration", "nexus", "webhook", "middleware"):
+            return ["architect", "nexus"]
+        elif target_worker in ("security", "sentinel"):
+            return ["architect", "security"]
+        return ["architect", "designer", "database"]
+
+    if p == "implementation":
+        if target_worker in ("frontend", "ui"):
+            return ["frontend"]
+        elif target_worker in ("backend", "api", "database"):
+            return ["backend"]
+        return ["backend", "frontend"]
+
+    if p == "verification":
+        return ["qa", "performance"]
+
+    if p == "closeout":
+        return ["rex", "documentation", "pm"]
+
+    return all_workers
+
+
 def allowed_workers_for_phase(
     phase: str,
     target_worker: str | None = None,
@@ -144,17 +185,32 @@ def allowed_workers_for_phase(
 
     tw = target_worker.lower() if target_worker else ""
 
-    # If explicit selected_workers list is provided by triage, filter implementation/planning
-    if selected_workers and p == "implementation":
-        impl_workers = [w for w in selected_workers if w in ("backend", "frontend", "coding", "database", "security", "flint", "nexus")]
-        if impl_workers:
-            return impl_workers
+    # BUG-12 FIX: If explicit selected_workers list is provided by triage,
+    # merge guardrail-enforced workers with the normal phase workers.
+    # Previously this REPLACED normal workers, causing architect/etc to be
+    # skipped when security was enforced by guardrails.
+    if selected_workers and p in ("implementation", "planning", "verification", "closeout"):
+        phase_allowed = set(w for entry in plan for w in [entry["worker"]])
+        # Guardrail workers from selected_workers that belong to this phase
+        guardrail_in_phase = [w for w in selected_workers if w in phase_allowed]
+        # Normal workers for this phase based on target_worker
+        normal_workers = _get_normal_workers_for_phase(p, tw)
+        # Merge: guardrail workers + normal workers (deduplicated, preserving order)
+        merged = []
+        for w in guardrail_in_phase + normal_workers:
+            if w not in merged:
+                merged.append(w)
+        if merged:
+            return merged
 
     if p == "discovery":
         return ["hermes", "pm"]
 
     if p == "investigate":
-        return ["pm", "research"] if tw in ("fullstack", "architect", "pm", "coding") else ["pm"]
+        # Research is reachable for all task types that need investigation
+        if tw in ("fullstack", "architect", "pm", "coding", "research", "backend", "frontend", "database"):
+            return ["pm", "research"]
+        return ["pm", "research"]
 
     if p == "planning":
         if tw in ("frontend", "ui", "design"):
@@ -162,10 +218,12 @@ def allowed_workers_for_phase(
         elif tw in ("backend", "database", "api"):
             return ["architect", "database"]
         elif tw in ("devops", "infrastructure", "flint"):
-            return ["architect", "flint"]
+            return ["architect", "flint", "nexus"]
+        elif tw in ("integration", "nexus", "webhook", "middleware"):
+            return ["architect", "nexus"]
         elif tw in ("security", "sentinel"):
             return ["architect", "security"]
-        return ["architect", "designer"]
+        return ["architect", "designer", "database"]
 
     if p == "implementation":
         if tw in ("frontend", "ui"):
@@ -175,7 +233,7 @@ def allowed_workers_for_phase(
         return ["backend", "frontend"]
 
     if p == "verification":
-        return ["qa"]
+        return ["qa", "performance"]
 
     if p == "closeout":
         return ["rex", "documentation", "pm"]

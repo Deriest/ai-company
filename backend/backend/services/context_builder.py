@@ -72,20 +72,69 @@ async def get_model_context_window(
     provider_id: str,
     model_id: str,
 ) -> int | None:
-    """Get the actual context window for a specific model from the provider registry.
-
+    """Get the actual context window for a specific model using waterfall detection.
+    
+    Waterfall order (matching Hermes Agent):
+    1. User override (context_source = "user_override" in DB)
+    2. Probe result (context_source = "probe" with fresh cache)
+    3. Persistent cache (context_cached_at within 24h TTL)
+    4. models.dev lookup (for unknown models)
+    5. Hardcoded catalog (MODEL_CONTEXT_CATALOG)
+    6. Pattern family (from infer_capabilities)
+    7. Fallback 256K
+    
     Returns the context_window from the provider_models table if found,
     otherwise None (caller should fall back to tier-based defaults).
     """
     from backend.models.schema import ProviderModel
+    from datetime import datetime, timedelta
+    from backend.services.model_catalog import lookup_catalog
 
-    stmt = select(ProviderModel.context_window).where(
+    stmt = select(
+        ProviderModel.context_window,
+        ProviderModel.context_source,
+        ProviderModel.context_cached_at,
+    ).where(
         ProviderModel.provider_id == provider_id,
         ProviderModel.model_id == model_id,
     )
     result = await db.execute(stmt)
-    row = result.scalar_one_or_none()
-    return row
+    row = result.one_or_none()
+    
+    if not row:
+        return None
+    
+    context_window, context_source, context_cached_at = row
+    
+    # Layer 1: User override - always wins
+    if context_source == "user_override" and context_window:
+        logger.info(f"Context for {model_id}: {context_window} (user override)")
+        return context_window
+    
+    # Layer 2: Probe result - trust if fresh (within 24h)
+    if context_source == "probe" and context_window and context_cached_at:
+        age = datetime.now(context_cached_at.tzinfo) - context_cached_at
+        if age < timedelta(hours=24):
+            logger.info(f"Context for {model_id}: {context_window} (probe, age: {age})")
+            return context_window
+    
+    # Layer 3: Any cached value within TTL
+    if context_window and context_cached_at:
+        age = datetime.now(context_cached_at.tzinfo) - context_cached_at
+        if age < timedelta(hours=24):
+            logger.info(f"Context for {model_id}: {context_window} (cache, source: {context_source}, age: {age})")
+            return context_window
+    
+    # If we have a cached value but it's stale, fall through to re-detection
+    # (The provider sync job should refresh this, but we can use catalog as backup)
+    
+    # Layer 4-7 are handled by infer_capabilities during fetch_models
+    # If we reach here with a context_window (even stale), use it as better than nothing
+    if context_window:
+        logger.info(f"Context for {model_id}: {context_window} (stale cache, source: {context_source})")
+        return context_window
+    
+    return None
 
 
 def get_context_policy_for_window(context_window: int) -> ContextPolicy:

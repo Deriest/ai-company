@@ -320,13 +320,76 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
         return StreamingResponse(tool_event_generator(), media_type="text/event-stream")
 
     async def event_generator():
+        # BUG-11 FIX: Persist user + assistant messages for plain chat path.
+        # chat_service.chat_stream already persists internally, but we collect
+        # the streamed content here as a safety net to guarantee persistence
+        # even if the internal commit fails or the session lifecycle is off.
+        collected_content = ""
         try:
             async for chunk in chat_service.chat_stream(
                 db, payload.conversation_id, messages_list, prov_id, mod_id, temp, top_p, max_t, system_prompt
             ):
+                # Extract content from SSE chunks for persistence
+                try:
+                    if chunk.startswith("data: "):
+                        data = json.loads(chunk[6:].strip())
+                        if data.get("type") == "chunk" and data.get("content"):
+                            collected_content += data["content"]
+                except (json.JSONDecodeError, AttributeError):
+                    pass
                 yield chunk
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+        # BUG-11 FIX: If chat_service.chat_stream didn't persist (e.g. session
+        # lifecycle issue), ensure messages are saved with a dedicated session.
+        if collected_content:
+            try:
+                from backend.database.session import AsyncSessionLocal
+                from datetime import datetime, timezone
+                async with AsyncSessionLocal() as persist_session:
+                    now = datetime.now(timezone.utc)
+                    # Check if user message already persisted (avoid double-persist)
+                    existing = await persist_session.execute(
+                        select(Message).where(
+                            Message.conversation_id == payload.conversation_id,
+                            Message.role == "user",
+                            Message.content == user_content,
+                        ).order_by(Message.created_at.desc()).limit(1)
+                    )
+                    if not existing.scalar_one_or_none():
+                        user_msg = Message(
+                            conversation_id=payload.conversation_id,
+                            role="user",
+                            content=user_content,
+                            status="completed",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        persist_session.add(user_msg)
+
+                    # Check if assistant message already persisted
+                    existing_asst = await persist_session.execute(
+                        select(Message).where(
+                            Message.conversation_id == payload.conversation_id,
+                            Message.role == "assistant",
+                            Message.content == collected_content,
+                        ).order_by(Message.created_at.desc()).limit(1)
+                    )
+                    if not existing_asst.scalar_one_or_none():
+                        asst_msg = Message(
+                            conversation_id=payload.conversation_id,
+                            role="assistant",
+                            content=collected_content,
+                            status="completed",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        persist_session.add(asst_msg)
+
+                    await persist_session.commit()
+            except Exception as persist_err:
+                logger.warning(f"BUG-11 persistence safety net error: {persist_err}")
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

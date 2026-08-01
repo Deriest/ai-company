@@ -25,6 +25,14 @@ from policy.engine import policy, Decision
 
 logger = logging.getLogger("aic.conversation")
 
+# BUG-07 FIX: Module-level set to hold background task references.
+# The ConversationEngine instance is short-lived (created per request inside
+# an `async with` block). If background tasks were stored on the instance,
+# they'd be garbage-collected when the engine goes out of scope — causing
+# asyncio.create_task coroutines to silently vanish. A module-level set
+# keeps strong references alive for the process lifetime.
+_global_background_tasks: set = set()
+
 
 class LLMUnavailableError(Exception):
     """No LLM provider is configured or available."""
@@ -99,9 +107,19 @@ Personality:
 - Suggest improvements and flag risks
 - When you don't know, say so
 
+WRITING STANDARD (anti-slop — STRICT):
+- NEVER use: delve, crucial, pivotal, comprehensive, seamless, groundbreaking, "It's important to note", "I'd be happy to", "Let's dive in", "In conclusion", "at the end of the day", "game-changer", "In today's fast-paced world".
+- NEVER use these AI greetings/responses: "How can I help you today?", "Great question!", "I'd be happy to help", "Let me know if you need anything else", "Feel free to ask", "Don't hesitate to reach out".
+- NEVER open with generic AI greetings: "How can I help you today?", "Hi! How can I", "What can I do for you?", "Is there anything else I can help with?" — respond directly and specifically instead.
+- NEVER: em-dash overuse, forced rule-of-three, synonym swapping, "-ing" openers, Title Case headings, emoji in headings.
+- AVOID: "not only... but also", rhetorical questions immediately answered, mic-drop closings, ad-copy language.
+- MUST: vary sentence length, use specifics (numbers/names/context), state opinions clearly, prefer simple words ("is" not "serves as"), active voice.
+- FOR GREETINGS: respond naturally like a human colleague. "Halo" → "Halo!" or "Hai!" — not a formal offer of help. Keep it brief and specific. Never offer generic help.
+- Sound like a knowledgeable human, not a polite LLM.
+
 Conversation-first rules:
 - Question, brainstorm, and discussion messages should NOT create tasks
-- Only create tasks for clear engineering requests after requirements are enough
+- Only create tasks for clear engineering requests when requirements are enough
 - Prefer proposing a plan and waiting for confirmation unless the user says "build now", "create the task", or similar force language
 - If the request is vague, ask 1–3 clarifying questions
 
@@ -147,6 +165,7 @@ class ConversationEngine:
     def __init__(self, session: AsyncSession):
         self.session = session
         self._llm_info: dict = {}  # accumulated from LLM calls
+        self._background_tasks: set = set()  # hold references to prevent GC
 
     async def process_message(
         self,
@@ -426,28 +445,46 @@ class ConversationEngine:
         import asyncio
         from backend.services.master_orchestrator import run_engineering_pipeline
 
+        # BUG-07 FIX: Commit the task BEFORE scheduling the background coroutine.
+        # The background task opens an independent session that must be able to
+        # see the task row. Without this commit, the row is only flushed (visible
+        # inside the current transaction) and the background session can't find it.
+        try:
+            await self.session.commit()
+        except Exception as e:
+            logger.warning(f"Pre-pipeline commit failed: {e}")
+
+        task_id = task.id  # capture for closure
+
         async def _run():
             try:
                 from storage.database import async_session as _async_session
+                logger.info(f"Pipeline background started for task {task_id}")
                 async with _async_session() as bg_session:
                     # Re-fetch the task in the background session
                     from sqlalchemy import select as _select
                     res = await bg_session.execute(
-                        _select(Task).where(Task.id == task.id)
+                        _select(Task).where(Task.id == task_id)
                     )
                     bg_task = res.scalar_one_or_none()
                     if bg_task:
+                        logger.info(f"Pipeline background: task {task_id} found, starting pipeline...")
                         result = await run_engineering_pipeline(bg_session, bg_task)
                         await bg_session.commit()
                         logger.info(
-                            f"Pipeline finished for task {task.id}: "
+                            f"Pipeline finished for task {task_id}: "
                             f"success={result.success} stage={result.stage}"
                         )
+                    else:
+                        logger.error(f"Pipeline background: task {task_id} NOT FOUND in DB")
             except Exception as e:
-                logger.error(f"Pipeline background failed for task {task.id}: {e}")
+                logger.error(f"Pipeline background failed for task {task_id}: {e}", exc_info=True)
 
         # Fire-and-forget: schedule in background, don't block the response
-        asyncio.create_task(_run())
+        # BUG-07 FIX: Store in module-level set to prevent GC when engine is destroyed
+        task_ref = asyncio.create_task(_run())
+        _global_background_tasks.add(task_ref)
+        task_ref.add_done_callback(_global_background_tasks.discard)
 
     async def _create_task(
         self,
@@ -513,10 +550,28 @@ class ConversationEngine:
                 self.session.add(project)
                 await self.session.flush()
                 project_id = project.id
+        else:
+            # Local-first mode: no user_id, create/find a default project
+            result = await self.session.execute(
+                select(Project).where(Project.slug == "default-chat-project").limit(1)
+            )
+            project = result.scalar_one_or_none()
+            if project:
+                project_id = project.id
+            else:
+                project = Project(
+                    name="Default Chat Project",
+                    slug="default-chat-project",
+                    description="Auto-created for local-first mode",
+                    owner_id=None,
+                )
+                self.session.add(project)
+                await self.session.flush()
+                project_id = project.id
 
-            if conversation.context is None:
-                conversation.context = {}
-            conversation.context["project_id"] = project_id
+        if conversation.context is None:
+            conversation.context = {}
+        conversation.context["project_id"] = project_id
 
         return project_id
 
@@ -658,6 +713,15 @@ Respond with ONLY the JSON object."""
                 *[{"role": m.role, "content": m.content} for m in history[-5:]],
                 {"role": "user", "content": content},
             ]
+            
+            # QA-249-R5 FIX: Use proper context policy, not hardcoded 1500
+            from backend.services.context_builder import get_context_policy
+            policy = get_context_policy("crafter")
+            max_tokens = policy.max_tokens if policy.max_tokens > 0 else 60000
+            
+            messages = await self._apply_token_budget(messages, max_tokens=max_tokens)
+            
+            # QA-249-R6: History already flattened by provider.chat() internally
             result = await provider.chat(
                 messages=messages,
                 tier=ModelTier.CRAFTER,
@@ -665,7 +729,45 @@ Respond with ONLY the JSON object."""
                 max_tokens=1500,
                 purpose="conversation",
             )
-            return result["content"], _llm_meta(result)
+            content = result["content"]
+
+            # FITUR 2 Lapis 3: Taste checker — flag AI-isms + REWRITE PASS if high findings
+            try:
+                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
+                if has_ai_slop(content, threshold=1):
+                    taste_meta = scan_summary(content)
+                    logger.info(f"Chat taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
+                    self._llm_info["taste_findings"] = taste_meta
+
+                    # REWRITE PASS: If high findings, use LLM to rewrite
+                    if taste_meta["high"] > 0:
+                        try:
+                            rewrite_result = await provider.chat(
+                                messages=[
+                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
+                                    {"role": "user", "content": REWRITE_PROMPT + content},
+                                ],
+                                tier=ModelTier.SPRINTER,
+                                temperature=0.3,
+                                max_tokens=len(content) + 200,
+                                purpose="taste_rewrite",
+                            )
+                            rewritten = rewrite_result.get("content", "").strip()
+                            # Only use rewrite if it's not empty and doesn't introduce new issues
+                            if rewritten and len(rewritten) > 10:
+                                # Verify the rewrite is cleaner
+                                from backend.services.taste_checker import has_ai_slop as check_again
+                                if not check_again(rewritten, threshold=1):
+                                    logger.info("Taste rewrite successful — cleaner output")
+                                    content = rewritten
+                                else:
+                                    logger.info("Taste rewrite still has AI-isms — using original")
+                        except Exception as rewrite_err:
+                            logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
+            except Exception as taste_err:
+                logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+
+            return content, _llm_meta(result)
         except Exception as e:
             logger.warning(f"LLM question handling failed: {e}")
             raise LLMInferenceError(f"LLM request failed: {e}") from e
@@ -730,6 +832,15 @@ Respond with ONLY the JSON object."""
                 *[{"role": m.role, "content": m.content} for m in history[-5:]],
                 {"role": "user", "content": content},
             ]
+            
+            # QA-249-R5 FIX: Use proper context policy, not hardcoded 1500
+            from backend.services.context_builder import get_context_policy
+            policy = get_context_policy("crafter")
+            max_tokens = policy.max_tokens if policy.max_tokens > 0 else 60000
+            
+            messages = await self._apply_token_budget(messages, max_tokens=max_tokens)
+            
+            # QA-249-R6: History already flattened by provider.chat() internally
             result = await provider.chat(
                 messages=messages,
                 tier=ModelTier.CRAFTER,
@@ -737,7 +848,45 @@ Respond with ONLY the JSON object."""
                 max_tokens=1500,
                 purpose="conversation",
             )
-            return result["content"], _llm_meta(result)
+            content = result["content"]
+
+            # FITUR 2 Lapis 3: Taste checker — flag AI-isms + REWRITE PASS if high findings
+            try:
+                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
+                if has_ai_slop(content, threshold=1):
+                    taste_meta = scan_summary(content)
+                    logger.info(f"Chat taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
+                    self._llm_info["taste_findings"] = taste_meta
+
+                    # REWRITE PASS: If high findings, use LLM to rewrite
+                    if taste_meta["high"] > 0:
+                        try:
+                            rewrite_result = await provider.chat(
+                                messages=[
+                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
+                                    {"role": "user", "content": REWRITE_PROMPT + content},
+                                ],
+                                tier=ModelTier.SPRINTER,
+                                temperature=0.3,
+                                max_tokens=len(content) + 200,
+                                purpose="taste_rewrite",
+                            )
+                            rewritten = rewrite_result.get("content", "").strip()
+                            # Only use rewrite if it's not empty and doesn't introduce new issues
+                            if rewritten and len(rewritten) > 10:
+                                # Verify the rewrite is cleaner
+                                from backend.services.taste_checker import has_ai_slop as check_again
+                                if not check_again(rewritten, threshold=1):
+                                    logger.info("Taste rewrite successful — cleaner output")
+                                    content = rewritten
+                                else:
+                                    logger.info("Taste rewrite still has AI-isms — using original")
+                        except Exception as rewrite_err:
+                            logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
+            except Exception as taste_err:
+                logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+
+            return content, _llm_meta(result)
         except Exception as e:
             logger.warning(f"LLM chat failed: {e}")
             raise LLMInferenceError(f"LLM request failed: {e}") from e
@@ -767,6 +916,30 @@ Respond with ONLY the JSON object."""
         if history:
             parts.append(f"Conversation has {len(history)} messages")
         return "\n".join(parts) if parts else "No prior context."
+    
+    async def _apply_token_budget(self, messages: list, max_tokens: int = 2000) -> list:
+        """Apply token budget to prevent context overflow (R4 FIX)."""
+        from backend.services.context_overflow import estimate_tokens
+        
+        estimated = estimate_tokens(messages)
+        if estimated <= max_tokens:
+            return messages
+        
+        logger.warning(f"Message history exceeds budget: {estimated} > {max_tokens}, truncating...")
+        
+        # Keep system messages, drop oldest user/assistant messages
+        system_messages = [m for m in messages if m.get("role") == "system"]
+        other_messages = [m for m in messages if m.get("role") != "system"]
+        
+        # Truncate from the beginning (oldest messages)
+        while estimate_tokens(system_messages + other_messages) > max_tokens and len(other_messages) > 1:
+            other_messages.pop(0)
+        
+        result = system_messages + other_messages
+        new_estimated = estimate_tokens(result)
+        logger.info(f"Truncated to {len(result)} messages, estimated {new_estimated} tokens")
+        
+        return result
 
     def _classify_task(self, content: str) -> tuple[str, str]:
         """Regex fallback for task classification."""
@@ -840,4 +1013,7 @@ Respond with ONLY the JSON object."""
                 logger.debug(f"Failed to record audit: {e}")
 
         # Fire-and-forget: schedule in background, don't block the response
-        asyncio.create_task(_do_record())
+        # BUG-07 FIX: Store in module-level set to prevent GC when engine is destroyed
+        task_ref = asyncio.create_task(_do_record())
+        _global_background_tasks.add(task_ref)
+        task_ref.add_done_callback(_global_background_tasks.discard)

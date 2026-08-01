@@ -43,7 +43,10 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
     runner = AgentRunner(workspace_root=workspace)
     
     async def event_stream():
-        async for event in runner.run_agent(worker_type, prompt, system_prompt, model_tier):
+        async for event in runner.run_agent(
+            worker_type, prompt, system_prompt, model_tier,
+            db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+        ):
             yield f"data: {json.dumps(event)}\n\n"
     
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -65,5 +68,8 @@ async def run_agent_sync(payload: dict, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Prompt is required")
     
     from backend.services.agent_runner import run_worker_with_tools
-    result = await run_worker_with_tools(worker_type, prompt, system_prompt, workspace, model_tier)
+    result = await run_worker_with_tools(
+        worker_type, prompt, system_prompt, workspace, model_tier,
+        db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+    )
     return result

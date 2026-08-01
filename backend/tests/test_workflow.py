@@ -12,8 +12,12 @@ async def setup_db():
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
     yield
+    # Clean up: drop and recreate using BOTH StorageBase and Base
+    from storage.models import Base as StorageBase
     async with engine.begin() as conn:
+        await conn.run_sync(StorageBase.metadata.drop_all)
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(StorageBase.metadata.create_all)
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await init_fts5(db)

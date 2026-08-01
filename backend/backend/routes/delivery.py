@@ -45,34 +45,17 @@ async def deliver(
     }
 
 
-@router.get("/{report_id}")
-async def get_report(
-    report_id: str,
+@router.get("/stats")
+async def get_stats(
     session: AsyncSession = Depends(get_session),
 ):
-    """Get an engineering report by ID."""
-    from storage.models import EngineeringReport
+    """Get delivery statistics."""
+    from delivery.engine import DeliveryEngine
 
-    result = await session.execute(
-        select(EngineeringReport).where(EngineeringReport.id == report_id)
-    )
-    report = result.scalar_one_or_none()
-    if not report:
-        raise HTTPException(404, "Engineering Report not found")
+    engine = DeliveryEngine(session)
+    stats = engine.get_stats()
 
-    return {
-        "id": report.id,
-        "brief_id": report.brief_id,
-        "goal": report.goal,
-        "outcome": report.outcome,
-        "total_tasks": report.total_tasks,
-        "successful_tasks": report.successful_tasks,
-        "failed_tasks": report.failed_tasks,
-        "lessons": report.lessons or [],
-        "recommendations": report.recommendations or [],
-        "status": report.status,
-        "created_at": report.created_at.isoformat() if report.created_at else None,
-    }
+    return stats
 
 
 @router.get("/brief/{brief_id}")
@@ -102,14 +85,31 @@ async def get_report_for_brief(
     }
 
 
-@router.get("/stats")
-async def get_stats(
+@router.get("/{report_id}")
+async def get_report(
+    report_id: str,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get delivery statistics."""
-    from delivery.engine import DeliveryEngine
+    """Get an engineering report by ID."""
+    from storage.models import EngineeringReport
 
-    engine = DeliveryEngine(session)
-    stats = engine.get_stats()
+    result = await session.execute(
+        select(EngineeringReport).where(EngineeringReport.id == report_id)
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(404, "Engineering Report not found")
 
-    return stats
+    return {
+        "id": report.id,
+        "brief_id": report.brief_id,
+        "goal": report.goal,
+        "outcome": report.outcome,
+        "total_tasks": report.total_tasks,
+        "successful_tasks": report.successful_tasks,
+        "failed_tasks": report.failed_tasks,
+        "lessons": report.lessons or [],
+        "recommendations": report.recommendations or [],
+        "status": report.status,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+    }

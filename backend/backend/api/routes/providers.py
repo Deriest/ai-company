@@ -5,6 +5,7 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from typing import List
 from datetime import datetime, timezone
+import logging
 
 from backend.database.session import get_db
 from backend.models.schema import Provider, ProviderModel
@@ -15,7 +16,67 @@ from backend.schemas.api_models_v2 import (
 from backend.services.crypto import encrypt, decrypt
 from backend.services.provider_client import ProviderClient, ProviderAPIError, ProviderConnectionError, ProviderTimeoutError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+async def _register_provider_live(provider: Provider, db: AsyncSession) -> None:
+    """BUG-15 FIX: Register provider into provider_manager live (no restart needed).
+
+    Called after POST /providers, PATCH /providers/{id}, and fetch-models
+    so that provider_manager.get_active() returns the provider immediately.
+    """
+    try:
+        from llm.provider import provider_manager, ProviderConfig
+
+        base_url = provider.base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url += "/v1"
+        api_key = decrypt(provider.api_key) if provider.api_key else ""
+
+        # Build models dict from DB provider models
+        model_result = await db.execute(
+            select(ProviderModel).where(ProviderModel.provider_id == provider.id)
+        )
+        provider_models = model_result.scalars().all()
+
+        models = {}
+        if provider_models:
+            # BUG-16 FIX: Filter out known-bad models before picking fallback
+            excluded_prefixes = ("combo/", "IAMHC/")
+            excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+            valid_models = [
+                m for m in provider_models
+                if not m.model_id.startswith(excluded_prefixes)
+                and not any(s in m.model_id.lower() for s in excluded_substrings)
+            ]
+            # If everything got filtered, fall back to any non-combo model
+            if not valid_models:
+                valid_models = [m for m in provider_models if not m.model_id.startswith("combo/")]
+            if valid_models:
+                fallback_model = valid_models[0].model_id
+                models = {
+                    "thinker": fallback_model,
+                    "crafter": fallback_model,
+                    "sprinter": fallback_model,
+                }
+
+        config = ProviderConfig(
+            name=provider.name,
+            base_url=base_url,
+            api_key=api_key,
+            models=models if models else None,
+        )
+        await provider_manager.aregister(config)
+
+        # Set active if no active provider yet
+        if not provider_manager.get_active():
+            provider_manager.set_active(provider.name)
+
+        logger.info(f"BUG-15: Provider '{provider.name}' registered live in provider_manager")
+    except Exception as e:
+        logger.warning(f"BUG-15: Failed to register provider '{provider.name}' live: {e}")
 
 
 def _to_provider_response(p: Provider, models: List[ProviderModel] = None) -> ProviderWithModelsResponse:
@@ -64,7 +125,16 @@ async def health_check():
         llm_configured = bool(getattr(provider_manager, "_providers", {}))
     except Exception:
         pass
-    return {"status": "ok", "version": "2.4.9", "service": "AIC-ADE Backend", "llm_configured": llm_configured}
+    from backend.config import settings
+    import os
+    return {
+        "status": "ok",
+        "version": settings.VERSION,
+        "service": "AIC-ADE Backend",
+        "llm_configured": llm_configured,
+        "data_dir": os.environ.get("AIC_DATA_DIR", ""),
+        "pid": os.getpid(),
+    }
 
 
 @router.get("/providers", response_model=List[ProviderWithModelsResponse])
@@ -94,6 +164,10 @@ async def create_provider(provider: ProviderCreate, db: AsyncSession = Depends(g
     db.add(new_provider)
     await db.commit()
     await db.refresh(new_provider)
+
+    # BUG-15 FIX: Register provider live so /health and /chat/execute see it immediately
+    await _register_provider_live(new_provider, db)
+
     return _to_provider_response(new_provider)
 
 
@@ -122,6 +196,9 @@ async def update_provider(id: str, update: ProviderUpdate, db: AsyncSession = De
 
     m_result = await db.execute(select(ProviderModel).where(ProviderModel.provider_id == id))
     models = m_result.scalars().all()
+
+    # BUG-15 FIX: Re-register provider live after update
+    await _register_provider_live(provider, db)
 
     return _to_provider_response(provider, models)
 
@@ -198,6 +275,8 @@ async def fetch_provider_models(id: str, db: AsyncSession = Depends(get_db)):
                 display_name=m["display_name"],
                 owned_by=m["owned_by"],
                 context_window=m["context_window"],
+                context_source=m.get("context_source"),
+                context_cached_at=datetime.now(tz=timezone.utc),
                 supports_vision=m["supports_vision"],
                 supports_tool_calling=m["supports_tool_calling"],
                 supports_streaming=m["supports_streaming"],
@@ -217,6 +296,9 @@ async def fetch_provider_models(id: str, db: AsyncSession = Depends(get_db)):
         provider.enabled = True
 
         await db.commit()
+
+        # BUG-15 FIX: Re-register provider live after fetching models (status=connected)
+        await _register_provider_live(provider, db)
 
         return _to_provider_response(provider, db_models)
 

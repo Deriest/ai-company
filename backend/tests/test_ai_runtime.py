@@ -6,10 +6,15 @@ from backend.database.session import init_db, AsyncSessionLocal
 from backend.services.search_service import init_fts5
 
 @pytest_asyncio.fixture(autouse=True)
-async def setup_db():
+async def setup_db(monkeypatch):
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
+    # Mock _get_provider_config to return None, triggering graceful fallback
+    from backend.services.chat_service import ChatService
+    async def _mock_config(*args, **kwargs):
+        return None
+    monkeypatch.setattr(ChatService, "_get_provider_config", _mock_config)
     yield
 
 @pytest.mark.asyncio

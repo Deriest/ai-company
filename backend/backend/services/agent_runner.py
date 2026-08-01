@@ -11,9 +11,50 @@ from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_t
 from backend.services.context_builder import ContextBuilder, get_context_policy
 from backend.services.context_overflow import estimate_tokens, handle_overflow
 from backend.services.deliverable_collector import DeliverableCollector
-from llm.provider import provider_manager, ModelTier
+from llm.provider import provider_manager, ModelTier, _worker_fallback_chain
 
 logger = logging.getLogger("aic.agent_runner")
+
+
+async def _get_mcp_tools_for_agent(db) -> list[dict]:
+    """Fetch MCP tool schemas and convert to OpenAI function format.
+
+    BUG-17 FIX: AgentRunner was not receiving MCP tool definitions, so the LLM
+    could not call MCP tools (like memory create_entities, search_nodes).
+
+    Returns list of tool definitions in OpenAI format:
+    [{"type": "function", "function": {"name": "mcp_<toolName>", ...}}]
+    """
+    if db is None:
+        return []
+
+    try:
+        from backend.services.mcp_service import mcp_service
+        mcp_schemas = await mcp_service.get_all_mcp_tool_schemas(db)
+
+        mcp_tools = []
+        for schema in mcp_schemas:
+            tool_name = schema.get("name", "")
+            if not tool_name:
+                continue
+
+            # Convert to OpenAI function calling format with mcp_ prefix
+            mcp_tools.append({
+                "type": "function",
+                "function": {
+                    "name": f"mcp_{tool_name}",
+                    "description": schema.get("description", f"MCP tool: {tool_name}"),
+                    "parameters": schema.get("inputSchema", {"type": "object", "properties": {}}),
+                }
+            })
+
+        if mcp_tools:
+            logger.info(f"Injected {len(mcp_tools)} MCP tools into AgentRunner: {[t['function']['name'] for t in mcp_tools]}")
+        return mcp_tools
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch MCP tools for agent: {e}")
+        return []
 
 
 class AgentRunner:
@@ -50,7 +91,11 @@ class AgentRunner:
         handling (summarization / truncation) before each LLM call.
         """
         
+        # BUG-17 FIX: Get static tools + merge MCP tool schemas
         tools = get_tools_for_worker(worker_type)
+        mcp_tools = await _get_mcp_tools_for_agent(db)
+        if mcp_tools:
+            tools = tools + mcp_tools
         collector = DeliverableCollector()
 
         policy = get_context_policy(model_tier)
@@ -79,6 +124,16 @@ class AgentRunner:
         
         tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER}
         tier = tier_map.get(model_tier, ModelTier.CRAFTER)
+
+        # Worker fallback chain — only within the thinker/crafter/sprinter group.
+        # If the assigned model for this worker errors, retry with the next
+        # worker's model in the chain. Never falls back to providers/models the
+        # user did not assign.
+        #   thinker  error -> crafter  -> sprinter
+        #   crafter  error -> thinker  -> sprinter
+        #   sprinter error -> crafter  -> thinker
+        # planner/reviewer/manager are not in the 3-worker group — no cross-cover.
+        tier_chain = _worker_fallback_chain(tier)
         
         provider = provider_manager.get_active()
         if not provider:
@@ -93,6 +148,16 @@ class AgentRunner:
             "run_shell": lambda a: self.executor.run_shell(a.get("command", ""), a.get("timeout", 30)),
             "mcp_call": lambda a: self.executor.mcp_call(a.get("tool_name", ""), a.get("arguments", {})),
         }
+
+        # BUG-17 FIX: Add dynamic routing for mcp_* prefixed tools
+        # When LLM calls mcp_create_entities, route to mcp_call("create_entities", args)
+        for mcp_tool_def in mcp_tools:
+            mcp_fn_name = mcp_tool_def["function"]["name"]  # e.g., "mcp_create_entities"
+            actual_tool_name = mcp_fn_name[4:]  # strip "mcp_" prefix → "create_entities"
+            # Capture actual_tool_name in closure
+            tool_executor_map[mcp_fn_name] = (
+                lambda a, tn=actual_tool_name: self.executor.mcp_call(tn, a)
+            )
         
         all_tool_results = []
         
@@ -105,17 +170,36 @@ class AgentRunner:
                 messages, overflow_strategy = await handle_overflow(messages, policy.max_tokens, provider)
                 yield {"type": "overflow_resolved", "strategy": overflow_strategy, "message_count": len(messages)}
 
-            # Call LLM with tools
-            try:
-                result = await provider.chat(
-                    messages=messages,
-                    tier=tier,
-                    temperature=0.3,
-                    max_tokens=policy.response_tokens,
-                    tools=tools,
-                )
-            except Exception as e:
-                yield {"type": "error", "error": f"LLM error: {str(e)}"}
+            # Call LLM with tools — try the worker's tier first, then fall back
+            # through the chain (thinker/crafter/sprinter cover each other on error).
+            result = None
+            last_error = None
+            for attempt_tier in tier_chain:
+                try:
+                    result = await provider.chat(
+                        messages=messages,
+                        tier=attempt_tier,
+                        temperature=0.3,
+                        max_tokens=policy.response_tokens,
+                        tools=tools,
+                    )
+                    if attempt_tier != tier_chain[0]:
+                        yield {"type": "fallback", "from": tier.value if hasattr(tier, 'value') else str(tier),
+                               "to": attempt_tier.value if hasattr(attempt_tier, 'value') else str(attempt_tier),
+                               "reason": str(last_error)[:200]}
+                        logger.warning(
+                            f"Worker '{worker_type}' fallback: {tier} -> {attempt_tier} after error: {last_error}"
+                        )
+                    break  # success — stop trying further tiers
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        f"LLM call failed for tier {attempt_tier} (worker {worker_type}): {e}"
+                    )
+                    continue  # try next tier in chain
+
+            if result is None:
+                yield {"type": "error", "error": f"LLM error: {last_error}"}
                 return
             
             content = result.get("content", "")

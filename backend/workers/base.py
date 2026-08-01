@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 import asyncio
 import logging
+import shutil
+import sys
 
 logger = logging.getLogger("aic.workers")
 
@@ -665,8 +667,8 @@ class ReviewWorker(BaseWorker):
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
         tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("review", tn))
-        content, meta = await _llm_with_tools(self, prompt, _THINKER, 0.3, "review", template, task_context=task_context, tool_executor=tool_executor)
-        return _result_from_llm(content, meta, tool_calls=tool_executor.tool_calls)
+        content, meta, tool_calls = await _llm_with_tools(self, prompt, _THINKER, 0.3, "review", template, task_context=task_context, tool_executor=tool_executor)
+        return _result_from_llm(content, meta, tool_calls=tool_calls)
 
 
 class TestingWorker(BaseWorker):
@@ -737,7 +739,7 @@ class TestingWorker(BaseWorker):
             # Fall back to repo_path-based testing
             if os.path.exists(os.path.join(repo_path, "pytest.ini")) or os.path.exists(os.path.join(repo_path, "pyproject.toml")):
                 proc = await asyncio.create_subprocess_exec(
-                    "python", "-m", "pytest", "--tb=short", "-q",
+                    sys.executable, "-m", "pytest", "--tb=short", "-q",
                     cwd=repo_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
                 output_lines.append(f"```\n{stdout.decode()}\n```")
@@ -747,13 +749,17 @@ class TestingWorker(BaseWorker):
                 else:
                     output_lines.append("\n**PASSED**")
             elif os.path.exists(os.path.join(repo_path, "package.json")):
-                proc = await asyncio.create_subprocess_exec(
-                    "npm", "test", "--", "--watchAll=false",
-                    cwd=repo_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
-                output_lines.append(f"```\n{stdout.decode()}\n```")
-                if proc.returncode != 0:
-                    tests_passed = False
+                npm_path = shutil.which("npm")
+                if npm_path:
+                    proc = await asyncio.create_subprocess_exec(
+                        npm_path, "test", "--", "--watchAll=false",
+                        cwd=repo_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                    output_lines.append(f"```\n{stdout.decode()}\n```")
+                    if proc.returncode != 0:
+                        tests_passed = False
+                else:
+                    output_lines.append("\n**SKIPPED** — npm not found in PATH")
             else:
                 output_lines.append("No test framework detected. Verified workspace deliverables exist.")
 
@@ -1009,10 +1015,10 @@ class DesignerWorker(BaseWorker):
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
         tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("designer", tn))
-        content, meta = await _llm_with_tools(self,
+        content, meta, tool_calls = await _llm_with_tools(self,
             f"Design spec for: {title}\n{description}",
             _CRAFTER, 0.4, "designer", template, task_context=task_context, tool_executor=tool_executor)
-        return _result_from_llm(content, meta, tool_calls=tool_executor.tool_calls)
+        return _result_from_llm(content, meta, tool_calls=tool_calls)
 
 
 class GovernorWorker(BaseWorker):
@@ -1033,10 +1039,10 @@ class GovernorWorker(BaseWorker):
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
         tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("rex", tn))
-        content, meta = await _llm_with_tools(self,
+        content, meta, tool_calls = await _llm_with_tools(self,
             f"Governance audit: {title}\n{description}",
             _SPRINTER, 0.2, "governor", template, task_context=task_context, tool_executor=tool_executor)
-        return _result_from_llm(content, meta, tool_calls=tool_executor.tool_calls)
+        return _result_from_llm(content, meta, tool_calls=tool_calls)
 
 
 class HermesWorker(BaseWorker):

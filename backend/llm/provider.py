@@ -32,6 +32,36 @@ class ModelTier(str, Enum):
     SPRINTER = "sprinter"
 
 
+# Worker fallback chains — only within the thinker/crafter/sprinter group.
+# If the assigned model for a worker errors, retry with the next worker's
+# model in the chain. Never falls back to tiers the user did not assign.
+#   thinker  error -> crafter  -> sprinter
+#   crafter  error -> thinker  -> sprinter
+#   sprinter error -> crafter  -> thinker
+_WORKER_FALLBACK_CHAINS: dict[str, list["ModelTier"]] = {
+    ModelTier.THINKER.value: [ModelTier.THINKER, ModelTier.CRAFTER, ModelTier.SPRINTER],
+    ModelTier.CRAFTER.value: [ModelTier.CRAFTER, ModelTier.THINKER, ModelTier.SPRINTER],
+    ModelTier.SPRINTER.value: [ModelTier.SPRINTER, ModelTier.CRAFTER, ModelTier.THINKER],
+}
+
+
+def _worker_fallback_chain(tier: "ModelTier | str") -> list["ModelTier"]:
+    """Return the ordered tier fallback chain for a worker tier.
+
+    Tiers outside the thinker/crafter/sprinter group (or unknown values)
+    resolve to a single-element chain so they never cross-cover.
+    """
+    t_str = tier.value if isinstance(tier, ModelTier) else str(tier)
+    chain = _WORKER_FALLBACK_CHAINS.get(t_str)
+    if chain is not None:
+        return list(chain)
+    # Unknown/non-worker tier — try only what was requested.
+    try:
+        return [ModelTier(t_str)]
+    except ValueError:
+        return [ModelTier.CRAFTER]
+
+
 @dataclass
 class ProviderConfig:
     """Configuration for an LLM provider."""
@@ -195,6 +225,9 @@ class LLMProvider:
         model = self.config.get_model(tier)
         tier_str = tier.value if isinstance(tier, ModelTier) else str(tier)
 
+        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
+        messages = _flatten_history(messages)
+
         payload = {
             "model": model,
             "messages": messages,
@@ -246,6 +279,8 @@ class LLMProvider:
                             # convert to "message" for the non-streaming parser.
                             full_content = ""
                             usage = {}
+                            # Track tool_calls by index and merge across chunks
+                            tool_calls_map: dict[int, dict] = {}
                             for m in merged:
                                 if m.get("usage"):
                                     usage = m["usage"]
@@ -254,8 +289,39 @@ class LLMProvider:
                                     delta = ch[0].get("delta", {})
                                     if delta.get("content"):
                                         full_content += delta["content"]
+                                    # Merge tool_calls deltas by index
+                                    if delta.get("tool_calls"):
+                                        for tc_delta in delta["tool_calls"]:
+                                            idx = tc_delta.get("index", 0)
+                                            if idx not in tool_calls_map:
+                                                tool_calls_map[idx] = {
+                                                    "index": idx,
+                                                    "id": tc_delta.get("id", ""),
+                                                    "type": "function",
+                                                    "function": {
+                                                        "name": tc_delta.get("function", {}).get("name", ""),
+                                                        "arguments": tc_delta.get("function", {}).get("arguments", ""),
+                                                    },
+                                                }
+                                            else:
+                                                # Concatenate function.name and function.arguments
+                                                existing = tool_calls_map[idx]
+                                                fn_delta = tc_delta.get("function", {})
+                                                if fn_delta.get("name"):
+                                                    existing["function"]["name"] += fn_delta["name"]
+                                                if fn_delta.get("arguments"):
+                                                    existing["function"]["arguments"] += fn_delta["arguments"]
+                                                if tc_delta.get("id"):
+                                                    existing["id"] = tc_delta["id"]
+                            
+                            # Build message with content and tool_calls (if any)
+                            message = {"content": full_content, "role": "assistant"}
+                            if tool_calls_map:
+                                # Sort by index to preserve order
+                                message["tool_calls"] = [tool_calls_map[k] for k in sorted(tool_calls_map.keys())]
+                            
                             data = {
-                                "choices": [{"message": {"content": full_content, "role": "assistant"}}],
+                                "choices": [{"message": message}],
                                 "usage": usage,
                             }
                     if data is None:
@@ -402,6 +468,9 @@ class LLMProvider:
         model = self.config.get_model(tier)
         tier_str = tier.value if isinstance(tier, ModelTier) else str(tier)
 
+        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
+        messages = _flatten_history(messages)
+
         payload = {
             "model": model,
             "messages": messages,
@@ -433,6 +502,9 @@ class LLMProvider:
                                 content = delta.get("content", "")
                                 if content:
                                     yield {"type": "chunk", "content": content}
+                                # Forward tool_calls deltas for streaming tool use
+                                if delta.get("tool_calls"):
+                                    yield {"type": "tool_calls", "tool_calls": delta["tool_calls"]}
                         except json.JSONDecodeError:
                             continue
 
@@ -519,6 +591,58 @@ class LLMError(Exception):
     pass
 
 
+def _flatten_history(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Flatten multi-turn history into 2 messages (system + user) to workaround VansRouter bug.
+    
+    VansRouter returns empty response (200, len=0) for multi-turn conversations with large messages.
+    This function compresses all history into a single system message containing the conversation,
+    plus the final user question as a separate user message.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content'
+    
+    Returns:
+        Flattened list: [system(history), user(last_question)] if >2 messages, else unchanged
+    """
+    if len(messages) <= 2:
+        return messages
+    
+    # Separate system, history, and last user message
+    system_messages = [m for m in messages if m.get("role") == "system"]
+    other_messages = [m for m in messages if m.get("role") != "system"]
+    
+    if not other_messages:
+        return messages
+    
+    # Last message should be user question
+    last_message = other_messages[-1]
+    history_messages = other_messages[:-1]
+    
+    # Build compressed system message with full conversation history
+    history_parts = []
+    
+    # Add original system prompts first
+    for sys_msg in system_messages:
+        history_parts.append(sys_msg.get("content", ""))
+    
+    # Add conversation history
+    if history_messages:
+        history_parts.append("\n## Conversation History\n")
+        for i, msg in enumerate(history_messages):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            history_parts.append(f"{role}: {content}\n")
+    
+    # Combine into single system message
+    compressed_system = "\n".join(history_parts).strip()
+    
+    # Return: [system(full_history), user(current_question)]
+    return [
+        {"role": "system", "content": compressed_system},
+        {"role": "user", "content": last_message.get("content", "")},
+    ]
+
+
 # ── Provider Manager ───────────────────────────────────
 
 class ProviderManager:
@@ -593,19 +717,19 @@ class ProviderManager:
         ]
 
     async def chat(self, messages: list[dict], tier: ModelTier | str = ModelTier.CRAFTER, **kwargs) -> dict:
-        """Chat using active provider with smart routing fallback (Thinker -> Crafter -> Sprinter)."""
+        """Chat using active provider with smart worker fallback routing.
+
+        Fallback chains (only within the thinker/crafter/sprinter worker group):
+          thinker  error -> crafter  -> sprinter
+          crafter  error -> thinker  -> sprinter
+          sprinter error -> crafter  -> thinker
+        """
         provider = self.get_active()
         if not provider:
             raise LLMError("No LLM provider configured")
 
         # Determine fallback chain of tiers
-        t_str = tier.value if isinstance(tier, ModelTier) else str(tier)
-        if t_str == ModelTier.THINKER.value:
-            tiers_to_try = [ModelTier.THINKER, ModelTier.CRAFTER, ModelTier.SPRINTER]
-        elif t_str == ModelTier.CRAFTER.value:
-            tiers_to_try = [ModelTier.CRAFTER, ModelTier.SPRINTER]
-        else:
-            tiers_to_try = [ModelTier.SPRINTER]
+        tiers_to_try = _worker_fallback_chain(tier)
 
         last_error = None
         for t in tiers_to_try:
@@ -633,19 +757,19 @@ class ProviderManager:
         raise LLMError("LLM request failed across all routing attempts")
 
     async def chat_stream(self, messages: list[dict], tier: ModelTier | str = ModelTier.CRAFTER, **kwargs):
-        """Stream LLM response using active provider with fallback."""
+        """Stream LLM response using active provider with smart worker fallback.
+
+        Fallback chains (only within the thinker/crafter/sprinter worker group):
+          thinker  error -> crafter  -> sprinter
+          crafter  error -> thinker  -> sprinter
+          sprinter error -> crafter  -> thinker
+        """
         provider = self.get_active()
         if not provider:
             yield {"type": "error", "error": "No LLM provider configured"}
             return
 
-        t_str = tier.value if isinstance(tier, ModelTier) else str(tier)
-        if t_str == ModelTier.THINKER.value:
-            tiers_to_try = [ModelTier.THINKER, ModelTier.CRAFTER, ModelTier.SPRINTER]
-        elif t_str == ModelTier.CRAFTER.value:
-            tiers_to_try = [ModelTier.CRAFTER, ModelTier.SPRINTER]
-        else:
-            tiers_to_try = [ModelTier.SPRINTER]
+        tiers_to_try = _worker_fallback_chain(tier)
 
         for t in tiers_to_try:
             has_error = False

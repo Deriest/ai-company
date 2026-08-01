@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 import os
 import secrets
+import json
 
 
 def _resolve_data_dir(base_dir: Path) -> Path:
@@ -13,11 +14,31 @@ def _resolve_data_dir(base_dir: Path) -> Path:
     return base_dir / "data"
 
 
+def _read_version_from_package_json() -> str:
+    """Read version from app/package.json if available, fallback to hardcoded."""
+    # Try multiple possible locations for package.json
+    candidates = [
+        Path(__file__).parent.parent.parent / "app" / "package.json",  # backend/../app/package.json
+        Path(__file__).parent.parent / "package.json",  # backend/package.json
+        Path.cwd() / "app" / "package.json",
+        Path.cwd() / "package.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                    return data.get("version", "2.4.20")
+            except (json.JSONDecodeError, KeyError):
+                pass
+    return "2.4.20"
+
+
 class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
     # Core
     APP_NAME: str = "AIC Platform"
-    VERSION: str = "2.1.7a"
+    VERSION: str = _read_version_from_package_json()
     DEBUG: bool = True
 
     # Database — absolute path is set after ensure_dirs when AIC_DATA_DIR is present

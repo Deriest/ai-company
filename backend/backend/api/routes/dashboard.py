@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from backend.database.session import get_db
 from storage.models import Task, Project
-from backend.models.schema import WorkerRuntime
+from agents.registry import AGENT_REGISTRY
 
 router = APIRouter()
 
@@ -45,9 +45,9 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     project_result = await db.execute(select(func.count(Project.id)))
     project_count = project_result.scalar() or 0
 
-    # Count workers
-    worker_result = await db.execute(select(func.count(WorkerRuntime.id)))
-    worker_count = worker_result.scalar() or 0
+    # BUG-13 FIX: Count actual agent roster (AGENT_REGISTRY = 15 agents),
+    # not worker_runtime table rows (5 tier configs).
+    worker_count = len(AGENT_REGISTRY)
 
     # Recent tasks (last 10)
     recent_result = await db.execute(

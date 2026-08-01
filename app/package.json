@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.4.9",
+  "version": "2.4.20",
   "private": true,
   "description": "AI Company ADE",
   "author": "TVD <tvd@local>",
@@ -121,6 +121,7 @@
           "planning/**/*",
           "taskgraph/**/*",
           "delivery/**/*",
+          "data/**/*",
           "requirements.txt",
           "pytest.ini"
         ]

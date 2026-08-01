@@ -237,103 +237,156 @@ class ChatService:
         if max_tokens:
             payload["max_tokens"] = max_tokens
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # BUG-02 FIX: Use provider.chat() instead of direct httpx to handle SSE
+        from llm.provider import provider_manager, LLMProvider, ProviderConfig, ModelTier
+        
+        # Build provider from config
+        provider_config = ProviderConfig(
+            name="chat_service_provider",
+            base_url=base_url,
+            api_key=api_key,
+            models={"crafter": model_id, "thinker": model_id, "sprinter": model_id}
+        )
+        provider = LLMProvider(provider_config)
+        
+        try:
+            # Inject system prompt from worker if not already present
+            has_system = any(m.get("role") == "system" for m in messages)
+            if system_prompt and not has_system:
+                messages = [{"role": "system", "content": system_prompt}] + messages
+                payload["messages"] = messages
+            
+            # QA-249-R6: History already flattened by provider.chat() internally
+            # Use provider.chat() which handles SSE properly
+            result = await provider.chat(
+                messages=messages,
+                tier=ModelTier.CRAFTER,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                purpose="chat_completion"
+            )
+            
+            content = result.get("content", "")
+            data = result.get("raw", {})
+            
+            choice = data.get("choices", [{}])[0]
+            msg_data = choice.get("message", {})
+            content = msg_data.get("content", "") or content  # Use result content as fallback
+            tool_calls = msg_data.get("tool_calls", [])
+            finish_reason = choice.get("finish_reason", "stop")
+            
+            # FITUR 2: Taste checker — scan for AI-isms and rewrite if needed
             try:
-                # Inject system prompt from worker if not already present
-                has_system = any(m.get("role") == "system" for m in messages)
-                if system_prompt and not has_system:
-                    messages = [{"role": "system", "content": system_prompt}] + messages
-                    payload["messages"] = messages
-                
-                res = await client.post(url, headers=headers, json=payload)
-                res.raise_for_status()
-                data = res.json()
-                
-                choice = data.get("choices", [{}])[0]
-                msg_data = choice.get("message", {})
-                content = msg_data.get("content", "") or ""
-                tool_calls = msg_data.get("tool_calls", [])
-                finish_reason = choice.get("finish_reason", "stop")
-                
-                # handle tool calls if present
-                if tool_calls:
-                    for tc in tool_calls:
-                        fn = tc.get("function", {})
-                        t_name = fn.get("name")
+                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
+                if has_ai_slop(content, threshold=1):
+                    taste_meta = scan_summary(content)
+                    logger.info(f"Chat taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
+                    
+                    # REWRITE PASS: If high findings, use LLM to rewrite
+                    if taste_meta["high"] > 0:
                         try:
-                            t_args = json.loads(fn.get("arguments", "{}"))
-                        except Exception:
-                            t_args = {}
-                        
-                        exec_res = await tool_dispatcher.execute(t_name, t_args)
-                        content += f"\n\n[Tool Executed: {t_name}] -> {json.dumps(exec_res.get('result') or exec_res.get('error'))}"
+                            rewrite_result = await provider.chat(
+                                messages=[
+                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
+                                    {"role": "user", "content": REWRITE_PROMPT + content},
+                                ],
+                                tier=ModelTier.SPRINTER,
+                                temperature=0.3,
+                                max_tokens=len(content) + 200,
+                                purpose="taste_rewrite"
+                            )
+                            rewritten = rewrite_result.get("content", "").strip()
+                            if rewritten and len(rewritten) > 10:
+                                from backend.services.taste_checker import has_ai_slop as check_again
+                                if not check_again(rewritten, threshold=1):
+                                    logger.info("Taste rewrite successful — cleaner output")
+                                    content = rewritten
+                                else:
+                                    logger.info("Taste rewrite still has AI-isms — using original")
+                        except Exception as rewrite_err:
+                            logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
+            except Exception as taste_err:
+                logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+            
+            # handle tool calls if present
+            if tool_calls:
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    t_name = fn.get("name")
+                    try:
+                        t_args = json.loads(fn.get("arguments", "{}"))
+                    except Exception:
+                        t_args = {}
+                    
+                    exec_res = await tool_dispatcher.execute(t_name, t_args)
+                    content += f"\n\n[Tool Executed: {t_name}] -> {json.dumps(exec_res.get('result') or exec_res.get('error'))}"
 
-                msg = Message(
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=content,
-                    model_id=model_id,
-                    provider_id=provider_id,
-                    status="completed"
-                )
-                db.add(msg)
-                await db.commit()
-                await db.refresh(msg)
-                
-                await artifact_service.extract_and_store(db, conversation_id, msg.id, content)
-                
-                usage = data.get("usage", {})
-                log = GenerationLog(
-                    conversation_id=conversation_id,
-                    message_id=msg.id,
-                    provider_id=provider_id,
-                    model_id=model_id,
-                    latency_ms=int((time.time() - start_time) * 1000),
-                    prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens"),
-                    total_tokens=usage.get("total_tokens"),
-                    status="completed",
-                    finish_reason=finish_reason
-                )
-                db.add(log)
-                await db.commit()
-                
-                # C7: Calculate cost based on token usage
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                cost = (prompt_tokens * 0.000003 + completion_tokens * 0.000015)
+            msg = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=content,
+                model_id=model_id,
+                provider_id=provider_id,
+                status="completed"
+            )
+            db.add(msg)
+            await db.commit()
+            await db.refresh(msg)
+            
+            await artifact_service.extract_and_store(db, conversation_id, msg.id, content)
+            
+            usage = data.get("usage", {})
+            log = GenerationLog(
+                conversation_id=conversation_id,
+                message_id=msg.id,
+                provider_id=provider_id,
+                model_id=model_id,
+                latency_ms=int((time.time() - start_time) * 1000),
+                prompt_tokens=usage.get("prompt_tokens"),
+                completion_tokens=usage.get("completion_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                status="completed",
+                finish_reason=finish_reason
+            )
+            db.add(log)
+            await db.commit()
+            
+            # C7: Calculate cost based on token usage
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            cost = (prompt_tokens * 0.000003 + completion_tokens * 0.000015)
 
-                latency_ms = int((time.time() - start_time) * 1000)
-                logger.info(json.dumps({
-                    "event": "chat_completion",
-                    "provider": provider_id,
-                    "model": model_id,
-                    "latency_ms": latency_ms,
-                    "token_count": usage.get("total_tokens", 0),
-                    "cost": round(cost, 6),
-                    "status": "completed",
-                }))
-                return {"id": msg.id, "role": "assistant", "content": content, "status": "completed", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": usage.get("total_tokens", 0), "cost": round(cost, 6)}}
-            except Exception as e:
-                latency_ms = int((time.time() - start_time) * 1000)
-                logger.error(json.dumps({
-                    "event": "chat_completion_error",
-                    "provider": provider_id,
-                    "model": model_id,
-                    "latency_ms": latency_ms,
-                    "error": str(e),
-                }))
-                log = GenerationLog(
-                    conversation_id=conversation_id,
-                    provider_id=provider_id,
-                    model_id=model_id,
-                    latency_ms=int((time.time() - start_time) * 1000),
-                    status="error",
-                    error_message=str(e)
-                )
-                db.add(log)
-                await db.commit()
-                raise e
+            latency_ms = int((time.time() - start_time) * 1000)
+            logger.info(json.dumps({
+                "event": "chat_completion",
+                "provider": provider_id,
+                "model": model_id,
+                "latency_ms": latency_ms,
+                "token_count": usage.get("total_tokens", 0),
+                "cost": round(cost, 6),
+                "status": "completed",
+            }))
+            return {"id": msg.id, "role": "assistant", "content": content, "status": "completed", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": usage.get("total_tokens", 0), "cost": round(cost, 6)}}
+        except Exception as e:
+            latency_ms = int((time.time() - start_time) * 1000)
+            logger.error(json.dumps({
+                "event": "chat_completion_error",
+                "provider": provider_id,
+                "model": model_id,
+                "latency_ms": latency_ms,
+                "error": str(e),
+            }))
+            log = GenerationLog(
+                conversation_id=conversation_id,
+                provider_id=provider_id,
+                model_id=model_id,
+                latency_ms=int((time.time() - start_time) * 1000),
+                status="error",
+                error_message=str(e)
+            )
+            db.add(log)
+            await db.commit()
+            raise e
 
     @classmethod
     async def chat_stream(
@@ -389,19 +442,74 @@ class ChatService:
             yield f"data: {json.dumps({'type': 'done', 'message_id': msg.id})}\n\n"
             return
 
-        # Auto-detect model if not provided
+        # BUG-03 FIX: Use configured model from WorkerRuntime, not hardcoded fallback
         if not model_id:
-            if provider_id:
-                res = await db.execute(
-                    select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id).limit(1)
-                )
-                row = res.scalars().first()
-                model_id = row
-            if not model_id:
-                # Fallback: try .env via backend config
-                from backend.config import settings
-                model_id = settings.AIC_MODEL_CRAFTER or settings.AIC_MODEL_SPRINTER or "gpt-4o"
+            # BUG-14 FIX: Resolve provider_id first so we can look up ProviderModel
+            if not provider_id:
+                # Auto-detect: find first enabled provider's ID
+                prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+                auto_prov = prov_res.scalars().first()
+                if auto_prov:
+                    provider_id = auto_prov.id
 
+            if provider_id:
+                # Try to find a valid model from the provider's model list
+                res = await db.execute(
+                    select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
+                )
+                all_models = res.scalars().all()
+                if all_models:
+                    # Filter out combo/bad models, pick first valid one
+                    excluded_prefixes = ("combo/", "IAMHC/")
+                    excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+                    valid_models = [
+                        m for m in all_models
+                        if not m.startswith(excluded_prefixes)
+                        and not any(s in m.lower() for s in excluded_substrings)
+                    ]
+                    if not valid_models:
+                        valid_models = [m for m in all_models if not m.startswith("combo/")]
+                    if valid_models:
+                        model_id = valid_models[0]
+            
+            # If still no model, try to get from worker_runtime configuration
+            if not model_id:
+                from backend.models.schema import WorkerRuntime
+                wr_result = await db.execute(
+                    select(WorkerRuntime).where(WorkerRuntime.is_enabled == True).limit(1)
+                )
+                worker_runtime = wr_result.scalars().first()
+                if worker_runtime and worker_runtime.model_id:
+                    model_id = worker_runtime.model_id
+                    if not provider_id and worker_runtime.provider_id:
+                        provider_id = worker_runtime.provider_id
+                        # Re-fetch config with correct provider
+                        config = await cls._get_provider_config(db, provider_id)
+                        if config:
+                            base_url, api_key = config
+                            url = f"{base_url}/chat/completions"
+                            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            
+            # Only use env fallback if absolutely no configuration exists
+            if not model_id:
+                from backend.config import settings
+                model_id = settings.AIC_MODEL_CRAFTER or settings.AIC_MODEL_SPRINTER
+                if not model_id:
+                    error_msg = "No model configured. Please configure a model in Settings > Live Company."
+                    msg.content = error_msg
+                    yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+                    msg.status = "error"
+                    await db.commit()
+                    return
+
+        if not config:
+            error_msg = "No provider configuration found."
+            msg.content = error_msg
+            yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+            msg.status = "error"
+            await db.commit()
+            return
+            
         base_url, api_key = config
         url = f"{base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -420,6 +528,69 @@ class ChatService:
             context_msg = {"role": "system", "content": f"Relevant context:\n{context_str}"}
             messages = [context_msg] + messages
         
+        # BUG-05 FIX + QA-249-R4: Apply token budget to prevent context overflow
+        from backend.services.context_builder import get_context_policy, get_model_context_window, get_context_policy_for_window
+        from backend.services.context_overflow import estimate_tokens
+        
+        # Get the appropriate context policy based on model capabilities
+        policy = get_context_policy("crafter")  # Default policy (60k tokens)
+        metadata_available = False
+        
+        if provider_id and model_id:
+            try:
+                context_window = await get_model_context_window(db, provider_id, model_id)
+                if context_window:
+                    policy = get_context_policy_for_window(context_window)
+                    metadata_available = True
+                    logger.info(f"Using context policy for window {context_window}: max_tokens={policy.max_tokens}")
+                else:
+                    logger.warning(f"Model {model_id} context_window not found in DB, using conservative fallback (60k tokens). Run fetch-models to auto-detect.")
+                    yield f"data: {json.dumps({'type': 'warning', 'message': f'Context window unknown for model {model_id}, using conservative policy (60k tokens). Run fetch-models to update.'})}\n\n"
+            except Exception as e:
+                logger.warning(f"Failed to get model context window, using default policy: {e}")
+                yield f"data: {json.dumps({'type': 'warning', 'message': 'Unable to determine model capacity, using conservative limit (60k tokens)'})}\n\n"
+        
+        # Inject system prompt if needed
+        has_system = any(m.get("role") == "system" for m in messages)
+        if system_prompt and not has_system:
+            messages = [{"role": "system", "content": system_prompt}] + messages
+        
+        # Estimate tokens
+        estimated = estimate_tokens(messages)
+        
+        # QA-249-R5: Removed hard_limit guard at 90% — only truncate at actual max_tokens
+        # Old logic rejected 160k conversations that were still valid within 183k limit
+        
+        # QA-249-R5 FIX: Only truncate if exceeds policy.max_tokens (hard ceiling), not 90%
+        # Previously truncated at 90% (148k) which broke valid 160k conversations
+        if policy.max_tokens > 0 and estimated > policy.max_tokens:
+            logger.warning(f"Message history exceeds max_tokens: {estimated} > {policy.max_tokens}, truncating...")
+            # Keep system messages, drop oldest user/assistant messages
+            system_messages = [m for m in messages if m.get("role") == "system"]
+            other_messages = [m for m in messages if m.get("role") != "system"]
+            
+            # Truncate from the beginning (oldest messages) until under policy.max_tokens
+            while estimate_tokens(system_messages + other_messages) > policy.max_tokens and len(other_messages) > 1:
+                other_messages.pop(0)
+            
+            messages = system_messages + other_messages
+            new_estimated = estimate_tokens(messages)
+            logger.info(f"Truncated to {len(messages)} messages, estimated {new_estimated} tokens")
+            
+            # Verify after truncate
+            if new_estimated > policy.max_tokens:
+                error_msg = f"Cannot truncate context below limit ({new_estimated:,} > {policy.max_tokens:,} tokens). Start a new session."
+                logger.error(error_msg)
+                yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            
+            yield f"data: {json.dumps({'type': 'warning', 'message': f'Context truncated: {estimated:,} → {new_estimated:,} tokens'})}\n\n"
+        
+        # QA-249-R6: Flatten history before sending to upstream (workaround VansRouter bug)
+        from llm.provider import _flatten_history
+        messages = _flatten_history(messages)
+        
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": messages,
@@ -431,13 +602,32 @@ class ChatService:
             payload["max_tokens"] = max_tokens
 
         try:
-            has_system = any(m.get("role") == "system" for m in messages)
-            if system_prompt and not has_system:
-                messages = [{"role": "system", "content": system_prompt}] + messages
-                payload["messages"] = messages
             
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as res:
+                    # QA-249-R5: Handle upstream 400 CONTENT_LENGTH_EXCEEDS_THRESHOLD
+                    if res.status_code == 400:
+                        try:
+                            error_body = await res.aread()
+                            error_json = json.loads(error_body)
+                            error_reason = error_json.get("reason", "")
+                            error_message = error_json.get("message", "")
+                            
+                            # Check if it's a content length threshold error from upstream
+                            if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in error_reason or \
+                               "exceeds threshold" in error_message.lower() or \
+                               "content length" in error_message.lower():
+                                friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
+                                logger.error(f"Upstream content length error: estimated={estimated}, model={model_id}, reason={error_reason}")
+                                msg.status = "error"
+                                msg.content = friendly_msg
+                                await db.commit()
+                                yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
+                                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                                return
+                        except Exception:
+                            pass  # Fall through to generic error handling
+                    
                     res.raise_for_status()
                     async for line in res.aiter_lines():
                         if line.startswith("data: "):
@@ -453,6 +643,39 @@ class ChatService:
                                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content})}\n\n"
                             except Exception:
                                 pass
+
+            # BUG-20: Taste checker + rewrite pass for streaming chat
+            try:
+                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
+                if msg.content and has_ai_slop(msg.content, threshold=1):
+                    taste_meta = scan_summary(msg.content)
+                    logger.info(f"Stream taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
+                    if taste_meta["high"] > 0:
+                        try:
+                            from llm.provider import provider_manager, ModelTier
+                            rewrite_result = await provider_manager.chat(
+                                messages=[
+                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
+                                    {"role": "user", "content": REWRITE_PROMPT + msg.content},
+                                ],
+                                tier=ModelTier.SPRINTER,
+                                temperature=0.3,
+                                max_tokens=len(msg.content) + 200,
+                                purpose="taste_rewrite",
+                            )
+                            rewritten = rewrite_result.get("content", "").strip()
+                            if rewritten and len(rewritten) > 10:
+                                from backend.services.taste_checker import has_ai_slop as check_again
+                                if not check_again(rewritten, threshold=1):
+                                    logger.info("Stream taste rewrite successful — cleaner output")
+                                    msg.content = rewritten
+                                    yield f"data: {json.dumps({'type': 'rewrite', 'content': rewritten})}\n\n"
+                                else:
+                                    logger.info("Stream taste rewrite still has AI-isms — using original")
+                        except Exception as rewrite_err:
+                            logger.debug(f"Stream taste rewrite failed (non-critical): {rewrite_err}")
+            except Exception as taste_err:
+                logger.debug(f"Stream taste checker exception (non-critical): {taste_err}")
 
             msg.status = "completed"
             await db.commit()
@@ -486,7 +709,47 @@ class ChatService:
             yield f"data: {json.dumps({'type': 'cost', 'cost': round(cost, 6), 'estimated_tokens': estimated_completion_tokens})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'message_id': msg.id})}\n\n"
 
+        except httpx.HTTPStatusError as e:
+            # QA-249-R5: Catch HTTPStatusError for 400 responses not caught above
+            if e.response.status_code == 400:
+                try:
+                    error_json = e.response.json()
+                    error_reason = error_json.get("reason", "")
+                    error_message = error_json.get("message", "")
+                    
+                    if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in error_reason or \
+                       "exceeds threshold" in error_message.lower() or \
+                       "content length" in error_message.lower():
+                        friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
+                        logger.error(f"Upstream content length error (HTTPStatusError): estimated={estimated}, model={model_id}")
+                        msg.status = "error"
+                        msg.content = friendly_msg
+                        await db.commit()
+                        yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
+                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        return
+                except Exception:
+                    pass
+            
+            # Generic HTTP error
+            msg.status = "error"
+            await db.commit()
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         except Exception as e:
+            # QA-249-R5: Check if exception message contains threshold indicators
+            error_str = str(e).lower()
+            if "content_length_exceeds_threshold" in error_str or \
+               "exceeds threshold" in error_str or \
+               ("content length" in error_str and "exceed" in error_str):
+                friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
+                logger.error(f"Upstream content length error (Exception): estimated={estimated}, model={model_id}, error={e}")
+                msg.status = "error"
+                msg.content = friendly_msg
+                await db.commit()
+                yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            
             msg.status = "error"
             await db.commit()
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"

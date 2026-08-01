@@ -63,11 +63,20 @@ class MCPClient:
         """Connect via stdio — spawn subprocess."""
         try:
             cmd_parts = self.endpoint.split()
+
+            # Pass environment variables from config if provided
+            env = None
+            if self.config.get("env"):
+                import os
+                env = os.environ.copy()
+                env.update(self.config["env"])
+
             self._process = await asyncio.create_subprocess_exec(
                 *cmd_parts,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
             # Send initialize handshake
             init_result = await self._send_stdio({

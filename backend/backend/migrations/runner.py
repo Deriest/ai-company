@@ -112,6 +112,59 @@ MIGRATIONS = [
         """,
         "down": "SELECT 1",
     },
+    {
+        "version": "013",
+        "name": "deprecated_auto_detect_context",
+        "description": "Deprecated: context_window now auto-detected via fetch-models (QA-249-R4)",
+        "up": "SELECT 1",  # No-op, auto-detection handles this
+        "down": "SELECT 1",
+    },
+    {
+        "version": "014",
+        "name": "add_context_cache_tracking",
+        "description": "Add context_source and context_cached_at to provider_models for Hermes-style waterfall detection (QA-2411)",
+        "up": """
+            ALTER TABLE provider_models ADD COLUMN context_source VARCHAR;
+            ALTER TABLE provider_models ADD COLUMN context_cached_at TIMESTAMP;
+        """,
+        "down": "SELECT 1",
+    },
+    {
+        "version": "015",
+        "name": "add_user_id_to_conversations",
+        "description": "Add user_id column to conversations table for multi-user support (QA-2419-R9)",
+        "up": "ALTER TABLE conversations ADD COLUMN user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL",
+        "down": "SELECT 1",
+    },
+    {
+        "version": "016",
+        "name": "ensure_provider_models_table",
+        "description": "Ensure provider_models table exists with all columns (QA-2419-R9)",
+        "up": """
+            CREATE TABLE IF NOT EXISTS provider_models (
+                id VARCHAR PRIMARY KEY,
+                provider_id VARCHAR NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+                model_id VARCHAR NOT NULL,
+                display_name VARCHAR NOT NULL,
+                owned_by VARCHAR,
+                context_window INTEGER,
+                context_source VARCHAR,
+                context_cached_at TIMESTAMP,
+                max_output_tokens INTEGER,
+                supports_vision BOOLEAN DEFAULT 0,
+                supports_tool_calling BOOLEAN DEFAULT 0,
+                supports_streaming BOOLEAN DEFAULT 1,
+                supports_json_mode BOOLEAN DEFAULT 0,
+                supports_reasoning BOOLEAN DEFAULT 0,
+                supports_function_calling BOOLEAN DEFAULT 0,
+                supports_embeddings BOOLEAN DEFAULT 0,
+                raw_metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """,
+        "down": "SELECT 1",
+    },
 ]
 
 

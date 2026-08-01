@@ -60,6 +60,26 @@ DATABASE_KEYWORDS = [
     "database", "schema", "migration", "sql", "query", "index",
     "foreign key", "constraint", "orm", "sequelize", "prisma",
 ]
+INFRASTRUCTURE_KEYWORDS = [
+    "infrastructure", "deploy", "docker", "kubernetes", "k8s", "ci/cd",
+    "pipeline", "server", "hosting", "scaling", "load balancer", "nginx",
+    "terraform", "ansible", "cloud", "aws", "gcp", "azure",
+]
+INTEGRATION_KEYWORDS = [
+    "integration", "webhook", "api integration", "message queue",
+    "service-to-service", "middleware", "grpc", "rest api", "sdk",
+    "third-party", "external api", "connector",
+]
+RESEARCH_KEYWORDS = [
+    "research", "analyze", "investigate", "explore", "evaluate",
+    "compare", "benchmark", "feasibility", "proof of concept", "poc",
+    "architecture decision", "adr", "trade-off",
+]
+PERFORMANCE_KEYWORDS = [
+    "performance", "optimize", "bottleneck", "latency", "throughput",
+    "profiling", "load test", "stress test", "cache", "caching",
+    "memory leak", "cpu usage", "response time",
+]
 
 GUARDRAIL_PATTERNS = {
     "security": {
@@ -82,6 +102,34 @@ GUARDRAIL_PATTERNS = {
         "min_risk": "high",
         "required_worker": "architect",
         "rule": "System-wide architecture change detected — minimum FULL level required",
+    },
+    "infrastructure": {
+        "pattern": r"\b(deploy|docker|kubernetes|k8s|ci\/cd|pipeline|server|hosting|scaling|load balancer|nginx|terraform|ansible|cloud|aws|gcp|azure|infrastructure)\b",
+        "min_level": ExecutionLevel.EXTENDED,
+        "min_risk": "medium",
+        "required_worker": "flint",
+        "rule": "Infrastructure/deployment task detected — flint required",
+    },
+    "integration": {
+        "pattern": r"\b(integration|webhook|api integration|message queue|service-to-service|middleware|grpc|rest api|sdk|third-party|external api|connector)\b",
+        "min_level": ExecutionLevel.EXTENDED,
+        "min_risk": "medium",
+        "required_worker": "nexus",
+        "rule": "Integration task detected — nexus required",
+    },
+    "research": {
+        "pattern": r"\b(research|analyze|investigate|explore|evaluate|compare|benchmark|feasibility|proof of concept|poc|architecture decision|adr|trade-off)\b",
+        "min_level": ExecutionLevel.STANDARD,
+        "min_risk": "low",
+        "required_worker": "research",
+        "rule": "Research/analysis task detected — research worker required",
+    },
+    "performance": {
+        "pattern": r"\b(performance|optimize|bottleneck|latency|throughput|profiling|load test|stress test|cache|caching|memory leak|cpu usage|response time)\b",
+        "min_level": ExecutionLevel.EXTENDED,
+        "min_risk": "medium",
+        "required_worker": "performance",
+        "rule": "Performance optimization task detected — performance worker required",
     },
 }
 
@@ -195,27 +243,31 @@ def perform_smart_triage(
     elif final_level == ExecutionLevel.STANDARD:
         if not selected_workers:
             if "frontend" in content or "css" in content or "ui" in content:
-                selected_workers.extend(["frontend", "qa"])
+                selected_workers.extend(["frontend", "qa", "performance"])
+            elif "backend" in content or "api" in content or "py" in content:
+                selected_workers.extend(["backend", "qa", "performance"])
             else:
-                selected_workers.extend(["backend", "qa"])
-        required_verification = ["unit", "integration"]
+                selected_workers.extend(["backend", "frontend", "qa"])
+        required_verification = ["unit", "integration", "performance"]
         skip_phases = {
             "discovery": "Skipped in STANDARD mode",
-            "planning": "Skipped in STANDARD mode unless subtask decomposition required",
         }
 
     elif final_level == ExecutionLevel.EXTENDED:
         if not selected_workers:
-            selected_workers = ["backend", "frontend", "qa"]
-        required_verification = ["unit", "integration", "security"]
+            selected_workers = ["backend", "frontend", "database", "security", "qa", "performance"]
+        required_verification = ["unit", "integration", "security", "performance"]
         skip_phases = {
             "discovery": "Skipped in EXTENDED mode — proceeding directly to investigate",
         }
 
     else:  # FULL
         if not selected_workers:
-            selected_workers = ["architect", "backend", "frontend", "qa", "documentation"]
-        required_verification = ["unit", "integration", "security", "closeout_gate"]
+            selected_workers = [
+                "architect", "backend", "frontend", "database",
+                "security", "qa", "performance", "documentation", "rex",
+            ]
+        required_verification = ["unit", "integration", "security", "performance", "closeout_gate"]
         skip_phases = {}
 
     # Deduplicate selected_workers preserving order

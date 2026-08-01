@@ -61,7 +61,7 @@ export function App() {
     onOpenPalette: useCallback(() => paletteRef.current?.(true), []),
     restoreRef: { current: undefined },
   });
-  paletteRef.current = boot.setPalette;
+  paletteRef.current = setPaletteOpen;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -193,6 +193,8 @@ export function App() {
         onClose={() => setPaletteOpen(false)}
         onNavigate={(v) => setView(v as View)}
         onNewSession={() => setShowTerminal(true)}
+        onToggleTerminal={() => setShowTerminal(prev => !prev)}
+        onToggleFileTree={() => setView("home")}
       />
     </>
   );

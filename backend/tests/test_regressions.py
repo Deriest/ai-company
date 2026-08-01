@@ -56,7 +56,13 @@ async def test_timestamp_migration_repairs_legacy_null_messages(monkeypatch):
             await connection.execute(text("INSERT INTO conversations VALUES (NULL, NULL)"))
 
         monkeypatch.setattr(migration_runner, "engine", test_engine)
-        monkeypatch.setattr(migration_runner, "MIGRATIONS", [migration_runner.MIGRATIONS[-1]])
+        # Find the timestamp repair migration by name (not by index, as migrations may be added)
+        timestamp_migration = next(
+            (m for m in migration_runner.MIGRATIONS if m["name"] == "repair_conversation_timestamps"),
+            None
+        )
+        assert timestamp_migration is not None, "repair_conversation_timestamps migration not found"
+        monkeypatch.setattr(migration_runner, "MIGRATIONS", [timestamp_migration])
         await migration_runner.run_migrations()
 
         async with test_engine.connect() as connection:
