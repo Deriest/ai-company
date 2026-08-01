@@ -36,6 +36,7 @@ export function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
+  const [showFileTree, setShowFileTree] = useState(true);
   const paletteRef = useRef<React.Dispatch<React.SetStateAction<boolean>>>(undefined);
 
   // Load profile on mount
@@ -126,7 +127,7 @@ export function App() {
       case "home":
       case "welcome":
       case "overview":
-        return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} />;
+        return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
       case "hermes":
       case "chat":
         return <ChatView health={boot.health} />;
@@ -160,7 +161,7 @@ export function App() {
       case "observability":
         return <ObservabilityView />;
       default:
-        return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} />;
+        return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
     }
   };
 
@@ -194,7 +195,7 @@ export function App() {
         onNavigate={(v) => setView(v as View)}
         onNewSession={() => setShowTerminal(true)}
         onToggleTerminal={() => setShowTerminal(prev => !prev)}
-        onToggleFileTree={() => setView("home")}
+        onToggleFileTree={() => setShowFileTree(p => !p)}
       />
     </>
   );

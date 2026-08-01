@@ -629,6 +629,10 @@ class ChatService:
                             pass  # Fall through to generic error handling
                     
                     res.raise_for_status()
+
+                    # POLISH-1 FIX: Buffer all LLM chunks BEFORE streaming to frontend.
+                    # This prevents slop text from flashing in the UI before taste rewrite.
+                    buffered_content = ""
                     async for line in res.aiter_lines():
                         if line.startswith("data: "):
                             data_str = line[6:].strip()
@@ -639,12 +643,13 @@ class ChatService:
                                 delta = chunk_json.get("choices", [{}])[0].get("delta", {})
                                 chunk_content = delta.get("content", "")
                                 if chunk_content:
-                                    msg.content += chunk_content
-                                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content})}\n\n"
+                                    buffered_content += chunk_content
                             except Exception:
                                 pass
 
-            # BUG-20: Taste checker + rewrite pass for streaming chat
+            msg.content = buffered_content
+
+            # POLISH-1: Taste check + rewrite BEFORE streaming to frontend
             try:
                 from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
                 if msg.content and has_ai_slop(msg.content, threshold=1):
@@ -669,13 +674,18 @@ class ChatService:
                                 if not check_again(rewritten, threshold=1):
                                     logger.info("Stream taste rewrite successful — cleaner output")
                                     msg.content = rewritten
-                                    yield f"data: {json.dumps({'type': 'rewrite', 'content': rewritten})}\n\n"
                                 else:
                                     logger.info("Stream taste rewrite still has AI-isms — using original")
                         except Exception as rewrite_err:
                             logger.debug(f"Stream taste rewrite failed (non-critical): {rewrite_err}")
             except Exception as taste_err:
                 logger.debug(f"Stream taste checker exception (non-critical): {taste_err}")
+
+            # POLISH-1: Now stream the CLEAN content to frontend (no slop flash)
+            _stream_chunk_size = 20
+            for _i in range(0, len(msg.content), _stream_chunk_size):
+                _chunk = msg.content[_i:_i + _stream_chunk_size]
+                yield f"data: {json.dumps({'type': 'chunk', 'content': _chunk})}\n\n"
 
             msg.status = "completed"
             await db.commit()

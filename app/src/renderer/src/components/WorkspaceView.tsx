@@ -20,13 +20,16 @@ interface WorkspaceViewProps {
   onNavigate?: (view: string) => void
   projectRoot?: string | null
   projectName?: string | null
+  showFileTree?: boolean
+  onToggleFileTree?: () => void
 }
 
 // ── Main Component ─────────────────────────────────────
 
-export function WorkspaceView({ onNavigate, projectRoot, projectName }: WorkspaceViewProps) {
+export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTree = true, onToggleFileTree }: WorkspaceViewProps) {
   const [error, setError] = useState('')
   const [workers, setWorkers] = useState<{ id: string; state: string; task: string }[]>([])
+  const [totalWorkforce, setTotalWorkforce] = useState(0)
   const [activeMissions, setActiveMissions] = useState(0)
   const [totalTokens, setTotalTokens] = useState(0)
   const [totalCost, setTotalCost] = useState(0)
@@ -36,10 +39,11 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
     try {
       setLoading(true)
 
-      const [tasksRes, workersRes, usageRes] = await Promise.allSettled([
+      const [tasksRes, workersRes, usageRes, dashboardRes] = await Promise.allSettled([
         apiClient.get<any[]>('/tasks?limit=50'),
         apiClient.get<any[]>('/runtime/workers'),
         apiClient.get<any>('/api/usage/stats?days=30'),
+        apiClient.get<any>('/dashboard'),
       ])
 
       // Process tasks
@@ -54,6 +58,13 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
       const metricsMap: Record<string, any> = {}
       for (const w of runtimeWorkers) {
         metricsMap[w.role] = w.metrics || {}
+      }
+
+      // BUG-22 FIX: Use dashboard worker_count (AGENT_REGISTRY = 15) for total workforce
+      if (dashboardRes.status === 'fulfilled' && dashboardRes.value) {
+        setTotalWorkforce(dashboardRes.value.workers || runtimeWorkers.length)
+      } else {
+        setTotalWorkforce(runtimeWorkers.length)
       }
 
       // Map workers to states
@@ -119,7 +130,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
 
       <PageHeader
         title="AIC Engineering Office"
-        subtitle={loading ? "Loading office…" : `${workers.length} workers · ${workingCount} active · ${activeMissions} missions`}
+        subtitle={loading ? "Loading office…" : `${totalWorkforce} workers · ${workingCount} active · ${activeMissions} missions`}
         actions={
           <button
             onClick={() => onNavigate?.('hermes')}
@@ -178,13 +189,20 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName }: Workspac
           </Card>
         </div>
 
-        {/* Project File Tree */}
-        {projectRoot && (
+        {/* Project File Tree — POLISH-2: conditionally rendered via toggle */}
+        {projectRoot && showFileTree && (
           <Card className="overflow-hidden">
             <div className="flex items-center gap-2 border-b border-border px-4 py-2">
               <FolderOpen className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold">Project Files</span>
               <span className="text-[10px] text-muted-foreground truncate">— {projectName || projectRoot}</span>
+              <button
+                onClick={onToggleFileTree}
+                className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                title="Hide file tree"
+              >
+                <X className="size-3.5" />
+              </button>
             </div>
             <div className="max-h-64 overflow-y-auto scroll-thin">
               <FileTree rootPath={projectRoot} onFileSelect={(path) => window.aic?.openPath?.(path)} />

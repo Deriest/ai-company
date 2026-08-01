@@ -1,28 +1,21 @@
 {
-  "version": "2.4.20",
+  "version": "2.4.21",
   "channel": "stable",
-  "releaseDate": "2026-08-01",
-  "releaseNotes": "v2.4.20: QA-2419 Round 9 — Green test suite + release polish. Schema drift fix: migration 015 (user_id on conversations) + migration 016 (provider_models idempotent create). Test fixtures corrected to use StorageBase + Base for full schema coverage (6 test files). Functional fixes: timestamp migration test now finds correct migration by name; chat tests mock _get_provider_config for graceful fallback. Port-hopping cleanup: smart port_manager with health-check ownership detection, lock file ($AIC_DATA_DIR/backend.port), stale process detection, and signal-based cleanup. Health endpoint now reports data_dir + pid for backend identity verification. Pytest: 23 failed → 0 failed, 636 passed. No regressions (BUG-01..20 verified).",
+  "releaseDate": "2026-08-02",
+  "releaseNotes": "v2.4.21: QA-2420 Round 10 — Final polish to 100/100. BUG-21: Removed stale win32 entry (2.4.9) from latest.json. BUG-22: Office header now shows 15 workers (AGENT_REGISTRY) consistent with Live Company + dashboard. POLISH-1: Chat streaming now buffers LLM output, runs taste check + rewrite, then streams clean content — no slop flash. POLISH-2: Palette 'Toggle File Tree' now actually toggles the file tree panel visibility. Pytest: 636 passed, 0 regressions.",
   "platforms": {
-    "win32": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.9.exe",
-      "sha256": "dadb51ef00097c62f194caae3cccbe8982ed3007a552e56e0a09878986505270",
-      "size": 134315466,
-      "filename": "AIC-ADE-Setup-2.4.9.exe",
-      "type": "nsis"
-    },
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.20-linux-x86_64.AppImage",
-      "sha256": "3c6757bf900144c4c16cec7a9e035968454cf4987d2cb50bba85d2d38d5a0b52",
-      "size": 182646678,
-      "filename": "AIC-ADE-2.4.20-linux-x86_64.AppImage",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.21-linux-x86_64.AppImage",
+      "sha256": "9c734a386849b144c2d1871ebb2b418db991947b8dde532e8375ce2d1d9d7483",
+      "size": 182651108,
+      "filename": "AIC-ADE-2.4.21-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.20-linux-amd64.deb",
-      "sha256": "ae2f67890ace3920c0de47354ae627dc51e2969cbf1ef253c2de5dd01e4b60d9",
-      "size": 129509082,
-      "filename": "AIC-ADE-2.4.20-linux-amd64.deb",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.21-linux-amd64.deb",
+      "sha256": "84df0c8e9d378249d1ec53b2948762b4b9171fa9591499d5d8d8216f5a6f6c94",
+      "size": 129534074,
+      "filename": "AIC-ADE-2.4.21-linux-amd64.deb",
       "type": "deb"
     }
   }
