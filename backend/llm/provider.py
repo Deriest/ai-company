@@ -712,12 +712,17 @@ class ProviderManager:
         the first registered provider with a non-empty key.
         """
         active = self.get_active()
-        if active is not None and (active.config.api_key or "").strip():
+        # Keep compatibility with lightweight provider adapters/stubs that do
+        # not expose the full ProviderConfig object. They are still valid
+        # providers; only full providers participate in API-key filtering.
+        active_config = getattr(active, "config", None) if active is not None else None
+        if active is not None and (active_config is None or (getattr(active_config, "api_key", "") or "").strip()):
             return active
         for name, provider in self._providers.items():
             if name == self._active:
                 continue
-            if (provider.config.api_key or "").strip():
+            provider_config = getattr(provider, "config", None)
+            if provider_config is not None and (getattr(provider_config, "api_key", "") or "").strip():
                 logger.info(
                     f"Active provider '{self._active}' has no usable API key — "
                     f"using '{name}' instead"
