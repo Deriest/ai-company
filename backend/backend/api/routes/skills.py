@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import json
+import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.session import get_db
@@ -16,6 +17,11 @@ from storage.models import SkillEntry
 from sqlalchemy import select
 
 router = APIRouter()
+
+
+def _installed_skill_root() -> Path:
+    base = os.environ.get("AIC_DATA_DIR", "").strip()
+    return Path(base) / "skills" / "github" if base else Path(__file__).resolve().parents[3] / "data" / "skills" / "github"
 
 
 @router.post("/skills/install-github")
@@ -64,6 +70,12 @@ async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)
             parsed_name = str(metadata.get("name") or heading or skill_file.parent.name).strip()
             skill_id = re.sub(r"[^a-z0-9-]+", "-", parsed_name.lower()).strip("-")[:80]
             if not skill_id: continue
+            # Preserve the complete skill package: scripts, references,
+            # templates, examples, assets, plugin metadata, and SKILL.md.
+            package_dir = _installed_skill_root() / skill_id
+            package_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(skill_file.parent, package_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", "__pycache__", "node_modules"))
+            instructions = f"{instructions}\n\n[Skill package resources: {package_dir}]"
             result = await db.execute(select(SkillEntry).where(SkillEntry.skill_id == skill_id))
             entry = result.scalar_one_or_none()
             if entry:
@@ -156,6 +168,7 @@ async def delete_skill(skill_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Cannot delete built-in skills")
     await db.delete(skill)
     await db.commit()
+    shutil.rmtree(_installed_skill_root() / skill_id, ignore_errors=True)
     return {"status": "ok"}
 
 
