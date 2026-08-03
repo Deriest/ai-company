@@ -5,6 +5,11 @@ RUN tests, SEARCH codebases — not just chat.
 """
 import asyncio
 import json
+import base64
+import subprocess
+import tempfile
+import zipfile
+from pathlib import Path
 import logging
 from typing import AsyncGenerator, Optional
 from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_tools_for_worker, check_permission
@@ -71,6 +76,32 @@ class AgentRunner:
     def __init__(self, workspace_root: str = "."):
         self.executor = WorkerToolExecutor(workspace_root)
         self.context_builder = ContextBuilder(workspace_root)
+
+    @staticmethod
+    def _extract_attachment_text(attachment: dict) -> str:
+        """Extract local document text so non-image attachments are readable."""
+        mime = str(attachment.get("mime_type", "")).lower()
+        name = str(attachment.get("name", "attachment"))
+        raw_url = str(attachment.get("data_url", ""))
+        if "," not in raw_url:
+            return ""
+        try:
+            data = base64.b64decode(raw_url.split(",", 1)[1])
+            if mime.startswith("text/") or Path(name).suffix.lower() in {".md", ".txt", ".csv", ".json", ".py", ".ts", ".tsx", ".js"}:
+                return data.decode("utf-8", errors="replace")[:200_000]
+            if mime == "application/pdf" or Path(name).suffix.lower() == ".pdf":
+                with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+                    f.write(data); f.flush()
+                    result = subprocess.run(["pdftotext", f.name, "-"], capture_output=True, text=True, timeout=30)
+                    return result.stdout[:200_000] if result.returncode == 0 else ""
+            if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or Path(name).suffix.lower() == ".docx":
+                with zipfile.ZipFile(__import__("io").BytesIO(data)) as archive:
+                    xml = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+                import re
+                return re.sub(r"<[^>]+>", " ", xml)[:200_000]
+        except (OSError, ValueError, zipfile.BadZipFile, subprocess.SubprocessError):
+            return ""
+        return ""
     
     async def run_agent(
         self,
@@ -127,6 +158,10 @@ class AgentRunner:
                 data_url = attachment.get("data_url", "")
                 if attachment.get("mime_type", "").startswith("image/") and data_url:
                     parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                else:
+                    extracted = self._extract_attachment_text(attachment)
+                    if extracted:
+                        parts.append({"type": "text", "text": f"\n[Attached document: {attachment.get('name', 'file')}]\n{extracted}"})
             messages.append({"role": "user", "content": parts})
         else:
             messages.append({"role": "user", "content": prompt})
