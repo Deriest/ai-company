@@ -1034,14 +1034,15 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
 
           {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
           <div className="border-t border-border px-4 py-3 shrink-0">
-            <div className="mx-auto max-w-5xl">
-              {/* Toolbar wraps on narrow windows instead of forcing horizontal scroll. */}
-              <div className="mb-2 flex flex-wrap items-center gap-2 pb-0.5">
+            <div className="w-full max-w-none">
+              {/* Keep the complete toolbar on one horizontal row. On narrow
+                  windows the row scrolls left/right instead of dropping tiers. */}
+              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden pb-1">
                 {/* BUILD | PLAN */}
                 <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/50 p-0.5">
                   {(['build', 'plan'] as AgentMode[]).map(mode => (
                     <button key={mode} onClick={() => setAgentMode(mode)}
-                      className={cn("rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide transition-colors",
+                      className={cn("rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide transition-colors",
                         agentMode === mode ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
                       )}>
                       {mode}
@@ -1051,14 +1052,14 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
 
                 {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-[10px] font-semibold text-primary">Context</span>
-                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                  <span className="text-[8px] font-semibold text-primary">Context</span>
+                  <span className="font-mono text-[8px] tabular-nums text-muted-foreground whitespace-nowrap">
                     {totalTokens > 0 ? totalTokens.toLocaleString() : '?'}{contextWindow > 0 ? ` / ${contextWindow.toLocaleString()}` : ''}
                   </span>
                 </div>
 
                 {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
-                <div className="order-last h-1.5 min-w-[120px] flex-1 basis-full overflow-hidden rounded-full bg-muted/40 sm:order-none sm:min-w-6 sm:basis-auto">
+                <div className="h-1 min-w-3 flex-1 overflow-hidden rounded-full bg-muted/40">
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 
@@ -1067,17 +1068,17 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                   const sel = tiers[tier]
                   const providerModels = providers.find(p => p.name === sel.provider)?.models || []
                   return (
-                    <div key={tier} className="flex shrink-0 items-center gap-1">
-                      <span className={cn("text-[8px] font-bold tracking-wide", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
+                    <div key={tier} className="flex min-w-0 shrink items-center gap-0.5">
+                      <span className={cn("text-[7px] font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
                       <select value={sel.provider} onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
                         aria-label={`${tier} provider`}
-                        className="max-w-20 cursor-pointer rounded border border-border/50 bg-card/60 px-1 py-0.5 text-[9px] outline-none focus:border-primary/40">
+                        className="w-12 min-w-0 cursor-pointer rounded border border-border/50 bg-card/60 px-0.5 py-0.5 text-[8px] outline-none focus:border-primary/40">
                         <option value="">—</option>
                         {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                       <select value={sel.model} onChange={e => handleTierChange(tier, { model: e.target.value })}
                         aria-label={`${tier} model`}
-                        className="max-w-28 cursor-pointer rounded border border-border/50 bg-card/60 px-1 py-0.5 font-mono text-[9px] outline-none focus:border-primary/40">
+                        className="w-16 min-w-0 cursor-pointer rounded border border-border/50 bg-card/60 px-0.5 py-0.5 font-mono text-[8px] outline-none focus:border-primary/40">
                         <option value="">—</option>
                         {providerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
                       </select>
@@ -1087,11 +1088,11 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
 
                 {/* Fetch / Compact */}
                 <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
-                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
                 </button>
                 <button onClick={() => void handleCompact()} disabled={compacting || sending}
-                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
                 </button>
               </div>

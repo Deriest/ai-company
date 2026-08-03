@@ -141,7 +141,7 @@ export function SkillsView() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Install Skill from GitHub</h3>
-                <p className="text-[11px] text-muted-foreground">Repository must contain a public SKILL.md.</p>
+                <p className="text-[11px] text-muted-foreground">Supports single skills or packages such as github.com/org/repo/tree/main/skills.</p>
               </div>
               <button onClick={() => setShowGithubInstall(false)} aria-label="Close GitHub installer"><X className="size-4 text-muted-foreground" /></button>
             </div>

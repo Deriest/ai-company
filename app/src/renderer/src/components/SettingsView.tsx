@@ -108,12 +108,15 @@ function EngineConfigSection() {
   const [thinkerProvider, setThinkerProvider] = useState<string>('')
   const [crafterProvider, setCrafterProvider] = useState<string>('')
   const [sprinterProvider, setSprinterProvider] = useState<string>('')
+  const [visionProvider, setVisionProvider] = useState<string>('')
   const [thinkerModels, setThinkerModels] = useState<ModelInfo[]>([])
   const [crafterModels, setCrafterModels] = useState<ModelInfo[]>([])
   const [sprinterModels, setSprinterModels] = useState<ModelInfo[]>([])
+  const [visionModels, setVisionModels] = useState<ModelInfo[]>([])
   const [thinkerModel, setThinkerModel] = useState<string>('')
   const [crafterModel, setCrafterModel] = useState<string>('')
   const [sprinterModel, setSprinterModel] = useState<string>('')
+  const [visionModel, setVisionModel] = useState<string>('')
 
   // BUG-16 FIX: Filter out known-bad models from dropdowns
   const filterValidModels = (models: ModelInfo[]) => models.filter(m => {
@@ -134,31 +137,36 @@ function EngineConfigSection() {
       setProviders(pList)
 
       // Restore per-tier provider selections from localStorage first
-      let tp: string, cp: string, sp: string;
+      let tp: string, cp: string, sp: string, vp: string;
       try {
         const saved = JSON.parse(localStorage.getItem('aic-ade-engine-tiers') || '{}')
         tp = saved.thinkerProvider || envCfg.provider_name
         cp = saved.crafterProvider || envCfg.provider_name
         sp = saved.sprinterProvider || envCfg.provider_name
+        vp = saved.visionProvider || envCfg.provider_name
       } catch {
-        tp = cp = sp = envCfg.provider_name
+        tp = cp = sp = vp = envCfg.provider_name
       }
 
       setThinkerProvider(tp)
       setCrafterProvider(cp)
       setSprinterProvider(sp)
+      setVisionProvider(vp)
 
       // Load models per restored provider — ensures isolation
       const tP = pList.find(p => p.name === tp)
       const cP = pList.find(p => p.name === cp)
       const sP = pList.find(p => p.name === sp)
+      const vP = pList.find(p => p.name === vp)
       setThinkerModels(tP?.models || [])
       setCrafterModels(cP?.models || [])
       setSprinterModels(sP?.models || [])
+      setVisionModels((vP?.models || []).filter(m => m.capabilities.vision))
 
       setThinkerModel(envCfg.thinker || '')
       setCrafterModel(envCfg.crafter || '')
       setSprinterModel(envCfg.sprinter || '')
+      setVisionModel(envCfg.vision || '')
 
       // Override with IPC-persisted config (disk, survives app restart)
       try {
@@ -168,16 +176,20 @@ function EngineConfigSection() {
             if (ipcCfg.thinkerProvider) setThinkerProvider(ipcCfg.thinkerProvider)
             if (ipcCfg.crafterProvider) setCrafterProvider(ipcCfg.crafterProvider)
             if (ipcCfg.sprinterProvider) setSprinterProvider(ipcCfg.sprinterProvider)
+            if (ipcCfg.visionProvider) setVisionProvider(ipcCfg.visionProvider)
             if (ipcCfg.thinkerModel) setThinkerModel(ipcCfg.thinkerModel)
             if (ipcCfg.crafterModel) setCrafterModel(ipcCfg.crafterModel)
             if (ipcCfg.sprinterModel) setSprinterModel(ipcCfg.sprinterModel)
+            if (ipcCfg.visionModel) setVisionModel(ipcCfg.visionModel)
             // Re-resolve models from the IPC provider names
             const tP2 = pList.find(p => p.name === ipcCfg.thinkerProvider)
             const cP2 = pList.find(p => p.name === ipcCfg.crafterProvider)
             const sP2 = pList.find(p => p.name === ipcCfg.sprinterProvider)
+            const vP2 = pList.find(p => p.name === ipcCfg.visionProvider)
             if (tP2) setThinkerModels(tP2.models || [])
             if (cP2) setCrafterModels(cP2.models || [])
             if (sP2) setSprinterModels(sP2.models || [])
+            if (vP2) setVisionModels((vP2.models || []).filter(m => m.capabilities.vision))
           }
         }
       } catch (e) {
@@ -191,13 +203,14 @@ function EngineConfigSection() {
 
   useEffect(() => { void loadEngineConfig() }, [loadEngineConfig])
 
-  const handleTierProviderChange = useCallback((tier: 'thinker' | 'crafter' | 'sprinter', pName: string) => {
+  const handleTierProviderChange = useCallback((tier: 'thinker' | 'crafter' | 'sprinter' | 'vision', pName: string) => {
     const p = providers.find(x => x.name === pName)
     if (!p) return
     const pModels = p.models || []
     if (tier === 'thinker') { setThinkerProvider(pName); setThinkerModels(pModels); setThinkerModel('') }
     else if (tier === 'crafter') { setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel('') }
     else if (tier === 'sprinter') { setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel('') }
+    else if (tier === 'vision') { setVisionProvider(pName); setVisionModels(pModels.filter(m => m.capabilities.vision)); setVisionModel('') }
   }, [providers])
 
   const fetchAllModels = useCallback(async () => {
@@ -221,19 +234,22 @@ function EngineConfigSection() {
       const tp = pList.find(p => p.name === thinkerProvider)
       const cp = pList.find(p => p.name === crafterProvider)
       const sp = pList.find(p => p.name === sprinterProvider)
+      const vp = pList.find(p => p.name === visionProvider)
       if (tp) setThinkerModels(tp.models || [])
       if (cp) setCrafterModels(cp.models || [])
       if (sp) setSprinterModels(sp.models || [])
+      if (vp) setVisionModels((vp.models || []).filter(m => m.capabilities.vision))
 
       // Persist fresh provider selections
       localStorage.setItem('aic-ade-engine-tiers', JSON.stringify({
         thinkerProvider,
         crafterProvider,
         sprinterProvider,
+        visionProvider,
       }))
     } catch (e) { console.error('Fetch models failed', e) }
     setLoading(false)
-  }, [thinkerProvider, crafterProvider, sprinterProvider])
+  }, [thinkerProvider, crafterProvider, sprinterProvider, visionProvider])
 
   const handleSave = async () => {
     setSaving(true)
@@ -244,6 +260,7 @@ function EngineConfigSection() {
         thinkerProvider,
         crafterProvider,
         sprinterProvider,
+        visionProvider,
       }))
 
       const p = providers.find(x => x.name === thinkerProvider) || providers[0]
@@ -254,6 +271,7 @@ function EngineConfigSection() {
         thinker: thinkerModel,
         crafter: crafterModel,
         sprinter: sprinterModel,
+        vision: visionModel,
       })
       setMsg('Engine updated successfully!')
       setTimeout(() => setMsg(''), 3000)
@@ -264,9 +282,11 @@ function EngineConfigSection() {
           thinkerProvider,
           crafterProvider,
           sprinterProvider,
+          visionProvider,
           thinkerModel,
           crafterModel,
           sprinterModel,
+          visionModel,
         })
       }
     } catch (e: any) {
@@ -347,6 +367,21 @@ function EngineConfigSection() {
               {filterValidModels(sprinterModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
+        </div>
+        {/* VISION */}
+        <div className="rounded-lg border border-info/40 bg-info/5 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-info w-24">Vision</span>
+            <select value={visionProvider} onChange={e => handleTierProviderChange('vision', e.target.value)} className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Select Provider...</option>
+              {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select value={visionModel} onChange={e => setVisionModel(e.target.value)} className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono">
+              <option value="">Select Vision Model...</option>
+              {filterValidModels(visionModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Only models marked as vision-capable are shown. Image attachments use this tier exclusively.</p>
         </div>
       </div>
     </Card>

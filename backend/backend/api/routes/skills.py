@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.session import get_db
@@ -19,58 +20,61 @@ router = APIRouter()
 
 @router.post("/skills/install-github")
 async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)):
-    """Install a skill from a public GitHub repository containing SKILL.md."""
-    repo_url = str(payload.get("repo_url", "")).strip()
-    skill_path = str(payload.get("skill_path", "")).strip().strip("/")
-    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", repo_url):
-        raise HTTPException(status_code=400, detail="Use a public GitHub repository URL like https://github.com/org/repo")
-
+    """Install one skill or a package of skills from a public GitHub repo."""
+    requested = str(payload.get("repo_url", "")).strip().rstrip("/")
+    path_hint = str(payload.get("skill_path", "")).strip().strip("/")
+    match = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/tree/[^/]+(?:/(.*))?)?", requested)
+    if not match:
+        raise HTTPException(status_code=400, detail="Use a GitHub repository or folder URL")
+    repo_url = f"https://github.com/{match.group(1)}/{match.group(2)}.git"
+    skill_path = path_hint or (match.group(3) or "")
     temp_dir = Path(tempfile.mkdtemp(prefix="aic-skill-"))
     try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")],
-            capture_output=True, text=True, timeout=120,
-        )
+        result = subprocess.run(["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise HTTPException(status_code=400, detail=f"GitHub clone failed: {result.stderr[-300:]}")
         root = (temp_dir / "repo" / skill_path).resolve()
         repo_root = (temp_dir / "repo").resolve()
         if repo_root not in root.parents and root != repo_root:
             raise HTTPException(status_code=400, detail="Invalid skill path")
-        skill_file = root / "SKILL.md"
-        if not skill_file.exists():
-            candidates = list(root.rglob("SKILL.md"))
-            if len(candidates) != 1:
-                raise HTTPException(status_code=400, detail="Repository must contain one SKILL.md or specify skill_path")
-            skill_file = candidates[0]
-        raw = skill_file.read_text(encoding="utf-8")
-        front = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.S)
-        metadata = {}
-        if front:
-            for line in front.group(1).splitlines():
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    metadata[key.strip()] = value.strip().strip("'\"")
-            instructions = raw[front.end():].strip()
-        else:
-            instructions = raw.strip()
-        skill_id = re.sub(r"[^a-z0-9-]+", "-", metadata.get("name", skill_file.parent.name).lower()).strip("-")[:80]
-        if not skill_id:
-            raise HTTPException(status_code=400, detail="SKILL.md has no usable name")
-        existing = await db.execute(select(SkillEntry).where(SkillEntry.skill_id == skill_id))
-        entry = existing.scalar_one_or_none()
-        if entry:
-            entry.name = metadata.get("name", skill_id)
-            entry.description = metadata.get("description", "")
-            entry.instructions = instructions
-            entry.source = "github"
-            entry.category = metadata.get("category", "github")
-        else:
-            entry = SkillEntry(skill_id=skill_id, name=metadata.get("name", skill_id), description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True)
-            db.add(entry)
+        files = []
+        for name in ("SKILL.md", "skill.md", "skill.yaml", "skill.yml", "skill.json"):
+            files.extend(root.rglob(name))
+        if not files:
+            readme = root / "README.md"
+            files = [readme] if readme.exists() else list(root.rglob("README.md"))[:1]
+        if not files:
+            raise HTTPException(status_code=400, detail="No supported skill/package file found")
+        installed = []
+        for skill_file in files:
+            raw = skill_file.read_text(encoding="utf-8", errors="replace")
+            metadata = {}
+            if skill_file.suffix.lower() == ".json":
+                try: metadata = json.loads(raw)
+                except json.JSONDecodeError: metadata = {}
+            front = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.S)
+            if front:
+                for line in front.group(1).splitlines():
+                    if ":" in line:
+                        key, value = line.split(":", 1); metadata[key.strip()] = value.strip().strip("'\"")
+                instructions = raw[front.end():].strip()
+            else:
+                instructions = raw.strip()
+            heading = next((line.lstrip("#").strip() for line in raw.splitlines() if line.startswith("#")), "")
+            parsed_name = str(metadata.get("name") or heading or skill_file.parent.name).strip()
+            skill_id = re.sub(r"[^a-z0-9-]+", "-", parsed_name.lower()).strip("-")[:80]
+            if not skill_id: continue
+            result = await db.execute(select(SkillEntry).where(SkillEntry.skill_id == skill_id))
+            entry = result.scalar_one_or_none()
+            if entry:
+                entry.name = parsed_name; entry.description = metadata.get("description", ""); entry.instructions = instructions; entry.source = "github"; entry.category = metadata.get("category", "github")
+            else:
+                entry = SkillEntry(skill_id=skill_id, name=parsed_name, description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True); db.add(entry)
+            installed.append(entry)
+        if not installed: raise HTTPException(status_code=400, detail="No usable skills found")
         await db.commit()
-        await db.refresh(entry)
-        return {"id": entry.id, "skill_id": entry.skill_id, "name": entry.name, "description": entry.description, "category": entry.category, "source": entry.source, "assigned_workers": entry.assigned_workers, "is_enabled": entry.is_enabled, "instructions": entry.instructions}
+        for entry in installed: await db.refresh(entry)
+        return {"installed": [{"id": e.id, "skill_id": e.skill_id, "name": e.name, "description": e.description, "category": e.category, "source": e.source, "assigned_workers": e.assigned_workers, "is_enabled": e.is_enabled, "instructions": e.instructions} for e in installed]}
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
