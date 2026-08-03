@@ -67,8 +67,8 @@ export function parseManifest(raw: unknown): UpdateManifest {
   return o as unknown as UpdateManifest;
 }
 
-export const DEFAULT_UPDATE_BASE_URL = "http://192.168.2.10:8088";
-export const PUBLIC_UPDATE_BASE_URL = "https://download.aicompany.biz.id";
+export const DEFAULT_UPDATE_BASE_URL = "https://raw.githubusercontent.com/Deriest/ai-company/main";
+export const PUBLIC_UPDATE_BASE_URL = "https://raw.githubusercontent.com/Deriest/ai-company/main";
 
 export type UpdateConfig = {
   baseUrl: string;
