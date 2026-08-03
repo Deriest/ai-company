@@ -1,85 +1,83 @@
 # AIC-ADE — Agentic Development Environment
 
-**Version:** 2.4.0  
-**Category:** Agentic Development Environment (ADE)  
-**Runtime:** Python FastAPI + SQLite  
-**Desktop Client:** Electron + React 19  
+**Latest release: v2.4.51** · **Electron + React 19** · **Python FastAPI + SQLite**
 
----
+A local-first AI engineering desktop application with 15 specialized workers, durable conversations, real tool execution, a live office floor, and configurable model tiers.
 
-## Architecture Overview
+## Download v2.4.51
 
-AIC-ADE is a local-first AI engineering platform designed for autonomous software development. No data leaves the host machine — all API keys, source code, database files, and chat histories remain strictly on the local operating system.
+| Platform | Download |
+|---|---|
+| Windows x64 | [AIC-ADE-Setup-2.4.51.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.51/AIC-ADE-Setup-2.4.51.exe) |
+| Linux AppImage | [AIC-ADE-2.4.51-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.51/AIC-ADE-2.4.51-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.51-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.51/AIC-ADE-2.4.51-linux-amd64.deb) |
 
-It consists of:
-1. **Backend** (`backend/`): Python FastAPI server with 15 AI workers, orchestrator, and storage engine.
-2. **App** (`app/`): Electron + React 19 desktop client with inline tool panels and live office visualization.
+**[View release notes and all assets →](https://github.com/Deriest/ai-company/releases/tag/v2.4.51)**
 
-### Core Concepts
-- **15 AI Workers:** Specialized roles across 4 departments (Leadership, Product, Engineering, Platform).
-- **Hermes:** The Dispatcher Worker responsible for orchestrating tasks and managing the execution lifecycle.
-- **Auto-Adaptive Context:** Dynamically adjusts context windows per model tier (thinker/crafter/sprinter).
-- **Real Tool Execution:** Workers can read/write files, run shell commands, and search codebases.
-- **Pipeline Orchestration:** Discovery → Planning → TaskGraph → Dispatch chain.
-- **Permission System:** Per-worker tool restrictions enforced internally.
+### Checksums
 
----
+SHA256 checksums are published in [`latest.json`](./latest.json) and [`SHA256SUMS`](./SHA256SUMS).
 
-## Folder Structure
+## Highlights
 
-```
+- **Command Center** — durable SQLite chat history; conversations survive navigation and app restarts.
+- **Vision tier** — Thinker → Crafter → Sprinter → Vision. Attach files by drag-and-drop or file picker; images are sent as multimodal data to the selected Vision model.
+- **Vision validation** — image requests are rejected with a clear message when the selected model does not support vision. Vision does not silently fall back to another tier.
+- **15-worker office floor** — animated pixel-art workers, desks, status bubbles, progress bars, and activity log for Hermes, Rex, Aria, Sage, Luna, Echo, Atlas, Hugo, Leo, Eve, Pulse, Nova, Nexus, Flint, and Sentinel.
+- **Real tool execution** — workers can read/write files, search codebases, run shell commands, and use configured MCP tools.
+- **Auto-adaptive context** — context policies adapt to the selected model tier and window.
+- **Automatic updates** — installed apps check [`latest.json`](https://raw.githubusercontent.com/Deriest/ai-company/main/latest.json), download from GitHub Releases, verify SHA256, and install updates.
+- **Global timezone support** — timestamps are stored in UTC and displayed in the user's local PC timezone.
+
+## Architecture
+
+```text
 AI-Company/
 ├── app/                  # Electron + React desktop client
-│   ├── src/
-│   │   ├── main/         # Electron main process
-│   │   ├── renderer/     # React frontend
-│   │   └── preload/      # Electron preload scripts
-│   ├── package.json
-│   └── packaging/        # Python runtimes for bundling
-├── backend/              # Python FastAPI backend
+│   ├── src/main/         # Electron main process and updater
+│   ├── src/renderer/     # React UI and Command Center
+│   └── packaging/        # Bundled Python runtimes
+├── backend/              # FastAPI backend and SQLite services
 │   ├── backend/          # API routes, services, models
-│   ├── agents/           # 15 AI worker definitions
+│   ├── agents/           # Worker definitions
 │   ├── workers/          # Worker implementations
-│   ├── llm/              # LLM provider abstraction
-│   ├── storage/          # SQLite models and session
-│   └── requirements.txt
-├── docs/                 # Documentation and SoT
-├── scripts/              # Build and utility scripts
-├── .gitignore
-└── README.md
+│   ├── llm/              # Provider and model-tier abstraction
+│   └── storage/          # Conversation and message persistence
+├── docs/                 # Source of Truth and architecture docs
+└── scripts/              # Release and utility scripts
 ```
-
----
 
 ## Development
 
 ### Prerequisites
+
 - Node.js 20+
 - Python 3.12+
-- Wine (for Windows cross-compilation on Linux)
+- Wine for Windows cross-builds on Linux
+- `GH_TOKEN` for releases
 
-### Quick Start
+### Run locally
+
 ```bash
-# Install app dependencies
-cd app && npm install
-
-# Start dev server
+cd app
+npm install
 npm run dev
-
-# Build for production
-npm run build:linux    # AppImage + deb
-npm run build:win      # NSIS installer + portable
 ```
 
-### Build Outputs
-| Platform | File | Size |
-|----------|------|------|
-| Linux AppImage | `AIC-ADE-2.4.0-linux-x86_64.AppImage` | ~168MB |
-| Linux deb | `AIC-ADE-2.4.0-linux-amd64.deb` | ~119MB |
-| Windows Setup | `AIC-ADE-Setup-2.4.0.exe` | ~127MB |
-| Windows Portable | `AIC-ADE-2.4.0-Windows-Portable.exe` | ~127MB |
+### Build and release
 
----
+The release script builds Linux AppImage/deb and Windows NSIS x64, creates a GitHub Release, uploads artifacts, updates `latest.json` and checksums, then commits and pushes:
+
+```bash
+export GH_TOKEN=ghp_your_token
+./scripts/release.sh 2.4.52
+```
+
+## Documentation
+
+- [`docs/sot/`](./docs/sot/) — product and engineering Source of Truth
+- [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
+- [`docs/archive/`](./docs/archive/) — historical QA notes and archived material
 
 ## License
 
