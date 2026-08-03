@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   Command,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { BugReportDialog } from "./auth/Dialogs";
@@ -27,6 +28,7 @@ const nav = [
   { id: "live", label: "Live Company", icon: Users },
   { id: "skills", label: "Skills", icon: Wrench },
   { id: "mcp", label: "MCP Servers", icon: Plug },
+  { id: "plugins", label: "Plugins", icon: GitBranch },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 

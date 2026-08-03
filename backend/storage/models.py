@@ -804,6 +804,28 @@ class SkillEntry(Base):
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
+# ── Plugin Ecosystem ────────────────────────────────────
+
+class PluginEntry(Base):
+    """Persisted plugin entry with worker assignment, adapter metadata, and toggle state."""
+    __tablename__ = "plugin_entries"
+    id = Column(String, primary_key=True, default=_uuid)
+    plugin_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=False)
+    version = Column(String(32), default="0.0.0")
+    source = Column(String(64), default="github")  # github | local | built-in
+    source_url = Column(String(512), default="")
+    package_path = Column(String(512), default="")  # local path to installed package
+    manifest = Column(JSON, default=dict)  # full marketplace/plugin manifest
+    components = Column(JSON, default=list)  # ["skill", "scripts", "commands", "agents", "hooks", "mcp"]
+    assigned_workers = Column(JSON, default=list)  # ["backend", "frontend", "qa"]
+    is_enabled = Column(Boolean, default=True, index=True)
+    is_required = Column(Boolean, default=False)  # worker must not run without this plugin
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 # ── Context Visibility ────────────────────────────────────
 
 class ContextAssemblyRecord(Base):

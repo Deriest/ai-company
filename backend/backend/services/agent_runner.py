@@ -168,6 +168,18 @@ class AgentRunner:
         
         tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER, "vision": ModelTier.VISION}
         tier = tier_map.get(model_tier, ModelTier.CRAFTER)
+
+        # Plugin enforcement: required plugins for this worker must be loaded.
+        if db:
+            try:
+                from backend.plugin_engine import resolve_plugins_for_worker
+                assigned_plugins = await resolve_plugins_for_worker(db, worker_type)
+                for p in assigned_plugins:
+                    if p.get("is_required") and (not p.get("package_path") or not Path(p["package_path"]).exists()):
+                        yield {"type": "error", "error": f"Required plugin '{p['name']}' is missing. Install or disable it first."}
+                        return
+            except Exception as e:
+                logger.warning(f"Plugin enforcement check failed for worker '{worker_type}': {e}")
         # Worker fallback chain — only within the thinker/crafter/sprinter group.
         # If the assigned model for this worker errors, retry with the next
         # worker's model in the chain. Never falls back to providers/models the

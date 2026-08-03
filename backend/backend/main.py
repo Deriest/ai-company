@@ -289,8 +289,10 @@ app.include_router(pipeline_router, prefix="")
 from backend.api.routes.dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="")
 from backend.api.routes.skills import router as skills_router
+from backend.api.routes.plugins import router as plugins_router
 from backend.api.routes.projects import router as projects_router
 app.include_router(skills_router, prefix="")
+app.include_router(plugins_router, prefix="")
 app.include_router(projects_router, prefix="")
 from backend.api.routes.approval_config import router as approval_config_router
 app.include_router(approval_config_router, prefix="")

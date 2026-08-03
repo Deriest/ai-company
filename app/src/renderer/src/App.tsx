@@ -8,6 +8,7 @@ import { LiveCompanyView } from "./components/LiveCompanyView";
 import { SettingsView, type SettingsTab } from "./components/SettingsView";
 import { MCPView } from "./components/MCPView";
 import { SkillsView } from "./components/SkillsView";
+import { PluginsView } from "./components/PluginsView";
 import { OrchestrationView } from "./components/OrchestrationView";
 import { WorkflowsView } from "./components/WorkflowsView";
 import { JobsView } from "./components/JobsView";
@@ -21,7 +22,7 @@ import { profileApi, type LocalProfile } from "./lib/api/profile";
 import type { ProjectRecord } from "./lib/api/projects";
 import type { View } from "./types";
 
-const navViews: View[] = ["home", "hermes", "live", "skills", "mcp", "settings"];
+const navViews: View[] = ["home", "hermes", "live", "skills", "mcp", "plugins", "settings"];
 
 /**
  * v2.4.0 — Local profile (no auth). First-launch onboarding → main dashboard.
@@ -155,6 +156,8 @@ export function App() {
         return <MemoryView />;
       case "rag":
         return <RAGView />;
+      case "plugins":
+        return <PluginsView />;
       case "automation":
         return <AutomationView />;
       default:
