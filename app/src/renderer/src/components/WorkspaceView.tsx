@@ -1,17 +1,18 @@
 /**
  * WorkspaceView — Live Office Floor
  *
- * 15 worker desks with real-time status, progress bars, and activity log.
- * Dispatcher (Hermes) always active when connected. Dark AIC ADE theme.
+ * 15 worker desks with animated pixel-art worker sprites, real-time status,
+ * progress bars, and activity log. Adapted from aic-skill office floor.
+ * Theme: dark AIC ADE (oklch), not retro-CRT.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Target, Users, Terminal, UserPlus, Command, X, Coins, Zap, FolderOpen,
   Brain, Shield, UserCog, Search, Palette, BookOpen,
   LayoutDashboard, Server, Code, TestTube2, Gauge,
-  Database, GitBranch, Rocket, Lock, CheckCircle2, Loader2, Clock,
+  Database, GitBranch, Rocket, Lock, CheckCircle2, Clock,
 } from 'lucide-react'
-import { Card, PageHeader, ProgressBar, Badge } from './kit'
+import { Card, PageHeader, ProgressBar } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
 import { FileTree } from './FileTree'
@@ -35,6 +36,10 @@ interface WorkerDef {
   icon: React.ComponentType<{ className?: string }>
   section: string
   alwaysActive?: boolean
+  skinColor: string
+  shirtColor: string
+  pantsColor: string
+  hairColor: string
 }
 
 type WorkerStatus = 'working' | 'idle' | 'complete' | 'meeting'
@@ -53,31 +58,31 @@ interface ActivityEntry {
   tone: 'primary' | 'success' | 'warning' | 'muted'
 }
 
-// ── Canonical 15 workers ───────────────────────────────
+// ── Canonical 15 workers with sprite colors ────────────
 
 const WORKERS: WorkerDef[] = [
   // Leadership
-  { id: 'hermes', name: 'Hermes', role: 'System Dispatcher', tier: 'system', phase: 'All', icon: Brain, section: 'Leadership', alwaysActive: true },
-  { id: 'rex', name: 'Rex', role: 'Governor / Compliance', tier: 'sprinter', phase: 'Closeout', icon: Shield, section: 'Leadership', alwaysActive: true },
+  { id: 'hermes', name: 'Hermes', role: 'System Dispatcher', tier: 'system', phase: 'All', icon: Brain, section: 'Leadership', alwaysActive: true, skinColor: '#d4a574', shirtColor: '#dc143c', pantsColor: '#1a1a1a', hairColor: '#2a2a2a' },
+  { id: 'rex', name: 'Rex', role: 'Governor / Compliance', tier: 'sprinter', phase: 'Closeout', icon: Shield, section: 'Leadership', alwaysActive: true, skinColor: '#ffdbac', shirtColor: '#ffd700', pantsColor: '#2a2a2a', hairColor: '#1a1a1a' },
 
   // Product
-  { id: 'pm', name: 'Aria', role: 'Project Manager', tier: 'thinker', phase: 'Discovery', icon: UserCog, section: 'Product' },
-  { id: 'research', name: 'Sage', role: 'Researcher', tier: 'thinker', phase: 'Investigate', icon: Search, section: 'Product' },
-  { id: 'designer', name: 'Luna', role: 'UI/UX Designer', tier: 'crafter', phase: 'Planning', icon: Palette, section: 'Product' },
-  { id: 'documentation', name: 'Echo', role: 'Technical Writer', tier: 'sprinter', phase: 'Closeout', icon: BookOpen, section: 'Product' },
+  { id: 'pm', name: 'Aria', role: 'Project Manager', tier: 'thinker', phase: 'Discovery', icon: UserCog, section: 'Product', skinColor: '#ffcc99', shirtColor: '#3366cc', pantsColor: '#333366', hairColor: '#4a3728' },
+  { id: 'research', name: 'Sage', role: 'Researcher', tier: 'thinker', phase: 'Investigate', icon: Search, section: 'Product', skinColor: '#e6c8b0', shirtColor: '#228b22', pantsColor: '#1a1a2a', hairColor: '#1a1a1a' },
+  { id: 'designer', name: 'Luna', role: 'UI/UX Designer', tier: 'crafter', phase: 'Planning', icon: Palette, section: 'Product', skinColor: '#d4a574', shirtColor: '#ff69b4', pantsColor: '#2a1a2a', hairColor: '#8b4513' },
+  { id: 'documentation', name: 'Echo', role: 'Technical Writer', tier: 'sprinter', phase: 'Closeout', icon: BookOpen, section: 'Product', skinColor: '#ffcc99', shirtColor: '#20b2aa', pantsColor: '#1a2a2a', hairColor: '#654321' },
 
   // Engineering
-  { id: 'architect', name: 'Atlas', role: 'Software Architect', tier: 'thinker', phase: 'Planning', icon: LayoutDashboard, section: 'Engineering' },
-  { id: 'backend', name: 'Hugo', role: 'Backend Engineer', tier: 'crafter', phase: 'Implementation', icon: Server, section: 'Engineering' },
-  { id: 'frontend', name: 'Leo', role: 'Frontend Engineer', tier: 'crafter', phase: 'Implementation', icon: Code, section: 'Engineering' },
-  { id: 'qa', name: 'Eve', role: 'QA Engineer', tier: 'sprinter', phase: 'Verification', icon: TestTube2, section: 'Engineering' },
-  { id: 'perf', name: 'Pulse', role: 'Performance Engineer', tier: 'sprinter', phase: 'Verification', icon: Gauge, section: 'Engineering' },
+  { id: 'architect', name: 'Atlas', role: 'Software Architect', tier: 'thinker', phase: 'Planning', icon: LayoutDashboard, section: 'Engineering', skinColor: '#ffdbac', shirtColor: '#8b4513', pantsColor: '#2a2a2a', hairColor: '#654321' },
+  { id: 'backend', name: 'Hugo', role: 'Backend Engineer', tier: 'crafter', phase: 'Implementation', icon: Server, section: 'Engineering', skinColor: '#d4a574', shirtColor: '#9932cc', pantsColor: '#1a1a1a', hairColor: '#1a1a1a' },
+  { id: 'frontend', name: 'Leo', role: 'Frontend Engineer', tier: 'crafter', phase: 'Implementation', icon: Code, section: 'Engineering', skinColor: '#e6c8b0', shirtColor: '#00bfff', pantsColor: '#1a1a1a', hairColor: '#2a2a2a' },
+  { id: 'qa', name: 'Eve', role: 'QA Engineer', tier: 'sprinter', phase: 'Verification', icon: TestTube2, section: 'Engineering', skinColor: '#e6c8b0', shirtColor: '#00ced1', pantsColor: '#1a2a1a', hairColor: '#654321' },
+  { id: 'performance', name: 'Pulse', role: 'Performance Engineer', tier: 'sprinter', phase: 'Verification', icon: Gauge, section: 'Engineering', skinColor: '#ffdbac', shirtColor: '#ff6347', pantsColor: '#2a1a1a', hairColor: '#8b4513' },
 
   // Platform
-  { id: 'data', name: 'Nova', role: 'Database Engineer', tier: 'crafter', phase: 'Planning', icon: Database, section: 'Platform' },
-  { id: 'integration', name: 'Nexus', role: 'Integration Engineer', tier: 'crafter', phase: 'Planning', icon: GitBranch, section: 'Platform' },
-  { id: 'infra', name: 'Flint', role: 'Infrastructure Engineer', tier: 'crafter', phase: 'Planning', icon: Rocket, section: 'Platform' },
-  { id: 'security', name: 'Sentinel', role: 'Security Engineer', tier: 'crafter', phase: 'Planning', icon: Lock, section: 'Platform' },
+  { id: 'database', name: 'Nova', role: 'Database Engineer', tier: 'crafter', phase: 'Planning', icon: Database, section: 'Platform', skinColor: '#e6c8b0', shirtColor: '#ff8c00', pantsColor: '#2a2a1a', hairColor: '#2a2a2a' },
+  { id: 'nexus', name: 'Nexus', role: 'Integration Engineer', tier: 'crafter', phase: 'Planning', icon: GitBranch, section: 'Platform', skinColor: '#d4a574', shirtColor: '#9370db', pantsColor: '#1a1a2a', hairColor: '#1a1a1a' },
+  { id: 'flint', name: 'Flint', role: 'Infrastructure Engineer', tier: 'crafter', phase: 'Planning', icon: Rocket, section: 'Platform', skinColor: '#ffcc99', shirtColor: '#ff4500', pantsColor: '#2a1a1a', hairColor: '#8b4513' },
+  { id: 'security', name: 'Sentinel', role: 'Security Engineer', tier: 'crafter', phase: 'Planning', icon: Lock, section: 'Platform', skinColor: '#e6c8b0', shirtColor: '#2f4f4f', pantsColor: '#1a1a1a', hairColor: '#2a2a2a' },
 ]
 
 const SECTIONS = ['Leadership', 'Product', 'Engineering', 'Platform']
@@ -96,77 +101,213 @@ const TIER_COLORS: Record<string, string> = {
   system: 'bg-info/15 text-info',
 }
 
-const STATUS_CONFIG: Record<WorkerStatus, { dot: string; label: string; text: string }> = {
-  working: { dot: 'bg-primary animate-pulse', label: 'Working', text: 'text-primary' },
-  idle: { dot: 'bg-muted-foreground/40', label: 'Available', text: 'text-muted-foreground' },
-  complete: { dot: 'bg-success', label: 'Complete', text: 'text-success' },
-  meeting: { dot: 'bg-warning animate-pulse', label: 'Meeting', text: 'text-warning' },
+const STATUS_CONFIG: Record<WorkerStatus, { dot: string; label: string; text: string; cardBorder: string; cardBg: string }> = {
+  working: { dot: 'bg-primary animate-pulse', label: 'Working', text: 'text-primary', cardBorder: 'border-primary/40', cardBg: 'bg-primary/5' },
+  idle: { dot: 'bg-muted-foreground/40', label: 'Idle', text: 'text-muted-foreground', cardBorder: 'border-border', cardBg: 'bg-card/50' },
+  complete: { dot: 'bg-success', label: 'Complete', text: 'text-success', cardBorder: 'border-success/30', cardBg: 'bg-success/5' },
+  meeting: { dot: 'bg-warning animate-pulse', label: 'Meeting', text: 'text-warning', cardBorder: 'border-warning/30', cardBg: 'bg-warning/5' },
+}
+
+// ── Pixel character renderer ───────────────────────────
+
+function drawPixelCharacter(
+  canvas: HTMLCanvasElement,
+  worker: WorkerDef,
+  isWorking: boolean,
+  frame: number,
+  eyeFrame: number,
+): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const s = 3
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  // Hair
+  ctx.fillStyle = worker.hairColor
+  ctx.fillRect(5 * s, 0, 4 * s, 2 * s)
+  ctx.fillRect(4 * s, 1 * s, 6 * s, 2 * s)
+
+  // Head/skin
+  ctx.fillStyle = worker.skinColor
+  ctx.fillRect(5 * s, 2 * s, 4 * s, 4 * s)
+
+  // Eyes
+  ctx.fillStyle = '#000'
+  if (eyeFrame === 1) {
+    ctx.fillRect(6 * s, 3 * s, s, Math.max(1, Math.floor(s / 3)))
+    ctx.fillRect(8 * s, 3 * s, s, Math.max(1, Math.floor(s / 3)))
+  } else {
+    ctx.fillRect(6 * s, 3 * s, s, s)
+    ctx.fillRect(8 * s, 3 * s, s, s)
+  }
+
+  // Mouth
+  if (isWorking) {
+    ctx.fillStyle = '#ff6666'
+    ctx.fillRect(7 * s, 5 * s, s, s)
+  }
+
+  // Shirt
+  ctx.fillStyle = worker.shirtColor
+  ctx.fillRect(4 * s, 6 * s, 6 * s, 4 * s)
+  ctx.fillRect(3 * s, 7 * s, 2 * s, 3 * s)
+  ctx.fillRect(9 * s, 7 * s, 2 * s, 3 * s)
+
+  // Pants
+  ctx.fillStyle = worker.pantsColor
+  ctx.fillRect(4 * s, 10 * s, 3 * s, 3 * s)
+  ctx.fillRect(7 * s, 10 * s, 3 * s, 3 * s)
+
+  // Arms
+  ctx.fillStyle = worker.skinColor
+  if (isWorking) {
+    if (frame === 0) {
+      ctx.fillRect(2 * s, 8 * s, 2 * s, 2 * s)
+      ctx.fillRect(10 * s, 8 * s, 2 * s, 2 * s)
+    } else {
+      ctx.fillRect(2 * s, 7 * s, 2 * s, 2 * s)
+      ctx.fillRect(10 * s, 9 * s, 2 * s, 2 * s)
+    }
+  } else {
+    ctx.fillRect(2 * s, 9 * s, 2 * s, 2 * s)
+    ctx.fillRect(10 * s, 9 * s, 2 * s, 2 * s)
+  }
+}
+
+// ── Worker sprite with animation ───────────────────────
+
+function WorkerSprite({ worker, status }: { worker: WorkerDef; status: WorkerStatus }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const frameRef = useRef(0)
+  const eyeRef = useRef(0)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const isWorking = status === 'working' || status === 'meeting'
+    const tick = isWorking ? 200 : 3000
+
+    frameRef.current = 0
+    eyeRef.current = 0
+    drawPixelCharacter(canvas, worker, isWorking, 0, 0)
+
+    let blinkCounter = 0
+    const interval = setInterval(() => {
+      if (isWorking) {
+        frameRef.current = frameRef.current === 0 ? 1 : 0
+        eyeRef.current = eyeRef.current === 0 ? 1 : 0
+        drawPixelCharacter(canvas, worker, true, frameRef.current, eyeRef.current)
+      } else {
+        blinkCounter++
+        if (blinkCounter % 4 === 0) {
+          eyeRef.current = 1
+          drawPixelCharacter(canvas, worker, false, 0, 1)
+          setTimeout(() => {
+            eyeRef.current = 0
+            drawPixelCharacter(canvas, worker, false, 0, 0)
+          }, 100)
+        }
+      }
+    }, tick)
+
+    return () => clearInterval(interval)
+  }, [worker, status])
+
+  // Shake animation for working status via CSS class
+  const animClass = status === 'working'
+    ? 'animate-bounce'
+    : status === 'meeting'
+      ? 'animate-pulse'
+      : status === 'complete'
+        ? ''
+        : ''
+
+  return (
+    <div className={cn('flex justify-center', animClass)} style={{ imageRendering: 'pixelated' }}>
+      <canvas ref={canvasRef} width={42} height={45} className="block" style={{ imageRendering: 'pixelated' }} />
+    </div>
+  )
+}
+
+// ── Desk computer (pixel screen) ────────────────────────
+
+function DeskScreen({ status }: { status: WorkerStatus }) {
+  const screenColor = status === 'working' ? 'bg-primary/60' : status === 'complete' ? 'bg-success/60' : status === 'meeting' ? 'bg-warning/60' : 'bg-muted-foreground/30'
+  return (
+    <div className="mx-auto mb-0.5 flex h-3 w-7 items-center justify-center rounded-sm border border-border/60 bg-[#2a2a2a]">
+      <div className={cn('h-1.5 w-5 rounded-sm', screenColor, status === 'working' && 'animate-pulse')} />
+    </div>
+  )
 }
 
 // ── Worker Desk Card ────────────────────────────────────
 
 function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) {
-  const Icon = worker.icon
   const cfg = STATUS_CONFIG[state.status]
   const isActive = state.status === 'working' || state.status === 'meeting'
+  const Icon = worker.icon
 
   return (
     <div className={cn(
-      'group relative flex flex-col rounded-lg border p-2.5 transition-all duration-200',
-      isActive
-        ? 'border-primary/30 bg-primary/5 shadow-[0_0_12px_-2px_rgba(99,102,241,0.15)]'
-        : state.status === 'complete'
-          ? 'border-success/20 bg-success/5'
-          : 'border-border bg-card/50 hover:border-border/80 hover:bg-card',
+      'group relative flex flex-col rounded-lg border-2 p-2 transition-all duration-300',
+      cfg.cardBorder, cfg.cardBg,
+      isActive && 'shadow-[0_0_12px_-2px_rgba(99,102,241,0.2)]',
     )}>
-      {/* Header: avatar + name + status dot */}
-      <div className="flex items-center gap-2">
-        <div className={cn(
-          'grid size-7 shrink-0 place-items-center rounded-md transition-colors',
-          isActive ? 'bg-primary/15' : 'bg-muted/40',
+      {/* Status bubble */}
+      <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap z-20">
+        <span className={cn(
+          'rounded border px-1.5 py-px text-[7px] font-bold tracking-wider',
+          cfg.cardBg, cfg.text, cfg.cardBorder,
         )}>
-          <Icon className={cn('size-3.5', isActive ? 'text-primary' : 'text-muted-foreground')} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[11px] font-semibold text-foreground">{worker.name}</span>
-            <span className={cn('size-1.5 shrink-0 rounded-full', cfg.dot)} />
-          </div>
-          <p className="truncate text-[9px] text-muted-foreground">{worker.role}</p>
-        </div>
+          {cfg.label.toUpperCase()}
+        </span>
       </div>
 
-      {/* Tier badge + status label */}
+      {/* Character + screen area */}
+      <div className="flex h-[60px] flex-col items-center justify-end pt-2">
+        <DeskScreen status={state.status} />
+        <WorkerSprite worker={worker} status={state.status} />
+      </div>
+
+      {/* Desk surface */}
+      <div className="mx-auto h-2 w-[80%] rounded-sm bg-gradient-to-b from-[#4a3728] to-[#3d2d1f] border border-[#2a1f15]" />
+
+      {/* Worker info */}
       <div className="mt-1.5 flex items-center gap-1.5">
-        <span className={cn('rounded px-1 py-px text-[8px] font-semibold uppercase', TIER_COLORS[worker.tier])}>
+        <div className={cn(
+          'grid size-5 shrink-0 place-items-center rounded',
+          isActive ? 'bg-primary/15' : 'bg-muted/40',
+        )}>
+          <Icon className={cn('size-2.5', isActive ? 'text-primary' : 'text-muted-foreground')} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="truncate text-[10px] font-semibold text-foreground">{worker.name}</span>
+          <p className="truncate text-[8px] text-muted-foreground">{worker.role}</p>
+        </div>
+        <span className={cn('rounded px-1 py-px text-[7px] font-bold uppercase', TIER_COLORS[worker.tier])}>
           {worker.tier}
         </span>
-        <span className={cn('text-[9px] font-medium', cfg.text)}>{cfg.label}</span>
-        {worker.alwaysActive && (
-          <span className="ml-auto text-[8px] text-info">●</span>
-        )}
       </div>
 
       {/* Progress bar (only when working) */}
       {isActive && (
-        <div className="mt-2">
+        <div className="mt-1.5">
           <ProgressBar value={state.progress} tone="primary" className="h-1" />
-          <p className="mt-1 truncate text-[9px] text-muted-foreground font-mono">
+          <p className="mt-0.5 truncate text-[8px] text-muted-foreground font-mono">
             {state.task || 'Processing…'}
           </p>
         </div>
       )}
 
-      {/* Idle state */}
+      {/* Idle / complete states */}
       {state.status === 'idle' && (
-        <p className="mt-2 text-[9px] text-muted-foreground/50">Available</p>
+        <p className="mt-1.5 text-[8px] text-muted-foreground/50">Available</p>
       )}
-
-      {/* Complete state */}
       {state.status === 'complete' && (
-        <div className="mt-2 flex items-center gap-1">
-          <CheckCircle2 className="size-3 text-success" />
-          <p className="truncate text-[9px] text-success/70">{state.task || 'Done'}</p>
+        <div className="mt-1.5 flex items-center gap-1">
+          <CheckCircle2 className="size-2.5 text-success" />
+          <p className="truncate text-[8px] text-success/70">{state.task || 'Done'}</p>
         </div>
       )}
     </div>
@@ -201,7 +342,13 @@ function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
                 <span className="shrink-0 font-mono text-muted-foreground/50 tabular-nums">
                   {e.timestamp}
                 </span>
-                <span className={cn('shrink-0 font-medium', `text-${e.tone}` === 'text-primary' ? 'text-primary' : e.tone === 'success' ? 'text-success' : e.tone === 'warning' ? 'text-warning' : 'text-muted-foreground')}>
+                <span className={cn(
+                  'shrink-0 font-medium',
+                  e.tone === 'primary' ? 'text-primary'
+                    : e.tone === 'success' ? 'text-success'
+                      : e.tone === 'warning' ? 'text-warning'
+                        : 'text-muted-foreground',
+                )}>
                   {e.workerName}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">{e.action}</span>
@@ -218,15 +365,15 @@ function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
 
 export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTree = true, onToggleFileTree }: WorkspaceViewProps) {
   const [error, setError] = useState('')
-  const [totalWorkforce, setTotalWorkforce] = useState(15)
+  const [totalWorkforce] = useState(15)
   const [activeMissions, setActiveMissions] = useState(0)
   const [totalTokens, setTotalTokens] = useState(0)
   const [totalCost, setTotalCost] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [connected, setConnected] = useState(false)
   const [workerStates, setWorkerStates] = useState<Record<string, WorkerState>>({})
   const [activities, setActivities] = useState<ActivityEntry[]>([])
   const prevStatesRef = useRef<Record<string, WorkerStatus>>({})
+  const loggedCompletedRef = useRef<Set<string>>(new Set())
 
   const addActivity = useCallback((workerName: string, action: string, tone: ActivityEntry['tone'] = 'muted') => {
     const now = new Date()
@@ -239,25 +386,19 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
   const loadData = useCallback(async () => {
     try {
-      const [tasksRes, workersRes, usageRes, dashboardRes] = await Promise.allSettled([
+      const [tasksRes, workersRes, usageRes] = await Promise.allSettled([
         apiClient.get<any[]>('/tasks?limit=50'),
         apiClient.get<any[]>('/runtime/workers'),
-        apiClient.get<any>('/api/usage/stats?days=30'),
-        apiClient.get<any>('/dashboard'),
+        apiClient.get<any>('/runtime/usage'),
       ])
 
       const tasks = tasksRes.status === 'fulfilled' ? (tasksRes.value || []) : []
       const activeTasks = tasks.filter(
-        (t: any) => !['completed', 'cancelled', 'failed', 'blocked'].includes(t.status)
+        (t: any) => !['completed', 'cancelled', 'failed', 'blocked'].includes(t.status),
       )
       setActiveMissions(activeTasks.length)
 
       const runtimeWorkers = workersRes.status === 'fulfilled' ? (workersRes.value || []) : []
-      setConnected(runtimeWorkers.length > 0 || tasks.length > 0)
-
-      if (dashboardRes.status === 'fulfilled' && dashboardRes.value) {
-        setTotalWorkforce(dashboardRes.value.workers || 15)
-      }
 
       // Build worker states
       const newStates: Record<string, WorkerState> = {}
@@ -265,10 +406,10 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
       for (const w of WORKERS) {
         const hasActiveTask = activeTasks.some((t: any) =>
-          t.worker_type === w.id || t.worker_type === w.role.toLowerCase()
+          t.worker_type === w.id || t.worker_type === w.name.toLowerCase(),
         )
         const task = activeTasks.find((t: any) =>
-          t.worker_type === w.id || t.worker_type === w.role.toLowerCase()
+          t.worker_type === w.id || t.worker_type === w.name.toLowerCase(),
         )
 
         const result: WorkerState = { status: 'idle', task: '', progress: 0 }
@@ -282,9 +423,8 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
           result.task = task.title || task.description || 'Working on task'
           result.progress = task.progress || (20 + Math.floor(Math.random() * 60))
         } else {
-          // Check runtime worker state
           const rtWorker = runtimeWorkers.find((rw: any) =>
-            rw.role === w.id || rw.role === w.role.toLowerCase()
+            rw.role === w.id || rw.role === w.name.toLowerCase(),
           )
           if (rtWorker?.state === 'busy' || rtWorker?.state === 'working') {
             result.status = 'working'
@@ -310,25 +450,27 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
         }
       }
 
-      // Check for recently completed tasks
-      const completedTasks = tasks
-        .filter((t: any) => t.status === 'completed')
-        .slice(0, 3)
+      // Log completed tasks — dedup by task ID to avoid repeated entries (BUG-10 fix)
+      const completedTasks = tasks.filter((t: any) => t.status === 'completed')
       for (const ct of completedTasks) {
-        const workerDef = WORKERS.find(w =>
-          w.id === ct.worker_type || w.role.toLowerCase() === ct.worker_type
-        )
-        if (workerDef) {
-          addActivity(workerDef.name, `completed: ${(ct.title || 'task').slice(0, 40)}`, 'success')
+        const taskId = ct.id || ct.title || ''
+        if (taskId && !loggedCompletedRef.current.has(taskId)) {
+          loggedCompletedRef.current.add(taskId)
+          const workerDef = WORKERS.find(w =>
+            w.id === ct.worker_type || w.name.toLowerCase() === ct.worker_type,
+          )
+          if (workerDef) {
+            addActivity(workerDef.name, `completed: ${(ct.title || 'task').slice(0, 40)}`, 'success')
+          }
         }
       }
 
       prevStatesRef.current = Object.fromEntries(
-        Object.entries(newStates).map(([k, v]) => [k, v.status])
+        Object.entries(newStates).map(([k, v]) => [k, v.status]),
       )
       setWorkerStates(newStates)
 
-      // Usage stats
+      // Usage stats — try /runtime/usage (BUG-4 fix: was /api/usage/stats which doesn't exist)
       if (usageRes.status === 'fulfilled' && usageRes.value) {
         setTotalTokens(usageRes.value.total_tokens || 0)
         setTotalCost(usageRes.value.total_cost || 0)
@@ -365,7 +507,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
       <PageHeader
         title="AIC Engineering Office"
-        subtitle={loading ? "Loading office…" : `${totalWorkforce} workers · ${workingCount} active · ${activeMissions} missions`}
+        subtitle={loading ? 'Loading office…' : `${totalWorkforce} workers · ${workingCount} active · ${activeMissions} missions`}
         actions={
           <button
             onClick={() => onNavigate?.('hermes')}
@@ -473,7 +615,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
                       <DeskCard
                         key={w.id}
                         worker={w}
-                        state={workerStates[w.id] || { status: 'idle', task: '', progress: 0 }}
+                        state={workerStates[w.id] || { status: 'idle' as WorkerStatus, task: '', progress: 0 }}
                       />
                     ))}
                   </div>

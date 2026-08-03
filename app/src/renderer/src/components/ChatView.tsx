@@ -610,9 +610,13 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       )
       // Stable ordering: backend assigns user+assistant the same created_at,
       // so tiebreak by role (user above its assistant response).
+      // Normalize timestamps: Python isoformat ends with +00:00, JS ends with Z.
+      // Without normalization, localeCompare sorts all +00:00 before all Z
+      // regardless of actual time, causing reversed message order after reload.
+      const normTs = (s: string) => s.replace(/\+00:00$/, 'Z')
       const roleRank = (m: MessageRecord) => m.role === 'user' ? 0 : 1
       setMessages([...loaded, ...localOnly].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at) || roleRank(a) - roleRank(b)
+        normTs(a.created_at).localeCompare(normTs(b.created_at)) || roleRank(a) - roleRank(b)
       ))
     }
     catch (e) { console.error('Load messages failed', e) }
@@ -636,6 +640,10 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       setMessages([])
     }
   }, [activeId, sending])
+  // BUG-2 FIX: Abort any in-flight stream when ChatView unmounts to prevent orphaned SSE connections.
+  useEffect(() => {
+    return () => { abortRef.current?.(); abortRef.current = null }
+  }, [])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, assistantStates])
   useEffect(() => {
     if (textareaRef.current) {

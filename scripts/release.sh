@@ -68,34 +68,18 @@ echo "📋 Step 1/7: Bumping version to ${VERSION}..."
 # package.json
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package.json"
 
-# package-lock.json — top-level + nested packages entry
-sed -i "0,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package-lock.json"
-# The nested "" entry (line ~9)
-sed -i "0,/\"name\": \"aic-ade\",/{s/\"name\": \"aic-ade\",\n      \"version\": \".*\"/\"name\": \"aic-ade\",\n      \"version\": \"${VERSION}\"/}" "$APP_DIR/package-lock.json" 2>/dev/null || true
-# Fallback: just replace the second occurrence
+# package-lock.json — use Python json for safe update (BUG-11 fix)
 python3 -c "
-import re
-with open('$APP_DIR/package-lock.json') as f: content = f.read()
-# Replace first two occurrences of version (top-level + packages entry)
-parts = content.split('\"version\":')
-if len(parts) >= 3:
-    # Reconstruct: keep everything, replace 2nd occurrence
-    result = parts[0] + '\"version\":' + '\"' + '$VERSION' + '\"' + parts[1].split('\"',2)[2]
-    result = result + '\"version\":' + '\"' + '$VERSION' + '\"' + parts[2].split('\"',2)[2] if len(parts) > 2 else result
-    # Simpler: just replace all standalone version lines for aic-ade
-    pass
-# Actually just do a targeted replace
-content = content.replace('\"version\": \"2.4.', '\"version\": \"' + '$VERSION' + '\"', 1)  # noop safety
-# Just set both
 import json
-data = json.loads(open('$APP_DIR/package-lock.json').read())
+with open('$APP_DIR/package-lock.json') as f:
+    data = json.load(f)
 data['version'] = '$VERSION'
 if 'packages' in data and '' in data['packages']:
     data['packages']['']['version'] = '$VERSION'
 with open('$APP_DIR/package-lock.json', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
-" 2>/dev/null || echo "  (package-lock.json version update skipped — non-critical)"
+"
 
 echo "  ✅ Version bumped"
 

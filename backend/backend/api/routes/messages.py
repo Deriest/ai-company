@@ -20,7 +20,7 @@ router = APIRouter()
 async def list_messages(
     id: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(500, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(
