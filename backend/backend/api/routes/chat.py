@@ -1,6 +1,7 @@
 """Chat routes — completion, streaming, cancel, regenerate, artifacts."""
 import logging
 import json
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -111,7 +112,36 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     workspace = "."  # TODO: get from project context
 
     async def event_generator():
+        persist_session = AsyncSessionLocal()
+        user_msg = None
+        assistant_msg = None
+        chunks_since_commit = 0
         try:
+            # Persist both records before execution starts. Command Center work
+            # can run for a long time, so the conversation must survive a view
+            # change, renderer restart, or interrupted agent run.
+            now = datetime.now(timezone.utc)
+            user_msg = Message(
+                conversation_id=payload.conversation_id,
+                role="user",
+                content=user_content,
+                created_at=now,
+                updated_at=now,
+                status="completed",
+                token_count=len(user_content) // 4,
+            )
+            assistant_msg = Message(
+                conversation_id=payload.conversation_id,
+                role="assistant",
+                content="",
+                created_at=now + timedelta(milliseconds=1),
+                updated_at=now,
+                status="streaming",
+                token_count=0,
+            )
+            persist_session.add_all([user_msg, assistant_msg])
+            await persist_session.commit()
+
             # Step 1: Acknowledge intent
             try:
                 yield f"data: {json.dumps({'type': 'intent', 'intent': intent, 'content': user_content})}\n\n"
@@ -136,6 +166,15 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                     if event["type"] == "content":
                         chunk = event.get("content", "")
                         final_content += chunk
+                        assistant_msg.content = final_content
+                        assistant_msg.updated_at = datetime.now(timezone.utc)
+                        assistant_msg.token_count = len(final_content) // 4 + len(user_content) // 4
+                        chunks_since_commit += 1
+                        # Bound database traffic while ensuring partial output
+                        # is durable during long-running agent executions.
+                        if chunks_since_commit >= 10:
+                            await persist_session.commit()
+                            chunks_since_commit = 0
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
                     elif event["type"] == "tool_start":
                         yield f"data: {json.dumps({'type': 'tool_start', 'tool': event['tool'], 'args': event.get('args', {}), 'call_id': event.get('call_id', '')})}\n\n"
@@ -145,6 +184,9 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                         label = f"{event['tool']}: {label_path}"
                         yield f"data: {json.dumps({'type': 'tool_result', 'tool_call': {'id': event.get('call_id', ''), 'type': event['tool'], 'label': label, 'status': 'completed' if event.get('success') else 'error', 'output': event.get('output', ''), 'error': event.get('error'), 'args': args, 'duration_ms': 0, 'timestamp': ''}})}\n\n"
                     elif event["type"] == "error":
+                        assistant_msg.status = "error"
+                        assistant_msg.updated_at = datetime.now(timezone.utc)
+                        await persist_session.commit()
                         yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': event.get('error', 'Unknown error')})}\n\n"
                         return
                     elif event["type"] == "done":
@@ -153,55 +195,55 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                         if deliverables:
                             yield f"data: {json.dumps({'type': 'deliverables', 'deliverables': deliverables})}\n\n"
             except LLMUnavailableError:
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'llm_call', 'error': 'No AI provider configured. Add a provider in Settings.'})}\n\n"
                 return
             except PermissionError as e:
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'permission', 'error': f'Permission denied: {e}'})}\n\n"
                 return
             except Exception as e:
                 logger.error(f"Agent execution stage error: {e}")
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': f'Execution failed: {str(e)[:200]}'})}\n\n"
                 return
 
-            # Step 3: Store messages in conversation
-            try:
-                async with AsyncSessionLocal() as session:
-                    from datetime import datetime, timezone
-                    now = datetime.now(timezone.utc)
-                    # Persist user message
-                    user_msg = Message(
-                        conversation_id=payload.conversation_id,
-                        role="user",
-                        content=user_content,
-                        created_at=now,
-                        updated_at=now,
-                        status="completed",
-                    )
-                    session.add(user_msg)
-                    # Persist assistant response
-                    msg = Message(
-                        conversation_id=payload.conversation_id,
-                        role="assistant",
-                        content=final_content,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                    session.add(msg)
-                    await session.commit()
-            except Exception as e:
-                logger.error(f"Storage stage error: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'stage': 'storage', 'error': f'Failed to save response: {str(e)[:200]}'})}\n\n"
-                return
+            # Step 3: Finalize the records created before execution.
+            assistant_msg.content = final_content
+            assistant_msg.updated_at = datetime.now(timezone.utc)
+            assistant_msg.status = "completed"
+            assistant_msg.token_count = len(final_content) // 4 + len(user_content) // 4
+            await persist_session.commit()
 
             yield f"data: {json.dumps({'type': 'done', 'intent': intent})}\n\n"
 
         except LLMUnavailableError:
+            if assistant_msg is not None:
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
             yield f"data: {json.dumps({'type': 'error', 'stage': 'pipeline', 'error': 'No AI provider configured. Add a provider in Settings.'})}\n\n"
         except PermissionError as e:
+            if assistant_msg is not None:
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
             yield f"data: {json.dumps({'type': 'error', 'stage': 'pipeline', 'error': f'Permission denied: {e}'})}\n\n"
         except Exception as e:
             logger.error(f"Pipeline error: {e}")
+            if assistant_msg is not None:
+                assistant_msg.status = "error"
+                assistant_msg.updated_at = datetime.now(timezone.utc)
+                await persist_session.commit()
             yield f"data: {json.dumps({'type': 'error', 'stage': 'pipeline', 'error': f'Execution failed: {str(e)[:200]}'})}\n\n"
+        finally:
+            await persist_session.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -303,6 +345,7 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
                         status="completed",
                         created_at=datetime.now(timezone.utc),
                         updated_at=datetime.now(timezone.utc),
+                        token_count=len(user_content) // 4,  # estimate ~4 chars/token
                     )
                     db.add(user_msg)
                     await db.commit()

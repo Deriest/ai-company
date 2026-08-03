@@ -1,4 +1,8 @@
 """Provider management API — update provider config, test connection, health check."""
+import json
+import os
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -89,9 +93,28 @@ async def provider_health(db: AsyncSession = Depends(get_db)):
 
 @router.get("/providers/config")
 async def get_env_config():
-    """Get current provider config from .env."""
+    """Get current provider config from persistent JSON file, fallback to .env/settings."""
+    # Try reading from persistent engine_config.json first
+    data_dir = os.environ.get("AIC_DATA_DIR", "")
+    if data_dir:
+        config_path = Path(data_dir) / "engine_config.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    data = json.load(f)
+                return {
+                    "base_url": data.get("base_url", ""),
+                    "api_key": "***" if data.get("api_key") else "",
+                    "provider_name": data.get("provider_name", "default"),
+                    "thinker": data.get("thinker", ""),
+                    "crafter": data.get("crafter", ""),
+                    "sprinter": data.get("sprinter", ""),
+                }
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Fallback to .env / settings
     from backend.config import settings
-    
     return {
         "base_url": settings.AIC_LLM_BASE_URL or "",
         "api_key": "***" if settings.AIC_LLM_API_KEY else "",
@@ -104,8 +127,7 @@ async def get_env_config():
 @router.post("/providers/config")
 async def update_env_config(payload: dict):
     """Update provider config in .env and reload provider_manager live."""
-    import os, traceback
-    from pathlib import Path
+    import traceback
     
     try:
         # Update current process env
@@ -159,6 +181,23 @@ async def update_env_config(payload: dict):
                 env_path = Path(data_dir) / ".env"
                 with open(env_path, "w") as f:
                     f.write("\n".join(new_lines) + "\n")
+            
+        # Persist to engine_config.json for cross-restart durability
+        data_dir = os.environ.get("AIC_DATA_DIR", "")
+        if data_dir:
+            config_path = Path(data_dir) / "engine_config.json"
+            try:
+                with open(config_path, "w") as f:
+                    json.dump({
+                        "thinker": payload.get("thinker"),
+                        "crafter": payload.get("crafter"),
+                        "sprinter": payload.get("sprinter"),
+                        "provider_name": payload.get("provider_name"),
+                        "base_url": payload.get("base_url"),
+                        "api_key": payload.get("api_key"),
+                    }, f)
+            except OSError:
+                pass  # Non-fatal; env var + .env still work if writable
             
         # Reload provider manager
         from llm.provider import provider_manager, init_provider_from_env

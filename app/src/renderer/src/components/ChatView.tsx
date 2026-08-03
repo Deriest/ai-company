@@ -11,11 +11,14 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X, PanelRight,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
 import { chatApi, type ToolCallData, type FileDiffData, type ShellOutputData, type TodoItemData, type DeliverableSummary } from '../lib/api/chat'
+import { providersApi, type ProviderRecord } from '../lib/api/providers'
+import { providerManageApi } from '../lib/api/provider_manage'
+import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 
 // ── Types ────────────────────────────────────────────────
 
@@ -36,6 +39,18 @@ type AgentMode = 'build' | 'plan'
 const AGENT_WORKER_MAP: Record<AgentMode, string> = {
   build: 'backend',
   plan: 'research',
+}
+
+// ── Engine tiers (THINKER / CRAFTER / SPRINTER) ──────────
+
+type EngineTier = 'thinker' | 'crafter' | 'sprinter'
+type TierSelection = { provider: string; model: string }
+
+const ENGINE_TIERS: EngineTier[] = ['thinker', 'crafter', 'sprinter']
+const TIER_LABEL_COLORS: Record<EngineTier, string> = {
+  thinker: 'text-primary',
+  crafter: 'text-success',
+  sprinter: 'text-warning',
 }
 
 // ── Markdown ─────────────────────────────────────────────
@@ -378,9 +393,11 @@ function MessageRow({ message, state }: { message: MessageRecord; state?: Assist
   if (isUser) {
     return (
       <div className="py-3 px-1">
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 shrink-0 font-mono text-xs font-bold text-primary/70 select-none">❯</span>
-          <p className="text-[13px] leading-relaxed whitespace-pre-wrap flex-1">{message.content}</p>
+        <div className="flex justify-end">
+          <div className="flex items-start gap-2 max-w-[80%]">
+            <span className="mt-0.5 shrink-0 font-mono text-xs font-bold text-primary/70 select-none">❯</span>
+            <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          </div>
         </div>
       </div>
     )
@@ -497,9 +514,12 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
 
 // ── Main ChatView ────────────────────────────────────────
 
-export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unknown' }) {
+export function ChatView({ health = 'unknown', currentProvider = null }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem('aic-ade-active-conversation') }
+    catch { return null }
+  })
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -507,10 +527,55 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [providers, setProviders] = useState<ProviderRecord[]>([])
+  const [tiers, setTiers] = useState<Record<EngineTier, TierSelection>>({
+    thinker: { provider: '', model: '' },
+    crafter: { provider: '', model: '' },
+    sprinter: { provider: '', model: '' },
+  })
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<(() => void) | null>(null)
+  const streamMsgIdRef = useRef<string | null>(null)
+  const activeIdRef = useRef(activeId)
+  const sendingRef = useRef(sending)
+  const messagesRef = useRef(messages)
+  const loadRequestRef = useRef(0)
+  activeIdRef.current = activeId
+  sendingRef.current = sending
+  messagesRef.current = messages
 
   const active = useMemo(() => conversations.find(c => c.id === activeId) ?? null, [conversations, activeId])
+
+  // ── Context usage (QA-2439 FIX → QA-2446: consistent per-message estimate)
+  // Previous logic switched between backend token_count (crude len//4) and an
+  // inflated per-message flat rate depending on whether ANY message had a
+  // token_count, causing the display to jump from 3k to ~1 after a reload.
+  // Now every message uses the same estimate: char-based floor so short
+  // messages still report a reasonable size, falling back to a flat rate
+  // when content is empty (e.g. streaming placeholder).
+  const estimateTokens = (m: MessageRecord): number => {
+    const fromBackend = m.token_count || 0
+    const fromContent = m.content ? Math.max(Math.ceil(m.content.length / 4), 1) : 0
+    const flat = m.role === 'assistant' ? 200 : 50   // floor for empty/placeholder
+    return Math.max(fromBackend, fromContent, flat)
+  }
+  const totalTokens = useMemo(() => {
+    if (messages.length === 0) return 0
+    const msgTokens = messages.reduce((sum, m) => sum + estimateTokens(m), 0)
+    const system = 500
+    return msgTokens + system
+  }, [messages])
+  const contextWindow = useMemo(() => {
+    const sel = tiers.thinker
+    const p = providers.find(x => x.name === sel.provider)
+    const m = p?.models.find(mm => mm.id === sel.model)
+    return m?.capabilities?.contextWindow || 0
+  }, [providers, tiers])
+  const contextPct = contextWindow > 0 ? Math.min(100, (totalTokens / contextWindow) * 100) : 0
+  const contextBarColor = contextPct > 80 ? 'bg-destructive' : contextPct >= 50 ? 'bg-warning' : 'bg-success'
 
   const loadConversations = async (query = '') => {
     try {
@@ -522,18 +587,55 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
       } else {
         const list = await conversationsApi.list()
         setConversations(list)
-        if (!activeId && list.length > 0) setActiveId(list[0].id)
+        const restored = activeId && list.some(c => c.id === activeId) ? activeId : list[0]?.id || null
+        if (restored !== activeId) setActiveId(restored)
       }
     } catch (e) { console.error('Load sessions failed', e) }
   }
 
   const loadMessages = async (convId: string) => {
-    try { setMessages(await conversationsApi.listMessages(convId)) }
+    const requestId = ++loadRequestRef.current
+    try {
+      const loaded = await conversationsApi.listMessages(convId)
+      // A slow response from an older request must never overwrite a newer
+      // conversation or the local stream currently being displayed.
+      if (requestId !== loadRequestRef.current || activeIdRef.current !== convId) return
+      // Keep optimistic messages until matching persisted records arrive. This
+      // remains necessary after onDone because /chat/execute commits at the end
+      // of the pipeline and a delayed GET can still observe the old snapshot.
+      const serverKeys = new Set(loaded.map(m => `${m.role}\u0000${m.content}`))
+      const localOnly = messagesRef.current.filter(m =>
+        m.conversation_id === convId && m.id.startsWith('temp-') &&
+        !serverKeys.has(`${m.role}\u0000${m.content}`)
+      )
+      // Stable ordering: backend assigns user+assistant the same created_at,
+      // so tiebreak by role (user above its assistant response).
+      const roleRank = (m: MessageRecord) => m.role === 'user' ? 0 : 1
+      setMessages([...loaded, ...localOnly].sort((a, b) =>
+        a.created_at.localeCompare(b.created_at) || roleRank(a) - roleRank(b)
+      ))
+    }
     catch (e) { console.error('Load messages failed', e) }
   }
 
   useEffect(() => { void loadConversations() }, [])
-  useEffect(() => { if (activeId) void loadMessages(activeId); else setMessages([]) }, [activeId])
+  useEffect(() => {
+    try {
+      if (activeId) sessionStorage.setItem('aic-ade-active-conversation', activeId)
+      else sessionStorage.removeItem('aic-ade-active-conversation')
+    } catch { /* ignore storage failures */ }
+  }, [activeId])
+  // QA-2443 FIX: skip loadMessages while a streaming send is in progress — the API
+  // hasn't committed the streaming response yet, so fetching would wipe local state.
+  // QA-2445: delayed reload after sending completes to let API commit.
+  useEffect(() => {
+    if (activeId && !sending) {
+      const timer = setTimeout(() => void loadMessages(activeId), 3000)
+      return () => clearTimeout(timer)
+    } else if (!activeId) {
+      setMessages([])
+    }
+  }, [activeId, sending])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, assistantStates])
   useEffect(() => {
     if (textareaRef.current) {
@@ -550,6 +652,104 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
       return next
     })
   }, [])
+
+  // ── Engine tier config (THINKER/CRAFTER/SPRINTER) ──────
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [envCfg, pList] = await Promise.all([
+          providerManageApi.getEnvConfig(),
+          providersApi.list(),
+        ])
+        if (cancelled) return
+        setProviders(pList)
+        let saved: Record<string, string> = {}
+        try { saved = JSON.parse(localStorage.getItem('aic-ade-engine-tiers') || '{}') } catch { /* ignore */ }
+        try {
+          const ipcCfg = await window.aic?.storeGet?.('engineConfig') as Record<string, string> | null
+          if (ipcCfg) saved = { ...saved, ...ipcCfg }
+        } catch { /* ignore */ }
+        if (cancelled) return
+        const bootProvider = currentProvider?.name || ''
+        const bootModel = resolveDefaultModelId(currentProvider)
+        const defaultProvider = envCfg.provider_name || bootProvider || pList[0]?.name || ''
+        const defaultModel = envCfg.thinker || bootModel || ''
+        setTiers({
+          thinker: { provider: saved.thinkerProvider || defaultProvider, model: saved.thinkerModel || defaultModel },
+          crafter: { provider: saved.crafterProvider || defaultProvider, model: saved.crafterModel || envCfg.crafter || bootModel || '' },
+          sprinter: { provider: saved.sprinterProvider || defaultProvider, model: saved.sprinterModel || envCfg.sprinter || bootModel || '' },
+        })
+      } catch (e) { console.error('Load engine config failed', e) }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleTierChange = useCallback((tier: EngineTier, patch: Partial<TierSelection>) => {
+    const next: Record<EngineTier, TierSelection> = { ...tiers, [tier]: { ...tiers[tier], ...patch } }
+    setTiers(next)
+    const persist = {
+      thinkerProvider: next.thinker.provider,
+      crafterProvider: next.crafter.provider,
+      sprinterProvider: next.sprinter.provider,
+      thinkerModel: next.thinker.model,
+      crafterModel: next.crafter.model,
+      sprinterModel: next.sprinter.model,
+    }
+    try { localStorage.setItem('aic-ade-engine-tiers', JSON.stringify(persist)) } catch { /* ignore */ }
+    void window.aic?.storeSet?.('engineConfig', persist)
+    // Apply to engine so the agent runner picks up the new tier models
+    const p = providers.find(x => x.name === next.thinker.provider) || providers[0]
+    providerManageApi.updateEnvConfig({
+      provider_name: p?.name || '',
+      base_url: p?.endpoint || '',
+      api_key: p?.apiKey || '',
+      thinker: next.thinker.model,
+      crafter: next.crafter.model,
+      sprinter: next.sprinter.model,
+    }).catch(e => console.error('Apply engine config failed', e))
+  }, [tiers, providers])
+
+  const handleFetchModels = useCallback(async () => {
+    if (fetchingModels) return
+    setFetchingModels(true)
+    try {
+      const current = await providersApi.list()
+      const updated: ProviderRecord[] = []
+      for (const p of current) {
+        try { updated.push(await providersApi.fetchModelsAndUpdate(p.id, p.endpoint)) }
+        catch (e) { console.error('Fetch models failed for', p.name, e); updated.push(p) }
+      }
+      setProviders(updated)
+    } catch (e) { console.error('Fetch models failed', e) }
+    setFetchingModels(false)
+  }, [fetchingModels])
+
+  const handleCompact = useCallback(async () => {
+    if (compacting || sending || !activeId) return
+    setCompacting(true)
+    try {
+      await loadMessages(activeId)
+      setContextOptimized(true)
+    } catch (e) { console.error('Compact context failed', e) }
+    setCompacting(false)
+  }, [compacting, sending, activeId])
+
+  // ── Stop/cancel generation (QA-2437 BUG-4) ─────────────
+  const handleStop = useCallback(() => {
+    abortRef.current?.()
+    abortRef.current = null
+    const msgId = streamMsgIdRef.current
+    streamMsgIdRef.current = null
+    if (msgId) {
+      updateAssistantState(msgId, s => ({ ...s, isStreaming: false }))
+      setMessages(prev => prev.map(m => m.id === msgId
+        ? { ...m, content: (m.content || '') + '\n\n*[stopped]*', status: 'completed' }
+        : m))
+    }
+    setSending(false)
+    // QA-2445: Don't reload — useEffect handles it
+  }, [activeId, updateAssistantState])
 
   const handleCreate = async () => {
     try {
@@ -607,6 +807,7 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
           status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
         }
         setMessages(prev => [...prev, tempErr])
+        setSending(false)
         return
       }
     }
@@ -626,10 +827,12 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
       next.set(tempAsstId, { content: '', toolCalls: [], fileDiffs: [], shellOutputs: new Map(), todos: [], filesModified: [], isStreaming: true })
       return next
     })
+    streamMsgIdRef.current = tempAsstId
 
     try {
       // Use executeAgent — goes through ConversationEngine → Dispatcher → Orchestrator → Workers
-      await chatApi.executeAgent(
+      // executeAgent returns an AbortController-backed cancel fn (QA-2437 BUG-4)
+      abortRef.current = await chatApi.executeAgent(
         {
           conversation_id: convId,
           messages: [{ role: 'user', content: text }],
@@ -662,12 +865,17 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
             updateAssistantState(tempAsstId, s => ({ ...s, deliverables }))
           },
           onDone: () => {
+            abortRef.current = null
+            streamMsgIdRef.current = null
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, status: 'completed' } : m))
             setSending(false)
-            void loadMessages(convId)
+            // QA-2445: Don't reload immediately — give API time to commit the response.
+            // The useEffect on [activeId, sending] will reload naturally.
           },
           onError: (err) => {
+            abortRef.current = null
+            streamMsgIdRef.current = null
             updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, content: s.content || `Error: ${err}` }))
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + `\n\nError: ${err}`, status: 'completed' } : m))
             setSending(false)
@@ -675,6 +883,8 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
         },
       )
     } catch (err: any) {
+      abortRef.current = null
+      streamMsgIdRef.current = null
       const errMsg = err?.message || String(err)
       setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: `Failed to send: ${errMsg}`, status: 'completed' } : m))
       setSending(false)
@@ -695,17 +905,6 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
               <Terminal className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
               {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{messages.length} msgs</span>}
-            </div>
-            {/* Agent switcher */}
-            <div className="flex items-center gap-0.5 rounded-md border border-border/50 p-0.5">
-              {(['build', 'plan'] as AgentMode[]).map(mode => (
-                <button key={mode} onClick={() => setAgentMode(mode)}
-                  className={cn("rounded px-2.5 py-0.5 text-[10px] font-medium transition-colors",
-                    agentMode === mode ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
-                  )}>
-                  {mode}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -758,9 +957,71 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
             </div>
           </div>
 
-          {/* Composer */}
+          {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
           <div className="border-t border-border px-4 py-3 shrink-0">
-            <div className="max-w-3xl mx-auto">
+            <div className="mx-auto max-w-5xl">
+              {/* Row 1 — mode | context usage | progress | tier selectors | actions */}
+              <div className="mb-2 flex items-center gap-2 overflow-x-auto scroll-thin pb-0.5">
+                {/* BUILD | PLAN */}
+                <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/50 p-0.5">
+                  {(['build', 'plan'] as AgentMode[]).map(mode => (
+                    <button key={mode} onClick={() => setAgentMode(mode)}
+                      className={cn("rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide transition-colors",
+                        agentMode === mode ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
+                      )}>
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[10px] font-semibold text-primary">Context</span>
+                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {totalTokens > 0 ? totalTokens.toLocaleString() : '?'}{contextWindow > 0 ? ` / ${contextWindow.toLocaleString()}` : ''}
+                  </span>
+                </div>
+
+                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
+                <div className="h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-muted/40">
+                  <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
+                </div>
+
+                {/* THINKER / CRAFTER / SPRINTER tier selectors */}
+                {ENGINE_TIERS.map(tier => {
+                  const sel = tiers[tier]
+                  const providerModels = providers.find(p => p.name === sel.provider)?.models || []
+                  return (
+                    <div key={tier} className="flex shrink-0 items-center gap-1">
+                      <span className={cn("text-[8px] font-bold tracking-wide", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
+                      <select value={sel.provider} onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
+                        aria-label={`${tier} provider`}
+                        className="max-w-20 cursor-pointer rounded border border-border/50 bg-card/60 px-1 py-0.5 text-[9px] outline-none focus:border-primary/40">
+                        <option value="">—</option>
+                        {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
+                      <select value={sel.model} onChange={e => handleTierChange(tier, { model: e.target.value })}
+                        aria-label={`${tier} model`}
+                        className="max-w-28 cursor-pointer rounded border border-border/50 bg-card/60 px-1 py-0.5 font-mono text-[9px] outline-none focus:border-primary/40">
+                        <option value="">—</option>
+                        {providerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                      </select>
+                    </div>
+                  )
+                })}
+
+                {/* Fetch / Compact */}
+                <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
+                </button>
+                <button onClick={() => void handleCompact()} disabled={compacting || sending}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
+                </button>
+              </div>
+
+              {/* Row 2 — input + send/stop */}
               <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2 focus-within:border-primary/40">
                 <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
                 <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
@@ -772,9 +1033,14 @@ export function ChatView({ health = 'unknown' }: { health?: 'ok' | 'bad' | 'unkn
                   disabled={false} rows={1}
                   placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
-<button onClick={() => void handleSend()} aria-label="Send message"
-                  className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary hover:bg-primary/25">
-                  {sending ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
+                {/* QA-2437 BUG-4: send button doubles as stop (abort) while generating */}
+                <button onClick={() => sending ? handleStop() : void handleSend()}
+                  aria-label={sending ? 'Stop generation' : 'Send message'}
+                  title={sending ? 'Stop generation' : 'Send message'}
+                  className={cn("mb-0.5 grid size-6 shrink-0 place-items-center rounded-md transition-colors",
+                    sending ? "bg-destructive/15 text-destructive hover:bg-destructive/25" : "bg-primary/15 text-primary hover:bg-primary/25"
+                  )}>
+                  {sending ? <Square className="size-2.5 fill-current" /> : <Send className="size-3" />}
                 </button>
               </div>
             </div>

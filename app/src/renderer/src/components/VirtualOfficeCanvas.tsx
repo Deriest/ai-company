@@ -223,7 +223,9 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: Props) {
 
   useEffect(() => {
     const c = containerRef.current; if (!c) return
-    const obs = new ResizeObserver(entries => { for (const e of entries) setScale(Math.min(1, e.contentRect.width / W)) })
+    const obs = new ResizeObserver(entries => {
+      for (const e of entries) setScale(Math.min(1, e.contentRect.width / W, e.contentRect.height / H))
+    })
     obs.observe(c); return () => obs.disconnect()
   }, [])
 
@@ -291,9 +293,9 @@ export function VirtualOfficeCanvas({ workers = [], onWorkerClick }: Props) {
   }
 
   return (
-    <div ref={containerRef} className="relative overflow-hidden rounded-xl border border-border bg-[#0a0e14]">
+    <div ref={containerRef} className="relative flex aspect-[38/22] min-h-[260px] w-full max-h-[min(52vh,620px)] items-center justify-center overflow-hidden rounded-xl border border-border bg-[#0a0e14] shadow-sm">
       <canvas ref={canvasRef} onClick={handleClick} className="block origin-top-left cursor-default" style={{ width: W * scale, height: H * scale }} />
-      <div className="absolute bottom-2 right-2 flex gap-2 text-[9px] text-muted-foreground/40">
+      <div className="absolute bottom-2 right-2 flex gap-2 text-[8px] text-muted-foreground/30">
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-success" /> Working</span>
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-warning" /> Idle</span>
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-info" /> Meeting</span>

@@ -44,7 +44,7 @@ export default function ObservabilityView() {
   const [workerMetrics, setWorkerMetrics] = useState<Record<string, WorkerMetrics>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'context' | 'workers' | 'usage'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'graph'>('overview')
 
   useEffect(() => {
     loadData()
@@ -104,13 +104,13 @@ export default function ObservabilityView() {
       <div className="p-4 border-b border-gray-700">
         <h1 className="text-xl font-semibold text-white">Observability</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Monitor context, workers, and token usage
+          Monitor usage, context, and system flow
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-gray-700">
-        {(['overview', 'context', 'workers', 'usage'] as const).map(tab => (
+        {(['overview', 'graph'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -171,12 +171,12 @@ export default function ObservabilityView() {
           </div>
         )}
 
-        {activeTab === 'context' && (
+        {false && (
           <div className="space-y-4">
             <div className="bg-gray-800 rounded-lg p-4">
               <h3 className="text-lg font-medium text-white mb-4">Context Sources</h3>
               <div className="space-y-2">
-                {contextStats?.domains && Object.entries(contextStats.domains).map(([domain, count]) => (
+                {Object.entries(contextStats?.domains || {}).map(([domain, count]) => (
                   <div key={domain} className="flex justify-between items-center">
                     <span className="text-gray-300">{domain}</span>
                     <span className="text-gray-400">{count} entries</span>
@@ -187,7 +187,7 @@ export default function ObservabilityView() {
           </div>
         )}
 
-        {activeTab === 'workers' && (
+        {false && (
           <div className="space-y-4">
             <div className="bg-gray-800 rounded-lg p-4">
               <h3 className="text-lg font-medium text-white mb-4">Worker Metrics</h3>
@@ -227,7 +227,7 @@ export default function ObservabilityView() {
           </div>
         )}
 
-        {activeTab === 'usage' && (
+        {activeTab === 'overview' && (
           <div className="space-y-4">
             {/* By Provider */}
             <div className="bg-gray-800 rounded-lg p-4">
@@ -270,6 +270,12 @@ export default function ObservabilityView() {
                 <p className="text-gray-400">No usage data available</p>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'graph' && (
+          <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-gray-700 bg-gray-800/50 p-8 text-center">
+            <div><h3 className="text-lg font-medium text-white">Execution Graph</h3><p className="mt-2 text-sm text-gray-400">Graph visualization will appear here as runtime events are collected.</p></div>
           </div>
         )}
       </div>

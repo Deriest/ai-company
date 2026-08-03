@@ -44,7 +44,18 @@ async def lifespan(app: FastAPI):
     from backend.services.crypto import decrypt as decrypt_api_key
     from sqlalchemy import select
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Provider).where(Provider.enabled == True))
+        # QA-2440 FIX: Register connected providers first so provider_manager's
+        # active provider is a working one, and skip providers whose API key is
+        # empty/undecryptable — they can never authenticate and previously became
+        # the active provider, breaking AgentRunner/workers/chat.
+        result = await db.execute(
+            select(Provider)
+            .where(Provider.enabled == True)
+            .order_by(
+                (Provider.status == "connected").desc(),
+                Provider.last_refresh_at.desc(),
+            )
+        )
         db_providers = result.scalars().all()
         for p in db_providers:
             try:
@@ -52,6 +63,9 @@ async def lifespan(app: FastAPI):
                 if not base_url.endswith("/v1"):
                     base_url += "/v1"
                 api_key = decrypt_api_key(p.api_key)
+                if not (api_key or "").strip():
+                    logger.warning(f"Skipping DB provider {p.name}: no usable API key")
+                    continue
                 
                 # Get models for this provider
                 model_result = await db.execute(

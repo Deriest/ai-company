@@ -139,14 +139,17 @@ class ToolAwareChatService:
 
         Yields SSE-formatted strings.
         """
-        provider = provider_manager.get_active()
+        # QA-2442 FIX: get_active() returns the FIRST registered provider,
+        # which may have an empty api_key (e.g. VansRouter from env), causing
+        # "Illegal header value b'Bearer '". Pick a provider with a usable key.
+        provider = provider_manager.get_active_with_key()
         if not provider:
             # Fallback: try to load from .env
             from llm.provider import init_provider_from_env
             config = init_provider_from_env()
             if config:
                 provider_manager.register(config)
-                provider = provider_manager.get_active()
+                provider = provider_manager.get_active_with_key()
         if not provider:
             # Fallback: try DB provider
             try:
@@ -165,7 +168,7 @@ class ToolAwareChatService:
                             api_key=decrypt_api_key(p.api_key),
                         )
                         provider_manager.register(config)
-                        provider = provider_manager.get_active()
+                        provider = provider_manager.get_active_with_key()
             except Exception:
                 pass
         if not provider:

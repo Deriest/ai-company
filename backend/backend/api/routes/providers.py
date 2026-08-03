@@ -35,6 +35,15 @@ async def _register_provider_live(provider: Provider, db: AsyncSession) -> None:
             base_url += "/v1"
         api_key = decrypt(provider.api_key) if provider.api_key else ""
 
+        # QA-2440 FIX: never register a provider without a usable API key —
+        # it would produce empty Authorization headers downstream.
+        if not api_key.strip():
+            logger.warning(
+                f"BUG-15: Provider '{provider.name}' has no usable API key — "
+                "skipping live registration in provider_manager"
+            )
+            return
+
         # Build models dict from DB provider models
         model_result = await db.execute(
             select(ProviderModel).where(ProviderModel.provider_id == provider.id)

@@ -135,7 +135,10 @@ class AgentRunner:
         # planner/reviewer/manager are not in the 3-worker group — no cross-cover.
         tier_chain = _worker_fallback_chain(tier)
         
-        provider = provider_manager.get_active()
+        # QA-2441 FIX: get_active() returns the FIRST registered provider,
+        # which may have an empty api_key (e.g. VansRouter from env), causing
+        # "Illegal header value b'Bearer '". Pick a provider with a usable key.
+        provider = provider_manager.get_active_with_key()
         if not provider:
             yield {"type": "error", "error": "No LLM provider configured"}
             return

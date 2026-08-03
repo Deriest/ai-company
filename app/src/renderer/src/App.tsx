@@ -14,7 +14,6 @@ import { JobsView } from "./components/JobsView";
 import { MemoryView } from "./components/MemoryView";
 import { RAGView } from "./components/RAGView";
 import { AutomationView } from "./components/AutomationView";
-import ObservabilityView from "./components/ObservabilityView";
 import { OnboardingFlow } from "./components/auth/OnboardingFlow";
 import { CommandPalette } from "./components/CommandPalette";
 import { TerminalPanel } from "./components/Terminal";
@@ -130,7 +129,7 @@ export function App() {
         return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
       case "hermes":
       case "chat":
-        return <ChatView health={boot.health} />;
+        return null;
       case "live":
         return <LiveCompanyView />;
       case "skills":
@@ -158,8 +157,6 @@ export function App() {
         return <RAGView />;
       case "automation":
         return <AutomationView />;
-      case "observability":
-        return <ObservabilityView />;
       default:
         return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
     }
@@ -179,8 +176,17 @@ export function App() {
         onFileSelect={handleFileSelect}
         onProjectChange={handleProjectChange}
       >
-        <div className="flex flex-col min-h-full">
-          <div className="flex-1">{renderView()}</div>
+        <div className="flex flex-1 min-h-0 flex-col">
+          <div className="relative flex flex-1 min-h-0 flex-col">
+            {/* Keep Command Center mounted while navigating so streaming state and
+                the active conversation cannot disappear with the menu view. */}
+            <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+              <ChatView health={boot.health} currentProvider={boot.currentProvider} />
+            </div>
+            <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
+              {renderView()}
+            </div>
+          </div>
           {showTerminal && (
             <TerminalPanel
               cwd={projectRoot || undefined}

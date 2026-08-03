@@ -123,73 +123,131 @@ function EngineConfigSection() {
     return true;
   })
 
-  useEffect(() => {
-    Promise.all([
-      providerManageApi.getEnvConfig(),
-      providersApi.list()
-    ]).then(([envCfg, pList]) => {
+  const loadEngineConfig = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [envCfg, pList] = await Promise.all([
+        providerManageApi.getEnvConfig(),
+        providersApi.list()
+      ])
       setCfg(envCfg)
       setProviders(pList)
 
-      // Find provider for each tier from env config
-      const activeP = pList.find(p => p.name === envCfg.provider_name)
-      if (activeP) {
-        setThinkerProvider(activeP.name)
-        setCrafterProvider(activeP.name)
-        setSprinterProvider(activeP.name)
-        setThinkerModels(activeP.models || [])
-        setCrafterModels(activeP.models || [])
-        setSprinterModels(activeP.models || [])
+      // Restore per-tier provider selections from localStorage first
+      let tp: string, cp: string, sp: string;
+      try {
+        const saved = JSON.parse(localStorage.getItem('aic-ade-engine-tiers') || '{}')
+        tp = saved.thinkerProvider || envCfg.provider_name
+        cp = saved.crafterProvider || envCfg.provider_name
+        sp = saved.sprinterProvider || envCfg.provider_name
+      } catch {
+        tp = cp = sp = envCfg.provider_name
       }
+
+      setThinkerProvider(tp)
+      setCrafterProvider(cp)
+      setSprinterProvider(sp)
+
+      // Load models per restored provider — ensures isolation
+      const tP = pList.find(p => p.name === tp)
+      const cP = pList.find(p => p.name === cp)
+      const sP = pList.find(p => p.name === sp)
+      setThinkerModels(tP?.models || [])
+      setCrafterModels(cP?.models || [])
+      setSprinterModels(sP?.models || [])
+
       setThinkerModel(envCfg.thinker || '')
       setCrafterModel(envCfg.crafter || '')
       setSprinterModel(envCfg.sprinter || '')
-    }).finally(() => setLoading(false))
+
+      // Override with IPC-persisted config (disk, survives app restart)
+      try {
+        if (window.aic) {
+          const ipcCfg = await window.aic.storeGet('engineConfig') as Record<string, string> | null
+          if (ipcCfg) {
+            if (ipcCfg.thinkerProvider) setThinkerProvider(ipcCfg.thinkerProvider)
+            if (ipcCfg.crafterProvider) setCrafterProvider(ipcCfg.crafterProvider)
+            if (ipcCfg.sprinterProvider) setSprinterProvider(ipcCfg.sprinterProvider)
+            if (ipcCfg.thinkerModel) setThinkerModel(ipcCfg.thinkerModel)
+            if (ipcCfg.crafterModel) setCrafterModel(ipcCfg.crafterModel)
+            if (ipcCfg.sprinterModel) setSprinterModel(ipcCfg.sprinterModel)
+            // Re-resolve models from the IPC provider names
+            const tP2 = pList.find(p => p.name === ipcCfg.thinkerProvider)
+            const cP2 = pList.find(p => p.name === ipcCfg.crafterProvider)
+            const sP2 = pList.find(p => p.name === ipcCfg.sprinterProvider)
+            if (tP2) setThinkerModels(tP2.models || [])
+            if (cP2) setCrafterModels(cP2.models || [])
+            if (sP2) setSprinterModels(sP2.models || [])
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load engine config from IPC store', e)
+      }
+    } catch (e) {
+      console.error('Failed to load engine config', e)
+    }
+    setLoading(false)
   }, [])
 
-  const handleTierProviderChange = (tier: 'thinker' | 'crafter' | 'sprinter', pName: string) => {
+  useEffect(() => { void loadEngineConfig() }, [loadEngineConfig])
+
+  const handleTierProviderChange = useCallback((tier: 'thinker' | 'crafter' | 'sprinter', pName: string) => {
     const p = providers.find(x => x.name === pName)
     if (!p) return
     const pModels = p.models || []
     if (tier === 'thinker') { setThinkerProvider(pName); setThinkerModels(pModels); setThinkerModel('') }
-    if (tier === 'crafter') { setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel('') }
-    if (tier === 'sprinter') { setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel('') }
-  }
+    else if (tier === 'crafter') { setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel('') }
+    else if (tier === 'sprinter') { setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel('') }
+  }, [providers])
 
-  const fetchAllModels = async () => {
+  const fetchAllModels = useCallback(async () => {
     setLoading(true)
     try {
+      // Get fresh provider list from API to avoid stale closure
+      const currentProviders = await providersApi.list()
       const pList: ProviderRecord[] = []
-      for (const p of providers) {
-        try { await providersApi.fetchModelsAndUpdate(p.id, p.endpoint) } catch (e) { console.error('Fetch models failed for', p.name, e) }
-        const refreshed = await providersApi.list()
-        const updated = refreshed.find(r => r.id === p.id)
-        if (updated) pList.push(updated)
+      for (const p of currentProviders) {
+        try {
+          // fetchModelsAndUpdate returns the updated provider record directly
+          const updated = await providersApi.fetchModelsAndUpdate(p.id, p.endpoint)
+          pList.push(updated)
+        } catch (e) {
+          console.error('Fetch models failed for', p.name, e)
+          pList.push(p) // keep existing data on failure
+        }
       }
-      if (pList.length === 0) {
-        const all = await providersApi.list()
-        setProviders(all)
-      } else {
-        setProviders(pList)
-      }
-      // Refresh current selections
+      setProviders(pList)
+      // Refresh current selections — models are isolated per provider
       const tp = pList.find(p => p.name === thinkerProvider)
       const cp = pList.find(p => p.name === crafterProvider)
       const sp = pList.find(p => p.name === sprinterProvider)
       if (tp) setThinkerModels(tp.models || [])
       if (cp) setCrafterModels(cp.models || [])
       if (sp) setSprinterModels(sp.models || [])
+
+      // Persist fresh provider selections
+      localStorage.setItem('aic-ade-engine-tiers', JSON.stringify({
+        thinkerProvider,
+        crafterProvider,
+        sprinterProvider,
+      }))
     } catch (e) { console.error('Fetch models failed', e) }
     setLoading(false)
-  }
+  }, [thinkerProvider, crafterProvider, sprinterProvider])
 
   const handleSave = async () => {
     setSaving(true)
     setMsg('')
     try {
-      // Use the first available provider's credentials
+      // Persist per-tier provider selections to localStorage
+      localStorage.setItem('aic-ade-engine-tiers', JSON.stringify({
+        thinkerProvider,
+        crafterProvider,
+        sprinterProvider,
+      }))
+
       const p = providers.find(x => x.name === thinkerProvider) || providers[0]
-      await providerManageApi.updateEnvConfig({
+      const res = await providerManageApi.updateEnvConfig({
         provider_name: p?.name || '',
         base_url: p?.endpoint || '',
         api_key: p?.apiKey || '',
@@ -199,6 +257,18 @@ function EngineConfigSection() {
       })
       setMsg('Engine updated successfully!')
       setTimeout(() => setMsg(''), 3000)
+
+      // Persist to IPC store (disk, survives app restart)
+      if (window.aic) {
+        await window.aic.storeSet('engineConfig', {
+          thinkerProvider,
+          crafterProvider,
+          sprinterProvider,
+          thinkerModel,
+          crafterModel,
+          sprinterModel,
+        })
+      }
     } catch (e: any) {
       setMsg('Failed: ' + (e?.message || String(e)))
     }
@@ -243,7 +313,6 @@ function EngineConfigSection() {
               {filterValidModels(thinkerModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
-          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Planner, Architect, Research</p>
         </div>
 
         {/* CRAFTER */}
@@ -261,7 +330,6 @@ function EngineConfigSection() {
               {filterValidModels(crafterModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
-          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Backend, Frontend, QA</p>
         </div>
 
         {/* SPRINTER */}
@@ -279,7 +347,6 @@ function EngineConfigSection() {
               {filterValidModels(sprinterModels).map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
             </select>
           </div>
-          <p className="text-[10px] text-muted-foreground ml-[96px]">Used by Docs, Governor</p>
         </div>
       </div>
     </Card>

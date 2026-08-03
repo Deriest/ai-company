@@ -1,22 +1,29 @@
 {
-  "version": "2.4.21",
+  "version": "2.4.47",
   "channel": "stable",
-  "releaseDate": "2026-08-02",
-  "releaseNotes": "v2.4.21: QA-2420 Round 10 — Final polish to 100/100. BUG-21: Removed stale win32 entry (2.4.9) from latest.json. BUG-22: Office header now shows 15 workers (AGENT_REGISTRY) consistent with Live Company + dashboard. POLISH-1: Chat streaming now buffers LLM output, runs taste check + rewrite, then streams clean content — no slop flash. POLISH-2: Palette 'Toggle File Tree' now actually toggles the file tree panel visibility. Pytest: 636 passed, 0 regressions.",
+  "releaseDate": "2026-08-03",
+  "releaseNotes": "v2.4.47 — Chat: user messages right-aligned, LLM left-aligned; stable message ordering (user before assistant); context usage no longer jumps after reload. Windows: icon now embedded in exe via rcedit (signAndEditExecutable enabled). Office floor: 15 live worker desks with status, progress bars, and activity log. Durable chat persistence to SQLite.",
   "platforms": {
     "linux": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.21-linux-x86_64.AppImage",
-      "sha256": "9c734a386849b144c2d1871ebb2b418db991947b8dde532e8375ce2d1d9d7483",
-      "size": 182651108,
-      "filename": "AIC-ADE-2.4.21-linux-x86_64.AppImage",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.47-linux-x86_64.AppImage",
+      "sha256": "c2aed53560b30272c3791c9d8a0cc738acad5f34bc7716a3692a778567431b65",
+      "size": 181145827,
+      "filename": "AIC-ADE-2.4.47-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.21-linux-amd64.deb",
-      "sha256": "84df0c8e9d378249d1ec53b2948762b4b9171fa9591499d5d8d8216f5a6f6c94",
-      "size": 129534074,
-      "filename": "AIC-ADE-2.4.21-linux-amd64.deb",
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-2.4.47-linux-amd64.deb",
+      "sha256": "96c7173bdf65b03ca19e62326b0e82c1e2a21133204dc42f265af7531db3b014",
+      "size": 128031162,
+      "filename": "AIC-ADE-2.4.47-linux-amd64.deb",
       "type": "deb"
+    },
+    "win32": {
+      "downloadUrl": "http://192.168.2.10:8088/AIC-ADE-Setup-2.4.47.exe",
+      "sha256": "897c5e13faec85420a7ebb092e50b8add4be29a56da7962dd8e53a8bc8f6a1d0",
+      "size": 136985431,
+      "filename": "AIC-ADE-Setup-2.4.47.exe",
+      "type": "nsis"
     }
   }
 }

@@ -144,7 +144,7 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-6">
       {/* Main: Org Chart */}
       <div className="min-w-0 flex-1">
         <PageHeader
@@ -154,8 +154,8 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
 
         {/* Token Cost Summary */}
         {usageStats && (
-          <div className="grid grid-cols-3 gap-3 px-6 pt-4">
-            <Card className="flex items-center gap-3">
+          <div className="grid grid-cols-3 gap-2 px-6 pt-2">
+            <Card className="flex items-center gap-2 p-2">
               <div className="grid size-9 place-items-center rounded-lg bg-primary/15">
                 <Coins className="size-4 text-primary" />
               </div>
@@ -164,7 +164,7 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                 <p className="text-[10px] text-muted-foreground">Total Cost (30d)</p>
               </div>
             </Card>
-            <Card className="flex items-center gap-3">
+            <Card className="flex items-center gap-2 p-2">
               <div className="grid size-9 place-items-center rounded-lg bg-success/15">
                 <Zap className="size-4 text-success" />
               </div>
@@ -173,7 +173,7 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                 <p className="text-[10px] text-muted-foreground">Tokens Used (30d)</p>
               </div>
             </Card>
-            <Card className="flex items-center gap-3">
+            <Card className="flex items-center gap-2 p-2">
               <div className="grid size-9 place-items-center rounded-lg bg-warning/15">
                 <Cpu className="size-4 text-warning" />
               </div>
@@ -185,20 +185,20 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
           </div>
         )}
 
-        <div className="space-y-6 p-6">
+        <div className="max-h-[calc(100vh-13rem)] space-y-2 overflow-y-auto p-4 pb-4 pr-3 scroll-thin">
           {DEPARTMENTS.map((dept) => (
             <div key={dept.name}>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-1.5 flex items-center gap-1.5">
                 <Users className={cn('size-4', dept.color)} />
-                <h2 className={cn('text-sm font-semibold', dept.color)}>
+                <h2 className={cn('text-xs font-semibold', dept.color)}>
                   {dept.name}
                 </h2>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[10px] text-muted-foreground">
                   ({dept.workers.length} workers)
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {dept.workers.map((worker) => {
                   const stats = workerStats[worker.id] || {}
                   const isActive = stats.isEnabled !== false
@@ -210,18 +210,18 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                       key={worker.id}
                       onClick={() => handleSelect(worker)}
                       className={cn(
-                        'flex flex-col gap-3 rounded-xl border p-4 text-left transition-all',
+                        'flex flex-col gap-1.5 rounded-lg border p-2 text-left transition-all',
                         isSelected
                           ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
                           : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
                       )}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className={cn(
-                          'grid size-10 place-items-center rounded-lg',
+                          'grid size-8 place-items-center rounded-md',
                           isActive ? 'bg-success/15' : 'bg-muted',
                         )}>
-                          <Icon className={cn('size-5', isActive ? dept.color : 'text-muted-foreground')} />
+                          <Icon className={cn('size-4', isActive ? dept.color : 'text-muted-foreground')} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold">{worker.name}</p>
@@ -233,15 +233,15 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                         )} />
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', tierColors[worker.tier])}>
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn('rounded px-1 py-0.5 text-[9px] font-medium', tierColors[worker.tier])}>
                           {worker.tier}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[9px] text-muted-foreground">
                           {worker.phase}
                         </span>
                         {stats.metrics && (
-                          <span className="ml-auto text-[10px] text-muted-foreground">
+                          <span className="ml-auto text-[9px] text-muted-foreground">
                             {stats.metrics.totalExecutions || 0} tasks
                           </span>
                         )}

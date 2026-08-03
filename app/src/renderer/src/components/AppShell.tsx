@@ -12,13 +12,13 @@ import {
   FolderTree,
   ChevronDown,
   ChevronRight,
-  BarChart3,
   Command,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { BugReportDialog } from "./auth/Dialogs";
 import { FileTree } from "./FileTree";
 import { ProjectPicker } from "./ProjectPicker";
+import TitleBar from "./TitleBar";
 import type { LocalProfile } from "../lib/api/profile";
 import type { ProjectRecord } from "../lib/api/projects";
 
@@ -28,7 +28,6 @@ const nav = [
   { id: "live", label: "Live Company", icon: Users },
   { id: "skills", label: "Skills", icon: Wrench },
   { id: "mcp", label: "MCP Servers", icon: Plug },
-  { id: "observability", label: "Observability", icon: BarChart3 },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -90,10 +89,7 @@ export function AppShell({
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-background text-foreground">
-      <header className="shrink-0 border-b border-border bg-sidebar flex items-center gap-2 px-3 py-1.5">
-        <img src="./aic-ade-logo.png" alt="AI Company ADE" width={16} height={16} className="rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-        <span className="text-[11px] font-semibold tracking-wide">AI Company ADE</span>
-      </header>
+      <TitleBar />
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-48 lg:w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-y-auto">
           <nav className="flex-1 space-y-1 px-3 py-2">
@@ -188,14 +184,6 @@ export function AppShell({
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex-1 min-h-0 flex flex-col relative">{children}</div>
-
-          <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border bg-sidebar px-4 text-[11px] text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <span className={cn("size-1.5 rounded-full", connected ? "bg-success" : "bg-destructive")} />
-              {connected ? "System operational" : "System offline"}
-            </div>
-            <span className="hidden sm:inline-flex items-center gap-1"><Command className="size-3" /> Command Palette <kbd className="rounded border border-border px-1 font-mono text-[9px]">Ctrl K</kbd></span>
-          </footer>
         </main>
       </div>
       <BugReportDialog open={bugOpen} onClose={() => setBugOpen(false)} />

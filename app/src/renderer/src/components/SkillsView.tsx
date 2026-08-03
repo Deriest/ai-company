@@ -81,7 +81,7 @@ export function SkillsView() {
   const categories = Array.from(new Set(skills.map(s => s.category)))
 
   return (
-    <div className="min-h-full">
+    <div className="flex-1 min-h-0 overflow-y-auto">
       <PageHeader
         title="Skill Registry"
         subtitle={`${skills.length} skills registered · ${skills.filter(s => s.is_enabled).length} enabled`}
@@ -99,7 +99,7 @@ export function SkillsView() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 space-y-4">
         {/* Search */}
         <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 max-w-md focus-within:border-primary/50">
           <Search className="size-4 text-muted-foreground" />
@@ -121,12 +121,12 @@ export function SkillsView() {
             const Icon = CATEGORY_ICONS[cat] || BookOpen
             return (
               <div key={cat}>
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-2 flex items-center gap-2">
                   <Icon className="size-4 text-primary" />
                   <h2 className="text-sm font-semibold capitalize">{CATEGORY_LABELS[cat] || cat.replace('-', ' ')}</h2>
                   <span className="text-xs text-muted-foreground">({catSkills.length})</span>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {catSkills.map(skill => (
                     <SkillCard key={skill.skill_id} skill={skill}
                       onToggle={() => handleToggle(skill)}
@@ -161,11 +161,11 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }: {
   onEdit: () => void
 }) {
   return (
-    <Card className={cn("relative transition-all", !skill.is_enabled && "opacity-50")}>
+    <Card className={cn("relative transition-all p-2.5", !skill.is_enabled && "opacity-50")}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1" onClick={onEdit}>
           <p className="text-sm font-semibold truncate cursor-pointer hover:text-primary">{skill.name}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{skill.description}</p>
+          <p className="mt-0.5 break-words text-[11px] leading-relaxed text-muted-foreground">{skill.description}</p>
         </div>
         <button onClick={onToggle} className="shrink-0" title={skill.is_enabled ? 'Disable' : 'Enable'}>
           {skill.is_enabled
@@ -174,7 +174,7 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }: {
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1">
+      <div className="mt-2 flex flex-wrap gap-1">
         {(skill.assigned_workers || []).slice(0, 5).map(w => (
           <Badge key={w} tone="primary" className="text-[9px]">{w}</Badge>
         ))}
@@ -183,7 +183,7 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }: {
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-between">
+      <div className="mt-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Badge tone={skill.source === 'built-in' ? 'warning' : 'success'} className="text-[9px]">{skill.source}</Badge>
           <code className="text-[9px] text-muted-foreground font-mono">{skill.skill_id}</code>

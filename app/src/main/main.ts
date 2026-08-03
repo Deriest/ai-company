@@ -350,8 +350,10 @@ function createWindow(): BrowserWindow {
     height: 900,
     minWidth: 1024,
     minHeight: 640,
+    frame: false,
     backgroundColor: "#05060A",
-    title: "AI Company ADE",
+    title: "AICompany ADE",
+    icon: path.join(__dirname, process.platform === 'win32' ? '../../build/icon.ico' : '../../build/icon.png'),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
@@ -871,7 +873,7 @@ app.whenReady().then(async () => {
   if (typeof store.projectRoot === "string") projectRoot = store.projectRoot;
   initUpdateManager();
   registerIpc();
-  buildAppMenu();
+  // buildAppMenu(); // Removed — frameless custom title bar replaces native menu
   await ensureBackendRunning();
   updateManager?.setBackendProc(backendProc);
   createWindow();

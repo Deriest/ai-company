@@ -692,6 +692,30 @@ class ProviderManager:
             return None
         return self._providers.get(self._active)
 
+    def get_active_with_key(self) -> LLMProvider | None:
+        """QA-2441: Return a provider with a usable (non-empty) API key.
+
+        get_active() returns the FIRST registered provider (e.g. an
+        env-configured router registered at startup before the DB providers),
+        which may have an empty api_key — producing
+        "Illegal header value b'Bearer '" downstream.
+        Prefer the active provider when its key is usable; otherwise return
+        the first registered provider with a non-empty key.
+        """
+        active = self.get_active()
+        if active is not None and (active.config.api_key or "").strip():
+            return active
+        for name, provider in self._providers.items():
+            if name == self._active:
+                continue
+            if (provider.config.api_key or "").strip():
+                logger.info(
+                    f"Active provider '{self._active}' has no usable API key — "
+                    f"using '{name}' instead"
+                )
+                return provider
+        return None
+
     def get_active_profile(self, tier: ModelTier | str = ModelTier.CRAFTER) -> "AdaptiveRuntimeProfile | None":
         """Get the adaptive runtime profile for the active provider and requested tier."""
         from runtime.adaptive import adaptive_runtime

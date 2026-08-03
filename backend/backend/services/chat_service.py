@@ -58,25 +58,50 @@ async def build_chat_context(
 class ChatService:
     @staticmethod
     async def _get_provider_config(db: AsyncSession, provider_id: str | None) -> tuple[str, str] | None:
-        if not provider_id:
-            # Auto-detect: find first enabled provider
-            res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
-            p = res.scalars().first()
-            if p:
-                provider_id = p.id
-        else:
+        def _usable_key(provider: Provider | None) -> str:
+            """QA-2440: Return the decrypted API key only if the provider is usable."""
+            if not provider or not provider.enabled:
+                return ""
+            if not (provider.api_key or "").strip():
+                return ""
+            return (decrypt_api_key(provider.api_key) or "").strip()
+
+        p = None
+        api_key = ""
+        if provider_id:
             res = await db.execute(select(Provider).where(Provider.id == provider_id))
-            p = res.scalars().first()
-            if not p or not p.enabled:
-                p = None
-        
-        if p and p.enabled:
+            candidate = res.scalars().first()
+            api_key = _usable_key(candidate)
+            if api_key:
+                p = candidate
+
+        if p is None:
+            # QA-2440 FIX: Auto-detect must skip stale providers with empty or
+            # undecryptable keys. Previously this grabbed the FIRST enabled row
+            # with no ordering — stale rows (empty api_key) won the pick,
+            # decrypt() returned "", and httpx raised
+            # "Illegal header value b'Bearer '". Prefer connected providers,
+            # then most recently refreshed.
+            res = await db.execute(
+                select(Provider)
+                .where(Provider.enabled == True)
+                .order_by(
+                    (Provider.status == "connected").desc(),
+                    Provider.last_refresh_at.desc(),
+                )
+            )
+            for candidate in res.scalars().all():
+                api_key = _usable_key(candidate)
+                if api_key:
+                    p = candidate
+                    break
+
+        if p is not None:
             base_url = p.base_url.rstrip("/")
             if not base_url.endswith("/v1"):
                 base_url += "/v1"
-            api_key = decrypt_api_key(p.api_key)
             return base_url, api_key
-        
+
         # Fallback: try .env file via backend config
         from backend.config import settings
         base_url = settings.AIC_LLM_BASE_URL or ""
@@ -86,7 +111,7 @@ class ChatService:
             if not base_url.endswith("/v1"):
                 base_url += "/v1"
             return base_url, api_key
-        
+
         return None
 
     @staticmethod
@@ -336,6 +361,10 @@ class ChatService:
             await artifact_service.extract_and_store(db, conversation_id, msg.id, content)
             
             usage = data.get("usage", {})
+            # Store token_count on the message itself
+            msg.token_count = usage.get("total_tokens", 0)
+            db.add(msg)
+            await db.commit()
             log = GenerationLog(
                 conversation_id=conversation_id,
                 message_id=msg.id,
@@ -423,7 +452,7 @@ class ChatService:
             content="",
             model_id=model_id,
             provider_id=provider_id,
-            status="streaming"
+            status="streaming",
         )
         db.add(msg)
         await db.commit()
@@ -633,6 +662,7 @@ class ChatService:
                     # POLISH-1 FIX: Buffer all LLM chunks BEFORE streaming to frontend.
                     # This prevents slop text from flashing in the UI before taste rewrite.
                     buffered_content = ""
+                    stream_usage = None
                     async for line in res.aiter_lines():
                         if line.startswith("data: "):
                             data_str = line[6:].strip()
@@ -640,6 +670,9 @@ class ChatService:
                                 break
                             try:
                                 chunk_json = json.loads(data_str)
+                                # Capture usage from the last chunk (some providers send it mid-stream)
+                                if chunk_json.get("usage"):
+                                    stream_usage = chunk_json["usage"]
                                 delta = chunk_json.get("choices", [{}])[0].get("delta", {})
                                 chunk_content = delta.get("content", "")
                                 if chunk_content:
@@ -688,6 +721,12 @@ class ChatService:
                 yield f"data: {json.dumps({'type': 'chunk', 'content': _chunk})}\n\n"
 
             msg.status = "completed"
+            # Store token_count from upstream usage if available, otherwise estimate
+            if stream_usage and stream_usage.get("total_tokens"):
+                msg.token_count = stream_usage["total_tokens"]
+            else:
+                # Estimate: ~4 chars per token for content + messages
+                msg.token_count = len(msg.content) // 4 + sum(len(m.get("content", "")) // 4 for m in messages)
             await db.commit()
             await artifact_service.extract_and_store(db, conversation_id, msg.id, msg.content)
             

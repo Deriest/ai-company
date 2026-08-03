@@ -9,3 +9,4 @@ release/
 
 # Portable Python runtimes (built locally; packaged via electron-builder extraResources)
 packaging/runtimes/
+squashfs-root/

@@ -1,8 +1,8 @@
 {
   "name": "aic-ade",
-  "version": "2.4.21",
+  "version": "2.4.47",
   "private": true,
-  "description": "AI Company ADE",
+  "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
   "homepage": "https://download.aicompany.biz.id",
   "main": "dist-electron/main/main.js",
@@ -63,14 +63,15 @@
   },
   "build": {
     "appId": "id.aicompany.ade",
-    "productName": "AI Company ADE",
-    "executableName": "AI Company ADE",
+    "productName": "AICompany ADE",
+    "executableName": "AICompany ADE",
     "icon": "build/icon.png",
     "publish": {
       "provider": "generic",
       "url": ""
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -79,7 +80,7 @@
           ]
         }
       ],
-      "signAndEditExecutable": false,
+      "signAndEditExecutable": true,
       "extraResources": [
         {
           "from": "packaging/runtimes/python-win",
@@ -130,6 +131,8 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
+      "build/icon.png",
+      "build/icon.ico",
       "package.json"
     ],
     "linux": {
@@ -155,8 +158,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AI Company ADE",
-      "uninstallDisplayName": "AI Company ADE",
+      "shortcutName": "AICompany ADE",
+      "uninstallDisplayName": "AICompany ADE",
       "artifactName": "AIC-ADE-Setup-${version}.${ext}"
     },
     "mac": {
