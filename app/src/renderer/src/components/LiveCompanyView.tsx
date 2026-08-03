@@ -6,7 +6,7 @@ import {
   Users, Cpu, Shield, Code, Palette, Database,
   Server, BookOpen, Search, Zap, TestTube2,
   GitBranch, Lock, Rocket, Gauge, LayoutDashboard,
-  UserCog, Brain, Coins,
+  UserCog, Brain,
 } from 'lucide-react'
 
 // ── Workforce data (canonical workers × 4 departments) ──
@@ -83,7 +83,6 @@ interface LiveCompanyViewProps {
 export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   const [selectedWorker, setSelectedWorker] = useState<WorkerDef | null>(null)
   const [workerStats, setWorkerStats] = useState<Record<string, any>>({})
-  const [usageStats, setUsageStats] = useState<{ total_tokens: number; total_cost: number; total_requests: number } | null>(null)
   const [loading, setLoading] = useState(true)
 
   // BUG-10 FIX: Compute total worker count dynamically from DEPARTMENTS
@@ -107,16 +106,6 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
       .catch(() => { /* graceful */ })
       .finally(() => setLoading(false))
 
-    // Fetch usage/token cost stats
-    apiClient.get<any>('/api/usage/stats?days=30')
-      .then((data) => {
-        setUsageStats({
-          total_tokens: data.total_tokens || 0,
-          total_cost: data.total_cost || 0,
-          total_requests: data.total_requests || 0,
-        })
-      })
-      .catch(() => { /* graceful — usage is optional */ })
   }, [])
 
   useEffect(() => {
@@ -144,46 +133,13 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-6">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-6 lg:flex-row">
       {/* Main: Org Chart */}
       <div className="min-w-0 flex-1">
         <PageHeader
           title="Engineering Workforce"
           subtitle={`${totalWorkers} specialized AI workers across ${totalDepts} departments`}
         />
-
-        {/* Token Cost Summary */}
-        {usageStats && (
-          <div className="grid grid-cols-3 gap-2 px-6 pt-2">
-            <Card className="flex items-center gap-2 p-2">
-              <div className="grid size-9 place-items-center rounded-lg bg-primary/15">
-                <Coins className="size-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-lg font-bold leading-none">${usageStats.total_cost.toFixed(2)}</p>
-                <p className="text-[10px] text-muted-foreground">Total Cost (30d)</p>
-              </div>
-            </Card>
-            <Card className="flex items-center gap-2 p-2">
-              <div className="grid size-9 place-items-center rounded-lg bg-success/15">
-                <Zap className="size-4 text-success" />
-              </div>
-              <div>
-                <p className="text-lg font-bold leading-none">{(usageStats.total_tokens / 1000).toFixed(0)}k</p>
-                <p className="text-[10px] text-muted-foreground">Tokens Used (30d)</p>
-              </div>
-            </Card>
-            <Card className="flex items-center gap-2 p-2">
-              <div className="grid size-9 place-items-center rounded-lg bg-warning/15">
-                <Cpu className="size-4 text-warning" />
-              </div>
-              <div>
-                <p className="text-lg font-bold leading-none">{usageStats.total_requests}</p>
-                <p className="text-[10px] text-muted-foreground">LLM Requests (30d)</p>
-              </div>
-            </Card>
-          </div>
-        )}
 
         <div className="max-h-[calc(100vh-13rem)] space-y-2 overflow-y-auto p-4 pb-4 pr-3 scroll-thin">
           {DEPARTMENTS.map((dept) => (

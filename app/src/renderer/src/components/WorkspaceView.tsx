@@ -7,7 +7,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Target, Users, Terminal, UserPlus, Command, X, Coins, Zap, FolderOpen,
+  Target, Users, Terminal, UserPlus, Command, X, Coins, Zap, FolderOpen, Activity,
   Brain, Shield, UserCog, Search, Palette, BookOpen,
   LayoutDashboard, Server, Code, TestTube2, Gauge,
   Database, GitBranch, Rocket, Lock, CheckCircle2, Clock,
@@ -368,7 +368,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
   const [totalWorkforce] = useState(15)
   const [activeMissions, setActiveMissions] = useState(0)
   const [totalTokens, setTotalTokens] = useState(0)
-  const [totalCost, setTotalCost] = useState(0)
+  const [totalRequests, setTotalRequests] = useState(0)
   const [loading, setLoading] = useState(true)
   const [workerStates, setWorkerStates] = useState<Record<string, WorkerState>>({})
   const [activities, setActivities] = useState<ActivityEntry[]>([])
@@ -389,7 +389,8 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
       const [tasksRes, workersRes, usageRes] = await Promise.allSettled([
         apiClient.get<any[]>('/tasks?limit=50'),
         apiClient.get<any[]>('/runtime/workers'),
-        apiClient.get<any>('/runtime/usage'),
+        // Keep token/cost data consistent with Live Company.
+        apiClient.get<any>('/api/usage/stats?days=30'),
       ])
 
       const tasks = tasksRes.status === 'fulfilled' ? (tasksRes.value || []) : []
@@ -470,10 +471,10 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
       )
       setWorkerStates(newStates)
 
-      // Usage stats — try /runtime/usage (BUG-4 fix: was /api/usage/stats which doesn't exist)
+      // Shared usage source with Live Company.
       if (usageRes.status === 'fulfilled' && usageRes.value) {
         setTotalTokens(usageRes.value.total_tokens || 0)
-        setTotalCost(usageRes.value.total_cost || 0)
+        setTotalRequests(usageRes.value.total_requests || 0)
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
@@ -557,11 +558,11 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
           </Card>
           <Card className="flex items-center gap-3 py-2.5">
             <div className="grid size-8 place-items-center rounded-lg bg-info/15">
-              <Coins className="size-4 text-info" />
+              <Activity className="size-4 text-info" />
             </div>
             <div>
-              <p className="text-lg font-bold leading-none">${totalCost.toFixed(2)}</p>
-              <p className="text-[10px] text-muted-foreground">Cost (30d)</p>
+              <p className="text-lg font-bold leading-none">{totalRequests}</p>
+              <p className="text-[10px] text-muted-foreground">Requests (30d)</p>
             </div>
           </Card>
         </div>

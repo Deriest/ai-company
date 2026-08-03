@@ -541,6 +541,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   const [fetchingModels, setFetchingModels] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const streamMsgIdRef = useRef<string | null>(null)
@@ -609,19 +610,29 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       // remains necessary after onDone because /chat/execute commits at the end
       // of the pipeline and a delayed GET can still observe the old snapshot.
       const serverKeys = new Set(loaded.map(m => `${m.role}\u0000${m.content}`))
+      const messageTimestamp = (s: string) => {
+        const value = Date.parse(s)
+        return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
+      }
       const localOnly = messagesRef.current.filter(m =>
         m.conversation_id === convId && m.id.startsWith('temp-') &&
-        !serverKeys.has(`${m.role}\u0000${m.content}`)
+        !serverKeys.has(`${m.role}\u0000${m.content}`) &&
+        // Once the server has persisted the current assistant response, do
+        // not retain an obsolete temp assistant and show the answer twice.
+        !(m.role === 'assistant' && loaded.some(server =>
+          server.role === 'assistant' && messageTimestamp(server.created_at) >= messageTimestamp(m.created_at) - 5
+        ))
       )
-      // Stable ordering: backend assigns user+assistant the same created_at,
-      // so tiebreak by role (user above its assistant response).
-      // Normalize timestamps: Python isoformat ends with +00:00, JS ends with Z.
-      // Without normalization, localeCompare sorts all +00:00 before all Z
-      // regardless of actual time, causing reversed message order after reload.
-      const normTs = (s: string) => s.replace(/\+00:00$/, 'Z')
+      // Stable conversation ordering. Never compare ISO strings directly:
+      // Python emits +00:00 while JS emits Z, and legacy rows can have equal
+      // timestamps. Numeric parsing plus a small same-turn tolerance keeps
+      // each user message before its assistant response after reload.
       const roleRank = (m: MessageRecord) => m.role === 'user' ? 0 : 1
       setMessages([...loaded, ...localOnly].sort((a, b) =>
-        normTs(a.created_at).localeCompare(normTs(b.created_at)) || roleRank(a) - roleRank(b)
+        (() => {
+          const delta = messageTimestamp(a.created_at) - messageTimestamp(b.created_at)
+          return Math.abs(delta) <= 5 ? roleRank(a) - roleRank(b) : delta
+        })()
       ))
     }
     catch (e) { console.error('Load messages failed', e) }
@@ -649,7 +660,11 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   useEffect(() => {
     return () => { abortRef.current?.(); abortRef.current = null }
   }, [])
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, assistantStates])
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !shouldAutoScrollRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, assistantStates])
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -962,7 +977,14 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
           </div>
 
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin px-4 py-3">
+          <div
+            ref={scrollRef}
+            onScroll={e => {
+              const el = e.currentTarget
+              shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96
+            }}
+            className="flex-1 overflow-y-auto scroll-thin px-4 py-3"
+          >
             {contextOptimized && (
               <div className="mx-auto max-w-3xl mb-3 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-primary">
                 <Loader2 className="size-3 animate-spin" />
@@ -1013,8 +1035,8 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
           {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
           <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="mx-auto max-w-5xl">
-              {/* Row 1 — mode | context usage | progress | tier selectors | actions */}
-              <div className="mb-2 flex items-center gap-2 overflow-x-auto scroll-thin pb-0.5">
+              {/* Toolbar wraps on narrow windows instead of forcing horizontal scroll. */}
+              <div className="mb-2 flex flex-wrap items-center gap-2 pb-0.5">
                 {/* BUILD | PLAN */}
                 <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/50 p-0.5">
                   {(['build', 'plan'] as AgentMode[]).map(mode => (
@@ -1036,7 +1058,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                 </div>
 
                 {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
-                <div className="h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-muted/40">
+                <div className="order-last h-1.5 min-w-[120px] flex-1 basis-full overflow-hidden rounded-full bg-muted/40 sm:order-none sm:min-w-6 sm:basis-auto">
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 

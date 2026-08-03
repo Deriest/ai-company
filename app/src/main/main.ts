@@ -441,6 +441,14 @@ function registerIpc(): void {
     return result ? { ok: false, error: result } : { ok: true };
   });
 
+  ipcMain.handle("aic:open-external", async (_e, target: string) => {
+    if (!target || typeof target !== "string" || !/^https:\/\/(github\.com|raw\.githubusercontent\.com)\//.test(target)) {
+      return { ok: false, error: "external URL is not allowed" };
+    }
+    await shell.openExternal(target);
+    return { ok: true };
+  });
+
   ipcMain.handle("aic:show-item", (_e, target: string) => {
     if (!target || typeof target !== "string") return false;
     const safe = resolveSafe(target, projectRoot ? [projectRoot] : []);

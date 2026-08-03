@@ -26,7 +26,9 @@ async def list_messages(
     res = await db.execute(
         select(Message)
         .where(Message.conversation_id == id)
-        .order_by(Message.created_at)
+        # created_at is the primary conversation order. id makes results
+        # deterministic for legacy rows that share the same timestamp.
+        .order_by(Message.created_at, Message.id)
         .offset(skip)
         .limit(limit)
     )

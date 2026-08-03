@@ -44,4 +44,7 @@ export const skillsApi = {
   async reseed(): Promise<void> {
     return apiClient.post("/skills/seed");
   },
+  async installFromGitHub(repoUrl: string, skillPath = ""): Promise<SkillRecord> {
+    return apiClient.post<SkillRecord>("/skills/install-github", { repo_url: repoUrl, skill_path: skillPath });
+  },
 };

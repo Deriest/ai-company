@@ -64,6 +64,8 @@ const api = {
     ipcRenderer.invoke("aic:store-set", key, value),
   openPath: (target: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("aic:open-path", target),
+  openExternal: (target: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("aic:open-external", target),
   showItem: (target: string): Promise<boolean> => ipcRenderer.invoke("aic:show-item", target),
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke("aic:select-directory"),
   selectFile: (): Promise<string | null> => ipcRenderer.invoke("aic:select-file"),

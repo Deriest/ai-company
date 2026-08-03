@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, Search, ToggleLeft, ToggleRight, Users, Trash2,
-  RefreshCw, BookOpen, Shield, Code, Server, Wrench,
+  RefreshCw, BookOpen, Shield, Code, Server, Wrench, GitBranch, X,
 } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'
@@ -36,6 +36,11 @@ export function SkillsView() {
   const [query, setQuery] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [editingSkill, setEditingSkill] = useState<SkillRecord | null>(null)
+  const [showGithubInstall, setShowGithubInstall] = useState(false)
+  const [githubUrl, setGithubUrl] = useState('')
+  const [githubPath, setGithubPath] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [installError, setInstallError] = useState('')
 
   const load = async () => {
     try {
@@ -72,6 +77,21 @@ export function SkillsView() {
     } catch (e) { console.error(e) }
   }
 
+  const handleGithubInstall = async () => {
+    if (!githubUrl.trim()) return
+    setInstalling(true)
+    setInstallError('')
+    try {
+      await skillsApi.installFromGitHub(githubUrl.trim(), githubPath.trim())
+      setGithubUrl('')
+      setGithubPath('')
+      setShowGithubInstall(false)
+      await load()
+    } catch (e) {
+      setInstallError(e instanceof Error ? e.message : String(e))
+    } finally { setInstalling(false) }
+  }
+
   const filtered = skills.filter(s =>
     !query || s.name.toLowerCase().includes(query.toLowerCase()) ||
     s.skill_id.toLowerCase().includes(query.toLowerCase()) ||
@@ -95,11 +115,16 @@ export function SkillsView() {
               className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
               <RefreshCw className="size-3.5" /> Re-seed
             </button>
+            <button onClick={() => setShowGithubInstall(v => !v)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <GitBranch className="size-3.5" /> Install from GitHub
+            </button>
           </>
         }
       />
 
-      <div className="p-4 space-y-4">
+      <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 space-y-4">
         {/* Search */}
         <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 max-w-md focus-within:border-primary/50">
           <Search className="size-4 text-muted-foreground" />
@@ -110,6 +135,27 @@ export function SkillsView() {
 
         {/* Create form */}
         {showCreate && <CreateSkillForm onClose={() => setShowCreate(false)} onCreated={load} />}
+
+        {showGithubInstall && (
+          <Card className="space-y-3 border-primary/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">Install Skill from GitHub</h3>
+                <p className="text-[11px] text-muted-foreground">Repository must contain a public SKILL.md.</p>
+              </div>
+              <button onClick={() => setShowGithubInstall(false)} aria-label="Close GitHub installer"><X className="size-4 text-muted-foreground" /></button>
+            </div>
+            <input value={githubUrl} onChange={e => setGithubUrl(e.target.value)} placeholder="https://github.com/org/repo"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary" />
+            <input value={githubPath} onChange={e => setGithubPath(e.target.value)} placeholder="Optional path, e.g. skills/reviewer"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary" />
+            {installError && <p className="text-xs text-destructive">{installError}</p>}
+            <button onClick={() => void handleGithubInstall()} disabled={installing || !githubUrl.trim()}
+              className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+              {installing ? 'Installing…' : 'Install Skill'}
+            </button>
+          </Card>
+        )}
 
         {/* Skills by category */}
         {loading ? (
@@ -140,12 +186,13 @@ export function SkillsView() {
           })
         )}
 
-        {/* Edit panel */}
+        </div>
+
+        {/* Detail panel stays on the right on desktop, like Live Company. */}
         {editingSkill && (
-          <EditSkillPanel skill={editingSkill}
-            onClose={() => setEditingSkill(null)}
-            onUpdated={load}
-          />
+          <aside className="w-full shrink-0 lg:sticky lg:top-0 lg:w-80">
+            <EditSkillPanel skill={editingSkill} onClose={() => setEditingSkill(null)} onUpdated={load} />
+          </aside>
         )}
       </div>
     </div>

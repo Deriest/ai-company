@@ -436,6 +436,7 @@ function DeveloperTab() {
   const [debugMode, setDebugMode] = useState(false)
   const [logLevel, setLogLevel] = useState('info')
   const [showDevTools, setShowDevTools] = useState(false)
+  const [githubToken, setGithubToken] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -445,11 +446,12 @@ function DeveloperTab() {
       if (s.debugMode !== undefined) setDebugMode(s.debugMode)
       if (s.logLevel) setLogLevel(s.logLevel)
       if (s.showDevTools !== undefined) setShowDevTools(s.showDevTools)
+      if (s.githubToken) setGithubToken(s.githubToken)
     }
   }, [])
 
   const save = () => {
-    localStorage.setItem('aic-ade-developer', JSON.stringify({ debugMode, logLevel, showDevTools }))
+    localStorage.setItem('aic-ade-developer', JSON.stringify({ debugMode, logLevel, showDevTools, githubToken }))
     setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
@@ -498,6 +500,18 @@ function DeveloperTab() {
                 </button>
               ))}
             </div>
+          </div>
+          <div className="border-t border-border pt-4">
+            <label className="text-sm font-medium">GitHub Personal Access Token</label>
+            <p className="mt-1 text-xs text-muted-foreground">Stored only in this local profile. It is never sent to the AIC backend or committed to your repository.</p>
+            <input
+              type="password"
+              value={githubToken}
+              onChange={e => setGithubToken(e.target.value)}
+              placeholder="ghp_…"
+              autoComplete="off"
+              className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono outline-none focus:border-primary"
+            />
           </div>
           <div className="flex items-center gap-3 pt-2 border-t border-border">
             <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">

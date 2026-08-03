@@ -2,7 +2,13 @@
 
 **Latest release: v2.4.51** · **Electron + React 19** · **Python FastAPI + SQLite**
 
-A local-first AI engineering desktop application with 15 specialized workers, durable conversations, real tool execution, a live office floor, and configurable model tiers.
+A self-hosted, local-first AI engineering desktop application with 15 specialized workers, durable conversations, real tool execution, a live office floor, and configurable model tiers.
+
+## Privacy and data ownership
+
+**Your data stays on your machine.** AIC-ADE runs its backend locally and stores chat history, projects, API keys, skills, and SQLite data in the local application data directory. The developer/maintainer does not have access to your files, conversations, projects, or provider credentials. Network requests are made only to services you configure (for example, your LLM provider, GitHub when you explicitly install a skill or open a report, and GitHub Releases for update downloads).
+
+Bug reports open a pre-filled GitHub Issue in your browser. Nothing is submitted automatically; review and remove sensitive details before clicking submit.
 
 ## Download v2.4.51
 

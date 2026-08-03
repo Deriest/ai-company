@@ -1,5 +1,10 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
 from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.session import get_db
@@ -10,6 +15,64 @@ from storage.models import SkillEntry
 from sqlalchemy import select
 
 router = APIRouter()
+
+
+@router.post("/skills/install-github")
+async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Install a skill from a public GitHub repository containing SKILL.md."""
+    repo_url = str(payload.get("repo_url", "")).strip()
+    skill_path = str(payload.get("skill_path", "")).strip().strip("/")
+    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", repo_url):
+        raise HTTPException(status_code=400, detail="Use a public GitHub repository URL like https://github.com/org/repo")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="aic-skill-"))
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise HTTPException(status_code=400, detail=f"GitHub clone failed: {result.stderr[-300:]}")
+        root = (temp_dir / "repo" / skill_path).resolve()
+        repo_root = (temp_dir / "repo").resolve()
+        if repo_root not in root.parents and root != repo_root:
+            raise HTTPException(status_code=400, detail="Invalid skill path")
+        skill_file = root / "SKILL.md"
+        if not skill_file.exists():
+            candidates = list(root.rglob("SKILL.md"))
+            if len(candidates) != 1:
+                raise HTTPException(status_code=400, detail="Repository must contain one SKILL.md or specify skill_path")
+            skill_file = candidates[0]
+        raw = skill_file.read_text(encoding="utf-8")
+        front = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.S)
+        metadata = {}
+        if front:
+            for line in front.group(1).splitlines():
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    metadata[key.strip()] = value.strip().strip("'\"")
+            instructions = raw[front.end():].strip()
+        else:
+            instructions = raw.strip()
+        skill_id = re.sub(r"[^a-z0-9-]+", "-", metadata.get("name", skill_file.parent.name).lower()).strip("-")[:80]
+        if not skill_id:
+            raise HTTPException(status_code=400, detail="SKILL.md has no usable name")
+        existing = await db.execute(select(SkillEntry).where(SkillEntry.skill_id == skill_id))
+        entry = existing.scalar_one_or_none()
+        if entry:
+            entry.name = metadata.get("name", skill_id)
+            entry.description = metadata.get("description", "")
+            entry.instructions = instructions
+            entry.source = "github"
+            entry.category = metadata.get("category", "github")
+        else:
+            entry = SkillEntry(skill_id=skill_id, name=metadata.get("name", skill_id), description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True)
+            db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        return {"id": entry.id, "skill_id": entry.skill_id, "name": entry.name, "description": entry.description, "category": entry.category, "source": entry.source, "assigned_workers": entry.assigned_workers, "is_enabled": entry.is_enabled, "instructions": entry.instructions}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.get("/skills")

@@ -6,7 +6,6 @@ import {
   Settings,
   User,
   Bug,
-  Info,
   Wrench,
   Plug,
   FolderTree,
@@ -164,7 +163,6 @@ export function AppShell({
               <div className="absolute bottom-full left-3 right-3 z-50 mb-1 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg">
                 {[
                   { label: "Profile", icon: User, run: () => goAccount("General") },
-                  { label: "About", icon: Info, run: () => goAccount("About") },
                   { label: "Report bug", icon: Bug, run: () => { setMenuOpen(false); setBugOpen(true); } },
                 ].map((item) => (
                   <button
