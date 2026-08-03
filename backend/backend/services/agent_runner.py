@@ -130,14 +130,41 @@ class AgentRunner:
             tools = tools + mcp_tools
         collector = DeliverableCollector()
 
+        # Resolve assigned plugins and collect adapted instructions before building context.
+        assigned_plugins = []
+        plugin_skills = []  # extra skill instructions from plugins
+        if db:
+            try:
+                from backend.plugin_engine import resolve_plugins_for_worker
+                from backend.services.plugin_adapter import build_plugin_context
+                assigned_plugins = await resolve_plugins_for_worker(db, worker_type)
+                for p in assigned_plugins:
+                    ppath = p.get("package_path", "")
+                    if p.get("is_required") and (not ppath or not Path(ppath).exists()):
+                        yield {"type": "error", "error": f"Required plugin '{p['name']}' is missing. Install or disable it first."}
+                        return
+                    if ppath and Path(ppath).exists():
+                        pctx = build_plugin_context(ppath, p.get("components", []))
+                        p["_ctx"] = pctx
+                        # Gather skill/agent instructions for context injection.
+                        instr = pctx.get("instructions", "")
+                        if instr:
+                            plugin_skills.append(f"[Plugin: {p['name']}]\n{instr}")
+                        for ai in pctx.get("agent_instructions", []):
+                            if ai:
+                                plugin_skills.append(f"[Plugin Agent: {p['name']}]\n{ai}")
+            except Exception as e:
+                logger.warning(f"Plugin resolution failed for worker '{worker_type}': {e}")
+
         policy = get_context_policy(model_tier)
 
-        # Build context using context builder with policy
+        # Build context using context builder with policy and plugin skills
         ctx, policy = await self.context_builder.build_context(
             worker_type=worker_type,
             task_description=prompt,
             conversation_history=conversation_history or [],
             system_prompt=system_prompt,
+            skills=plugin_skills or None,
             model_tier=model_tier,
             db=db,
             provider_id=provider_id,
@@ -169,17 +196,6 @@ class AgentRunner:
         tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER, "vision": ModelTier.VISION}
         tier = tier_map.get(model_tier, ModelTier.CRAFTER)
 
-        # Plugin enforcement: required plugins for this worker must be loaded.
-        if db:
-            try:
-                from backend.plugin_engine import resolve_plugins_for_worker
-                assigned_plugins = await resolve_plugins_for_worker(db, worker_type)
-                for p in assigned_plugins:
-                    if p.get("is_required") and (not p.get("package_path") or not Path(p["package_path"]).exists()):
-                        yield {"type": "error", "error": f"Required plugin '{p['name']}' is missing. Install or disable it first."}
-                        return
-            except Exception as e:
-                logger.warning(f"Plugin enforcement check failed for worker '{worker_type}': {e}")
         # Worker fallback chain — only within the thinker/crafter/sprinter group.
         # If the assigned model for this worker errors, retry with the next
         # worker's model in the chain. Never falls back to providers/models the
@@ -219,6 +235,39 @@ class AgentRunner:
             tool_executor_map[mcp_fn_name] = (
                 lambda a, tn=actual_tool_name: self.executor.mcp_call(tn, a)
             )
+        
+        # Plugin runtime injection: adapted commands → tools, agents → instructions, hooks → permissions.
+        if db and assigned_plugins:
+            try:
+                from backend.services.plugin_adapter import build_plugin_context
+                for pdef in assigned_plugins:
+                    ppath = pdef.get("package_path", "")
+                    if not ppath or not Path(ppath).exists():
+                        continue
+                    pctx = build_plugin_context(ppath, pdef.get("components", []))
+                    # Inject plugin tools into the executor map.
+                    for ptool in pctx.get("tools", []):
+                        pname = ptool.get("name", "")
+                        if pname and pname not in tool_executor_map:
+                            script_path = ptool.get("script_path", "")
+                            if script_path and Path(script_path).exists():
+                                def make_tool_fn(sp=script_path):
+                                    return lambda a: self.executor.run_shell(f"bash '{sp}'", 60)
+                                tool_executor_map[pname] = make_tool_fn()
+                                tools.append({"function": {"name": pname, "description": ptool.get("description", pname), "parameters": {"type": "object", "properties": ptool.get("arguments", {}), "additionalProperties": False}}})
+                    # Inject plugin agent instructions into the context.
+                    for instr in pctx.get("agent_instructions", []):
+                        pdef.setdefault("_agent_instructions", []).append(instr)
+                    # Inject plugin MCP server definitions.
+                    for mcp_srv in pctx.get("mcp_servers", []):
+                        if isinstance(mcp_srv, dict) and mcp_srv.get("name"):
+                            logger.info(f"Plugin MCP server: {mcp_srv['name']}")
+                    # Include plugin skill instructions in the prompt context.
+                    p_instructions = pctx.get("instructions", "")
+                    if p_instructions:
+                        pdef.setdefault("_skill_instructions", p_instructions)
+            except Exception as e:
+                logger.warning(f"Plugin runtime injection failed: {e}")
         
         all_tool_results = []
         
