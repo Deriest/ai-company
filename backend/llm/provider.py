@@ -594,7 +594,7 @@ class LLMError(Exception):
     pass
 
 
-def _flatten_history(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+def _flatten_history(messages: list[dict]) -> list[dict]:
     """Flatten multi-turn history into 2 messages (system + user) to workaround VansRouter bug.
     
     VansRouter returns empty response (200, len=0) for multi-turn conversations with large messages.
@@ -634,6 +634,10 @@ def _flatten_history(messages: list[dict[str, str]]) -> list[dict[str, str]]:
         for i, msg in enumerate(history_messages):
             role = msg.get("role", "user")
             content = msg.get("content", "")
+            # Preserve multimodal content in the final user message; older
+            # history is textualized only for the provider workaround.
+            if isinstance(content, list):
+                content = "[multimodal content omitted from flattened history]"
             history_parts.append(f"{role}: {content}\n")
     
     # Combine into single system message
@@ -642,6 +646,8 @@ def _flatten_history(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     # Return: [system(full_history), user(current_question)]
     return [
         {"role": "system", "content": compressed_system},
+        # Keep image_url/content parts intact so Vision models still receive
+        # the actual image after history flattening.
         {"role": "user", "content": last_message.get("content", "")},
     ]
 
