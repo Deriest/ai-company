@@ -1,28 +1,28 @@
 {
-  "version": "2.4.48",
+  "version": "2.4.49",
   "channel": "stable",
   "releaseDate": "2026-08-03",
-  "releaseNotes": "v2.4.48 — Chat message order fix (timestamp normalization), 11 QA bug fixes, animated pixel-art office floor with worker sprites, worker ID mismatch fix, stream abort on unmount, conversations >50 messages fix.",
+  "releaseNotes": "v2.4.49 — See https://github.com/Deriest/ai-company/releases/tag/v2.4.49 for release notes.",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.48/AIC-ADE-2.4.48-linux-x86_64.AppImage",
-      "sha256": "70fe72aa66577aadbac33b7667e842d4bb79198b5a5de6a57488cad568502182",
-      "size": 181129998,
-      "filename": "AIC-ADE-2.4.48-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.49/AIC-ADE-2.4.49-linux-x86_64.AppImage",
+      "sha256": "5ab2e516537cef02ef50aff348143d696d8a0898e664762df6700610a02597cc",
+      "size": 181138269,
+      "filename": "AIC-ADE-2.4.49-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.48/AIC-ADE-2.4.48-linux-amd64.deb",
-      "sha256": "bbfc8b200f16761e69b45719f63d749a472dc04be05b006c999a510c5a359b0a",
-      "size": 127985962,
-      "filename": "AIC-ADE-2.4.48-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.49/AIC-ADE-2.4.49-linux-amd64.deb",
+      "sha256": "9e785b71314ddbc2f28c4703b7565e587bf62009f0d2e2cc95ad766d8c5f5bd6",
+      "size": 127998328,
+      "filename": "AIC-ADE-2.4.49-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.48/AIC-ADE-Setup-2.4.48.exe",
-      "sha256": "09f44ebea6f9123e574a76b530b70ee36f0112ae25a2071a42e73c2cf80849a7",
-      "size": 136974106,
-      "filename": "AIC-ADE-Setup-2.4.48.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.49/AIC-ADE-Setup-2.4.49.exe",
+      "sha256": "aea3783feb1d092d89c6f90cf1fcb4a4147050e41886aaa6137fcea239d9f401",
+      "size": 136978454,
+      "filename": "AIC-ADE-Setup-2.4.49.exe",
       "type": "nsis"
     }
   }

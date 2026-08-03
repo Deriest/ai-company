@@ -22,6 +22,7 @@ export interface EnvConfig {
   thinker: string;
   crafter: string;
   sprinter: string;
+  vision: string;
 }
 
 export const providerManageApi = {

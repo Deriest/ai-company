@@ -109,6 +109,7 @@ async def get_env_config():
                     "thinker": data.get("thinker", ""),
                     "crafter": data.get("crafter", ""),
                     "sprinter": data.get("sprinter", ""),
+                    "vision": data.get("vision", ""),
                 }
             except (json.JSONDecodeError, OSError):
                 pass
@@ -122,6 +123,7 @@ async def get_env_config():
         "thinker": settings.AIC_MODEL_THINKER or "",
         "crafter": settings.AIC_MODEL_CRAFTER or "",
         "sprinter": settings.AIC_MODEL_SPRINTER or "",
+        "vision": settings.AIC_MODEL_VISION or "",
     }
 
 @router.post("/providers/config")
@@ -137,6 +139,7 @@ async def update_env_config(payload: dict):
         if "thinker" in payload: os.environ["AIC_MODEL_THINKER"] = payload["thinker"]
         if "crafter" in payload: os.environ["AIC_MODEL_CRAFTER"] = payload["crafter"]
         if "sprinter" in payload: os.environ["AIC_MODEL_SPRINTER"] = payload["sprinter"]
+        if "vision" in payload: os.environ["AIC_MODEL_VISION"] = payload["vision"]
         
         # Write to .env file
         env_path = Path(__file__).parent.parent.parent.parent / ".env"
@@ -153,6 +156,7 @@ async def update_env_config(payload: dict):
             "AIC_MODEL_THINKER": payload.get("thinker"),
             "AIC_MODEL_CRAFTER": payload.get("crafter"),
             "AIC_MODEL_SPRINTER": payload.get("sprinter"),
+            "AIC_MODEL_VISION": payload.get("vision"),
         }
         
         new_lines = []
@@ -192,6 +196,7 @@ async def update_env_config(payload: dict):
                         "thinker": payload.get("thinker"),
                         "crafter": payload.get("crafter"),
                         "sprinter": payload.get("sprinter"),
+                        "vision": payload.get("vision"),
                         "provider_name": payload.get("provider_name"),
                         "base_url": payload.get("base_url"),
                         "api_key": payload.get("api_key"),

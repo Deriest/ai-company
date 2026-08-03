@@ -30,6 +30,7 @@ class ModelTier(str, Enum):
     THINKER = "thinker"
     CRAFTER = "crafter"
     SPRINTER = "sprinter"
+    VISION = "vision"
 
 
 # Worker fallback chains — only within the thinker/crafter/sprinter group.
@@ -79,6 +80,8 @@ class ProviderConfig:
 
     def get_model(self, tier: ModelTier | str) -> str:
         t = tier.value if isinstance(tier, ModelTier) else str(tier)
+        if t == ModelTier.VISION.value:
+            return self.models.get(t, "")
         return self.models.get(t, self.models.get(ModelTier.CRAFTER.value, "gpt-4o-mini"))
 
 
@@ -835,6 +838,7 @@ def init_provider_from_env() -> ProviderConfig | None:
     thinker = os.environ.get("AIC_MODEL_THINKER", "")
     crafter = os.environ.get("AIC_MODEL_CRAFTER", "")
     sprinter = os.environ.get("AIC_MODEL_SPRINTER", "")
+    vision = os.environ.get("AIC_MODEL_VISION", "")
 
     if not base_url:
         return None
@@ -846,6 +850,8 @@ def init_provider_from_env() -> ProviderConfig | None:
         models[ModelTier.CRAFTER.value] = crafter
     if sprinter:
         models[ModelTier.SPRINTER.value] = sprinter
+    if vision:
+        models[ModelTier.VISION.value] = vision
 
     if not models:
         models = {

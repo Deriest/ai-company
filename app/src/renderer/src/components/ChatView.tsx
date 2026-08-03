@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
@@ -41,16 +41,17 @@ const AGENT_WORKER_MAP: Record<AgentMode, string> = {
   plan: 'research',
 }
 
-// ── Engine tiers (THINKER / CRAFTER / SPRINTER) ──────────
+// ── Engine tiers (THINKER / CRAFTER / SPRINTER / VISION) ──
 
-type EngineTier = 'thinker' | 'crafter' | 'sprinter'
+type EngineTier = 'thinker' | 'crafter' | 'sprinter' | 'vision'
 type TierSelection = { provider: string; model: string }
 
-const ENGINE_TIERS: EngineTier[] = ['thinker', 'crafter', 'sprinter']
+const ENGINE_TIERS: EngineTier[] = ['thinker', 'crafter', 'sprinter', 'vision']
 const TIER_LABEL_COLORS: Record<EngineTier, string> = {
   thinker: 'text-primary',
   crafter: 'text-success',
   sprinter: 'text-warning',
+  vision: 'text-info',
 }
 
 // ── Markdown ─────────────────────────────────────────────
@@ -522,6 +523,9 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   })
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [dragActive, setDragActive] = useState(false)
+  const [visionWarning, setVisionWarning] = useState('')
   const [sending, setSending] = useState(false)
   const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
@@ -532,6 +536,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
     thinker: { provider: '', model: '' },
     crafter: { provider: '', model: '' },
     sprinter: { provider: '', model: '' },
+    vision: { provider: '', model: '' },
   })
   const [fetchingModels, setFetchingModels] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -687,6 +692,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
           thinker: { provider: saved.thinkerProvider || defaultProvider, model: saved.thinkerModel || defaultModel },
           crafter: { provider: saved.crafterProvider || defaultProvider, model: saved.crafterModel || envCfg.crafter || bootModel || '' },
           sprinter: { provider: saved.sprinterProvider || defaultProvider, model: saved.sprinterModel || envCfg.sprinter || bootModel || '' },
+          vision: { provider: saved.visionProvider || defaultProvider, model: saved.visionModel || envCfg.vision || bootModel || '' },
         })
       } catch (e) { console.error('Load engine config failed', e) }
     })()
@@ -700,9 +706,11 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       thinkerProvider: next.thinker.provider,
       crafterProvider: next.crafter.provider,
       sprinterProvider: next.sprinter.provider,
+      visionProvider: next.vision.provider,
       thinkerModel: next.thinker.model,
       crafterModel: next.crafter.model,
       sprinterModel: next.sprinter.model,
+      visionModel: next.vision.model,
     }
     try { localStorage.setItem('aic-ade-engine-tiers', JSON.stringify(persist)) } catch { /* ignore */ }
     void window.aic?.storeSet?.('engineConfig', persist)
@@ -715,6 +723,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       thinker: next.thinker.model,
       crafter: next.crafter.model,
       sprinter: next.sprinter.model,
+      vision: next.vision.model,
     }).catch(e => console.error('Apply engine config failed', e))
   }, [tiers, providers])
 
@@ -795,16 +804,34 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   }
 
   const handleSend = async () => {
-    if (!input.trim() || sending) return
+    if ((!input.trim() && attachments.length === 0) || sending) return
+    const hasImages = attachments.some(file => file.type.startsWith('image/'))
+    const visionProvider = providers.find(provider => provider.name === tiers.vision.provider)
+    const visionModel = visionProvider?.models.find(model => model.id === tiers.vision.model)
+    if (hasImages && (!tiers.vision.model || visionModel?.capabilities.vision !== true)) {
+      setVisionWarning('The selected Vision model does not support images. Select a model marked Vision in the Vision tier.')
+      return
+    }
     const text = input.trim()
+    const attachmentText = attachments.map(file => `[Attached file: ${file.name}]`).join('\n')
+    const promptText = [text, attachmentText].filter(Boolean).join('\n')
+    let attachmentPayload: { name: string; mime_type: string; data_url: string }[] = []
+    try {
+      attachmentPayload = await Promise.all(attachments.map(readAttachment))
+    } catch (error) {
+      setVisionWarning(error instanceof Error ? error.message : 'Could not read attachment')
+      return
+    }
     setInput('')
+    setAttachments([])
+    setVisionWarning('')
     setSending(true)
 
     // Auto-create session if none active
     let convId = activeId
     if (!convId) {
       try {
-        const conv = await conversationsApi.create(text.slice(0, 60))
+        const conv = await conversationsApi.create(promptText.slice(0, 60))
         setConversations(prev => [conv, ...prev])
         convId = conv.id
         setActiveId(convId)
@@ -821,7 +848,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
     }
 
     const tempUserMsg: MessageRecord = {
-      id: 'temp-' + Date.now(), conversation_id: convId, role: 'user', content: text,
+      id: 'temp-' + Date.now(), conversation_id: convId, role: 'user', content: promptText,
       status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
     }
     const tempAsstId = 'temp-ast-' + Date.now()
@@ -843,8 +870,10 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       abortRef.current = await chatApi.executeAgent(
         {
           conversation_id: convId,
-          messages: [{ role: 'user', content: text }],
+          messages: [{ role: 'user', content: promptText }],
           worker_role: AGENT_WORKER_MAP[agentMode],
+          model_tier: hasImages ? 'vision' : 'crafter',
+          attachments: attachmentPayload,
         },
         {
           onChunk: (chunk) => {
@@ -898,6 +927,22 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
       setSending(false)
     }
   }
+
+  const addAttachments = (files: FileList | File[]) => {
+    const accepted = Array.from(files).filter(file => file.size <= 20 * 1024 * 1024)
+    setAttachments(prev => [...prev, ...accepted].slice(0, 10))
+    if (accepted.some(file => file.type.startsWith('image/')) && !tiers.vision.model) {
+      setVisionWarning('Image attached. Select a Vision model before sending.')
+    }
+  }
+
+  const readAttachment = (file: File): Promise<{ name: string; mime_type: string; data_url: string }> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ name: file.name, mime_type: file.type || 'application/octet-stream', data_url: String(reader.result || '') })
+      reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`))
+      reader.readAsDataURL(file)
+    })
 
   return (
     <div className="flex flex-col absolute inset-0">
@@ -995,7 +1040,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 
-                {/* THINKER / CRAFTER / SPRINTER tier selectors */}
+                {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors */}
                 {ENGINE_TIERS.map(tier => {
                   const sel = tiers[tier]
                   const providerModels = providers.find(p => p.name === sel.provider)?.models || []
@@ -1029,8 +1074,24 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                 </button>
               </div>
 
-              {/* Row 2 — input + send/stop */}
-              <div className="flex items-end gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2 focus-within:border-primary/40">
+              {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
+              {attachments.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {attachments.map((file, index) => (
+                    <span key={`${file.name}-${index}`} className="inline-flex items-center gap-1 rounded border border-info/30 bg-info/10 px-2 py-1 text-[10px] text-info">
+                      {file.name}
+                      <button onClick={() => setAttachments(prev => prev.filter((_, i) => i !== index))} className="text-info/60 hover:text-info" aria-label={`Remove ${file.name}`}><X className="size-3" /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Row 2 — input + file picker + send/stop */}
+              <div
+                onDragOver={e => { e.preventDefault(); setDragActive(true) }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={e => { e.preventDefault(); setDragActive(false); addAttachments(e.dataTransfer.files) }}
+                className={cn("flex items-end gap-2 rounded-lg border bg-card/60 px-3 py-2 focus-within:border-primary/40", dragActive ? "border-info bg-info/5" : "border-border/60")}
+              >
                 <span className="mb-1 shrink-0 font-mono text-xs font-bold text-primary/40 select-none">❯</span>
                 <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
                   onKeyDown={e => {
@@ -1039,8 +1100,12 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                     }
                   }}
                   disabled={false} rows={1}
-                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'}…` : 'Type a message to start…'}
+                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'} or drop files…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
+                <input id="chat-file-input" type="file" multiple className="hidden" onChange={e => { if (e.target.files) addAttachments(e.target.files); e.currentTarget.value = '' }} />
+                <button onClick={() => document.getElementById('chat-file-input')?.click()} className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground" aria-label="Attach files" title="Attach files">
+                  <Paperclip className="size-3" />
+                </button>
                 {/* QA-2437 BUG-4: send button doubles as stop (abort) while generating */}
                 <button onClick={() => sending ? handleStop() : void handleSend()}
                   aria-label={sending ? 'Stop generation' : 'Send message'}

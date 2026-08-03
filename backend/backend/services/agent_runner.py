@@ -83,6 +83,7 @@ class AgentRunner:
         db=None,
         provider_id: str | None = None,
         model_id: str | None = None,
+        attachments: list | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Run agent with tool execution loop, yielding events.
         
@@ -120,11 +121,18 @@ class AgentRunner:
                 f"estimated {ctx_metadata['estimated_tokens']} tokens "
                 f"(budget {ctx_metadata['max_tokens_budget']})"
             )
-        messages.append({"role": "user", "content": prompt})
+        if attachments:
+            parts: list[dict] = [{"type": "text", "text": prompt}]
+            for attachment in attachments:
+                data_url = attachment.get("data_url", "")
+                if attachment.get("mime_type", "").startswith("image/") and data_url:
+                    parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            messages.append({"role": "user", "content": parts})
+        else:
+            messages.append({"role": "user", "content": prompt})
         
-        tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER}
+        tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER, "vision": ModelTier.VISION}
         tier = tier_map.get(model_tier, ModelTier.CRAFTER)
-
         # Worker fallback chain — only within the thinker/crafter/sprinter group.
         # If the assigned model for this worker errors, retry with the next
         # worker's model in the chain. Never falls back to providers/models the
@@ -141,6 +149,9 @@ class AgentRunner:
         provider = provider_manager.get_active_with_key()
         if not provider:
             yield {"type": "error", "error": "No LLM provider configured"}
+            return
+        if tier == ModelTier.VISION and not provider.config.get_model(ModelTier.VISION):
+            yield {"type": "error", "error": "Vision model is not configured. Select a model that supports vision in the Vision tier."}
             return
         
         tool_executor_map = {

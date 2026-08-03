@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     AIC_MODEL_THINKER: str = ""
     AIC_MODEL_CRAFTER: str = ""
     AIC_MODEL_SPRINTER: str = ""
+    AIC_MODEL_VISION: str = ""
 
     # Runtime
     WORKER_TIMEOUT: int = 600  # seconds

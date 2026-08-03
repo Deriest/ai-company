@@ -230,6 +230,8 @@ export const chatApi = {
     conversation_id: string;
     messages: { role: string; content: string }[];
     worker_role?: string;
+    model_tier?: string;
+    attachments?: { name: string; mime_type: string; data_url: string }[];
   }, callbacks: {
     onChunk: (content: string) => void;
     onToolStart: (tool: string, args: Record<string, any>, callId: string) => void;

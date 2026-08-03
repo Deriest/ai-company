@@ -160,8 +160,9 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 async for event in runner.run_agent(
                     worker_type=worker_type,
                     prompt=user_content,
-                    model_tier="crafter",
+                    model_tier=payload.model_tier or "crafter",
                     max_iterations=10,
+                    attachments=payload.attachments,
                 ):
                     if event["type"] == "content":
                         chunk = event.get("content", "")

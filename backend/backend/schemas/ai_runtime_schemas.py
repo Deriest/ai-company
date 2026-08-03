@@ -12,6 +12,8 @@ class ChatRequest(BaseModel):
     provider_id: Optional[str] = None
     model_id: Optional[str] = None
     worker_role: Optional[str] = "thinker"
+    model_tier: Optional[str] = None
+    attachments: Optional[List[Dict[str, Any]]] = None
     temperature: Optional[float] = 0.4
     top_p: Optional[float] = 1.0
     max_tokens: Optional[int] = None
