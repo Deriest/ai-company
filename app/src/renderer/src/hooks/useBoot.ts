@@ -156,7 +156,10 @@ export function useBoot(opts: UseBootOptions): BootState {
 
       if (!restoredToken) {
         try {
-          const res = await api.login(DESKTOP_IDENTITY.username, DESKTOP_IDENTITY.password);
+          // Per-install identity from the main process; DESKTOP_IDENTITY is
+          // only the non-Electron dev fallback.
+          const identity = (await window.aic?.getIdentity?.()) ?? DESKTOP_IDENTITY;
+          const res = await api.login(identity.username, identity.password);
           restoredToken = res.access_token;
           setToken(restoredToken);
           configureClient({ baseUrl: engineUrl, token: restoredToken });

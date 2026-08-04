@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from backend.api.routes.core import router as core_router
+from backend.api.routes.auth import router as auth_router
 from backend.api.routes.orchestration import router as orchestration_router
 from backend.api.routes.workflows import router as workflows_router
 from backend.api.routes.jobs import router as jobs_router
@@ -11,6 +12,7 @@ from backend.api.routes.automation import router as automation_router
 router = APIRouter()
 
 router.include_router(core_router, tags=["core"])
+router.include_router(auth_router, tags=["auth"])
 router.include_router(orchestration_router, tags=["orchestration"])
 router.include_router(workflows_router, tags=["workflows"])
 router.include_router(jobs_router, tags=["jobs"])

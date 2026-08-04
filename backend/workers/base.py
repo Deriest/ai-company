@@ -29,7 +29,10 @@ async def _llm_or_fallback(worker, user_prompt, tier, temperature, purpose, fall
 
     meta = {"used_fallback": False, "reason": None, "model": None, "provider": None}
 
-    provider = provider_manager.get_active()
+    # P1 #6: get_active() may return a provider with an empty api_key →
+    # "Illegal header value b'Bearer '". get_active_with_key() prefers a
+    # provider with a usable key (mirrors agent_runner.py / tool_chat_service.py).
+    provider = provider_manager.get_active_with_key()
     if not provider:
         logger.warning(f"{getattr(worker, 'name', worker)} no active LLM provider — fallback")
         meta["used_fallback"] = True
@@ -121,7 +124,9 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
 
     meta = {"used_fallback": False, "reason": None, "model": None, "provider": None}
 
-    provider = provider_manager.get_active()
+    # P1 #6: get_active() may return a provider with an empty api_key →
+    # "Illegal header value b'Bearer '". Mirror agent_runner.py / tool_chat_service.py.
+    provider = provider_manager.get_active_with_key()
     if not provider:
         meta["used_fallback"] = True
         meta["reason"] = "no_provider"

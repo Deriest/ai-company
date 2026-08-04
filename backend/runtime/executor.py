@@ -241,6 +241,40 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
             except Exception as e:
                 logger.debug(f"Skill/Memory resolution exception: {e}")
 
+            # G1 FIX: resolve plugins assigned to this worker and build adapted
+            # context so plugin commands/tools/agents are available in the
+            # company batch runtime (mirrors agent_runner.py plugin resolution).
+            plugin_contexts = []
+            try:
+                from backend.plugin_engine import resolve_plugins_for_worker
+                from backend.services.plugin_adapter import build_plugin_context
+                assigned_plugins = await resolve_plugins_for_worker(session, wtype)
+                for p in assigned_plugins:
+                    ppath = p.get("package_path", "")
+                    if not ppath or not os.path.exists(ppath):
+                        if p.get("is_required"):
+                            plugin_contexts.append({
+                                "plugin_id": p.get("plugin_id"),
+                                "name": p.get("name"),
+                                "error": "Plugin package missing",
+                            })
+                        continue
+                    pctx = build_plugin_context(ppath, p.get("components", []))
+                    pctx["plugin_id"] = p.get("plugin_id")
+                    pctx["name"] = p.get("name")
+                    pctx["is_required"] = p.get("is_required")
+                    # Surface instructions into the skills channel so the worker
+                    # system prompt (assemble_system_prompt) picks them up.
+                    instr = pctx.get("instructions", "")
+                    if instr:
+                        active_worker_skills.append(f"[Plugin: {p.get('name')}]\n{instr}")
+                    for ai in pctx.get("agent_instructions", []):
+                        if ai:
+                            active_worker_skills.append(f"[Plugin Agent: {p.get('name')}]\n{ai}")
+                    plugin_contexts.append(pctx)
+            except Exception as e:
+                logger.debug(f"Plugin resolution exception: {e}")
+
             # FITUR 1: Query MCP Memory graph for task-relevant knowledge
             mcp_memory_context = []
             try:
@@ -283,6 +317,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 "handoffs": handoffs_dict,
                 "skills": active_worker_skills,
                 "memories": active_project_memories,
+                "plugins": plugin_contexts,
                 "phase": phase,
                 "execution_level": execution_level,
             }

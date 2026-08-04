@@ -28,7 +28,7 @@ async function req(method: string, path: string, body?: unknown) {
 
 beforeAll(async () => {
   try {
-    const login = await req("POST", "/api/auth/login", { username: USER, password: PASS }) as { access_token: string };
+    const login = await req("POST", "/auth/login", { username: USER, password: PASS }) as { access_token: string };
     token = login.access_token;
   } catch {
     // Platform not running — skip integration tests
@@ -47,7 +47,7 @@ describe("integration: live platform API", () => {
 
   it("login returns token", async () => {
     try {
-      const login = await req("POST", "/api/auth/login", { username: USER, password: PASS }) as { access_token: string };
+      const login = await req("POST", "/auth/login", { username: USER, password: PASS }) as { access_token: string };
       expect(login.access_token).toBeTruthy();
       token = login.access_token;
     } catch {

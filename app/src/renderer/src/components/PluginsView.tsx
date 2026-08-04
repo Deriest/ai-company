@@ -56,9 +56,12 @@ export function PluginsView() {
   const [showInstall, setShowInstall] = useState(false)
   const [installUrl, setInstallUrl] = useState('')
   const [installRequired, setInstallRequired] = useState(false)
+  const [installToAll, setInstallToAll] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [installError, setInstallError] = useState('')
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null)
+  const [updatingPlugin, setUpdatingPlugin] = useState<string | null>(null)
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null)
 
   const load = async () => {
     try {
@@ -81,14 +84,34 @@ export function PluginsView() {
       await apiClient.post('/plugins/install', {
         repo_url: installUrl.trim(),
         is_required: installRequired,
+        // G8: "Install to all" — assign the plugin to every worker so it is
+        // active immediately instead of inert until manually assigned.
+        assigned_workers: installToAll ? ['all'] : [],
       })
       setInstallUrl('')
       setShowInstall(false)
+      setInstallToAll(false)
       await load()
     } catch (e) {
       setInstallError(e instanceof Error ? e.message : String(e))
     } finally {
       setInstalling(false)
+    }
+  }
+
+  const handleUpdate = async (plugin: PluginRecord) => {
+    setUpdatingPlugin(plugin.plugin_id)
+    setUpdateMessage(null)
+    try {
+      const res = await apiClient.post<{ updated: boolean; version: string; previous_version: string }>(`/plugins/${plugin.plugin_id}/update`)
+      setUpdateMessage(res.updated
+        ? `${plugin.name} updated v${res.previous_version} → v${res.version}`
+        : `${plugin.name} is up to date (v${res.version})`)
+      await load()
+    } catch (e) {
+      setUpdateMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUpdatingPlugin(null)
     }
   }
 
@@ -157,6 +180,14 @@ export function PluginsView() {
               className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60" />
           </div>
 
+          {/* Update status */}
+          {updateMessage && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
+              <span className="text-muted-foreground">{updateMessage}</span>
+              <button onClick={() => setUpdateMessage(null)} aria-label="Dismiss" className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+            </div>
+          )}
+
           {/* Install form */}
           {showInstall && (
             <Card className="space-y-3 border-primary/30">
@@ -174,6 +205,11 @@ export function PluginsView() {
                 <input type="checkbox" checked={installRequired} onChange={e => setInstallRequired(e.target.checked)}
                   className="rounded border-border" />
                 Required — workers cannot run without this plugin
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={installToAll} onChange={e => setInstallToAll(e.target.checked)}
+                  className="rounded border-border" />
+                Install to all workers (activate immediately)
               </label>
               {installError && <p className="text-xs text-destructive">{installError}</p>}
               <button onClick={() => void handleInstall()} disabled={installing || !installUrl.trim()}
@@ -209,6 +245,9 @@ export function PluginsView() {
                         <p className="mt-0.5 text-[11px] text-muted-foreground">{plugin.description}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => handleUpdate(plugin)} className="p-1" title="Check for update from source repository" disabled={updatingPlugin === plugin.plugin_id}>
+                          <RefreshCw className={cn("size-3.5 text-muted-foreground hover:text-foreground", updatingPlugin === plugin.plugin_id && "animate-spin")} />
+                        </button>
                         <button onClick={() => handleRequired(plugin)} className="p-1" title={plugin.is_required ? 'Unmark required' : 'Mark required'}>
                           {plugin.is_required
                             ? <AlertTriangle className="size-3.5 text-destructive" />

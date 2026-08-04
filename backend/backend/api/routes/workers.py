@@ -1,4 +1,5 @@
 """Worker routes — runtime management, worker CRUD, tool execution."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -12,6 +13,8 @@ from backend.schemas.api_models_v2 import (
 from backend.schemas.ai_runtime_schemas import ToolExecuteRequest
 from backend.services.worker_runtime_service import worker_runtime_service, WorkerMetrics
 from backend.services.tool_dispatcher import tool_dispatcher
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -169,6 +172,28 @@ async def update_worker_by_id(id: str, payload: WorkerRuntimeUpdate, db: AsyncSe
 # POST /tools/execute
 # ---------------------------------------------------------------------------
 
+# Allowlist for the unauthenticated /tools/execute endpoint (P0 #2).
+# Defense-in-depth: tool_dispatcher already rejects unknown tools, but the
+# endpoint must not forward arbitrary tool names — validate before dispatch.
+_ALLOWED_EXECUTE_TOOLS = {"read_file", "write_file", "list_directory", "search_workspace", "current_time"}
+
+
 @router.post("/tools/execute")
 async def execute_tool(payload: ToolExecuteRequest):
-    return await tool_dispatcher.execute(payload.tool_name, payload.arguments)
+    """Execute a tool only if it is on the allowlist.
+
+    Rejects unknown tools with a clean 400 and never surfaces raw exceptions.
+    """
+    tool_name = (payload.tool_name or "").strip().lower()
+    if tool_name not in _ALLOWED_EXECUTE_TOOLS:
+        raise HTTPException(status_code=400, detail=f"Unknown tool: {tool_name}")
+    try:
+        result = await tool_dispatcher.execute(tool_name, payload.arguments or {})
+    except Exception as e:
+        logger.warning(f"Tool execution failed for {tool_name}: {e}")
+        raise HTTPException(status_code=500, detail="Tool execution failed")
+    if result.get("error"):
+        # Log the raw error server-side; return a clean result to the client.
+        logger.warning(f"Tool {tool_name} execution error: {result['error']}")
+        return {"result": None, "error": "Tool execution failed", "execution_time_ms": result.get("execution_time_ms", 0)}
+    return result

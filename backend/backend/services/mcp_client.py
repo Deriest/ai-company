@@ -69,13 +69,16 @@ class MCPClient:
             logger.error(f"MCP connect failed ({self.protocol}://{self.endpoint}): {e}")
             return False
 
-    def _is_allowed_stdio_endpoint(self, endpoint: str) -> bool:
-        """Check an endpoint against the known stdio command allowlist.
+    @staticmethod
+    def is_allowed_stdio_endpoint(endpoint: str) -> bool:
+        """Public allowlist check for stdio endpoints.
 
         QA-E2E FIX: endpoints were split() and passed straight to
         create_subprocess_exec with no validation, so POST /mcp/servers could
         spawn arbitrary commands. Only the exact "npx -y <known-package>"
         pattern is permitted, and the package must be in the allowlist.
+        Exposed as a static method so plugin/registration code can surface a
+        clear error before attempting a connection.
         """
         ep = (endpoint or "").strip()
         parts = ep.split()
@@ -89,7 +92,7 @@ class MCPClient:
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""
         try:
-            if not self._is_allowed_stdio_endpoint(self.endpoint):
+            if not self.is_allowed_stdio_endpoint(self.endpoint):
                 logger.error(f"MCP stdio endpoint not in allowlist: {self.endpoint}")
                 return False
             cmd_parts = self.endpoint.split()

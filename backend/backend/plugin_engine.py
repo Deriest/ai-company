@@ -1,4 +1,5 @@
-"""Plugin registry — install, list, assign, toggle, uninstall GitHub plugins."""
+"""Plugin registry — install, list, update, assign, toggle, uninstall GitHub plugins."""
+import asyncio
 from pathlib import Path
 import json
 import os
@@ -70,7 +71,10 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
     sub_path = path_hint or (match.group(3) or "")
     temp_dir = Path(tempfile.mkdtemp(prefix="aic-plugin-"))
     try:
-        result = subprocess.run(
+        # G11 FIX: run git clone off the event loop — subprocess.run blocks up
+        # to 120s and would otherwise stall the whole async endpoint.
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")],
             capture_output=True, text=True, timeout=120,
         )
@@ -260,6 +264,37 @@ async def update_plugin(session: AsyncSession, plugin_id: str, patch: dict) -> d
         "assigned_workers": entry.assigned_workers or [],
         "is_enabled": entry.is_enabled,
         "is_required": entry.is_required,
+    }
+
+
+async def update_plugin_repo(session: AsyncSession, plugin_id: str) -> dict | None:
+    """Re-clone a plugin's source repository, compare versions, and upsert.
+
+    G4 FIX: previously there was no update/version mechanism — the PATCH
+    endpoint only toggled assignment/enable/required. This reuses the install
+    pipeline against the plugin's stored source_url (which preserves
+    assigned_workers and is_enabled) and reports whether the version changed.
+
+    Returns a dict with `updated`/`version`/`previous_version`, or None if the
+    plugin does not exist.
+    """
+    result = await session.execute(select(PluginEntry).where(PluginEntry.plugin_id == plugin_id))
+    entry = result.scalar_one_or_none()
+    if not entry:
+        return None
+    if not entry.source_url:
+        raise ValueError("Plugin has no source URL; cannot update")
+    previous_version = entry.version or "0.0.0"
+    fresh = await install_plugin(session, entry.source_url, "", is_required=entry.is_required)
+    new_version = fresh.get("version") or "0.0.0"
+    same_identity = fresh.get("plugin_id") == plugin_id
+    return {
+        "updated": same_identity and new_version != previous_version,
+        "plugin_id": fresh.get("plugin_id"),
+        "name": fresh.get("name"),
+        "version": new_version,
+        "previous_version": previous_version,
+        "package_path": fresh.get("package_path"),
     }
 
 

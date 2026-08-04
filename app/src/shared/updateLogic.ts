@@ -62,6 +62,18 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * An update is mandatory when the manifest explicitly flags it, or when the
+ * current version is older than the manifest's minimumVersion. The current
+ * version is compared with `isNewerVersion(minimumVersion, current)` so a
+ * current version strictly below the minimum is treated as mandatory.
+ */
+export function isMandatoryUpdate(manifest: UpdateManifest, currentVersion: string): boolean {
+  if (manifest.mandatory === true) return true;
+  if (manifest.minimumVersion) return isNewerVersion(manifest.minimumVersion, currentVersion);
+  return false;
+}
+
 export function parseManifest(raw: unknown): UpdateManifest {
   if (!raw || typeof raw !== "object") throw new Error("Invalid manifest: not an object");
   const o = raw as Record<string, unknown>;

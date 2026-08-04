@@ -7,7 +7,7 @@
  * All network I/O is async and never blocks app startup.
  */
 
-import { app, shell } from "electron";
+import { app, shell, Notification } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -24,6 +24,7 @@ import {
   manifestUrl,
   resolveUpdateBaseUrl,
   isNewerVersion,
+  isMandatoryUpdate,
   parseManifest,
 } from "../shared/updateLogic";
 
@@ -44,6 +45,7 @@ export type UpdateStatus =
   | "downloading"
   | "verifying"
   | "ready_to_install"
+  | "ready_to_restart"
   | "installing"
   | "error";
 
@@ -53,6 +55,7 @@ export type UpdateState = {
   availableVersion?: string;
   releaseNotes?: string;
   mandatory?: boolean;
+  notifyBeforeInstall?: boolean;
   progress?: number;
   bytesDownloaded?: number;
   bytesTotal?: number;
@@ -300,6 +303,20 @@ export class UpdateManager {
     this.emit();
   }
 
+  /** Native notification shown before an auto-download when notifyBeforeInstall is on. */
+  private notifyUpdateAvailable(): void {
+    try {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({
+        title: "Update available",
+        body: `AIC ADE ${this.state.availableVersion ?? ""} is ready to download. Open Settings → Updates to install it.`,
+      });
+      n.show();
+    } catch {
+      /* ignore */
+    }
+  }
+
   async checkForUpdates(_opts?: { silent?: boolean }): Promise<UpdateState> {
     if (this.checking || this.downloading) return this.getState();
     this.checking = true;
@@ -321,9 +338,10 @@ export class UpdateManager {
           availableVersion: undefined,
           lastCheckedAt: now,
           releaseNotes: manifest.releaseNotes,
-          mandatory: Boolean(manifest.mandatory),
+          mandatory: isMandatoryUpdate(manifest, app.getVersion()),
           artifact: undefined,
           dismissedVersion: undefined,
+          notifyBeforeInstall: false,
         });
         return this.getState();
       }
@@ -350,7 +368,7 @@ export class UpdateManager {
           status: "idle",
           availableVersion: manifest.version,
           releaseNotes: manifest.releaseNotes,
-          mandatory: Boolean(manifest.mandatory),
+          mandatory: isMandatoryUpdate(manifest, app.getVersion()),
           artifact: art,
           lastCheckedAt: now,
         });
@@ -361,15 +379,23 @@ export class UpdateManager {
         status: "available",
         availableVersion: manifest.version,
         releaseNotes: manifest.releaseNotes,
-        mandatory: Boolean(manifest.mandatory),
+        mandatory: isMandatoryUpdate(manifest, app.getVersion()),
         artifact: art,
         lastCheckedAt: now,
         dismissedVersion: undefined,
+        notifyBeforeInstall: false,
       });
 
       if (this.config.autoDownload) {
-        this.checking = false;
-        void this.downloadUpdate();
+        if (this.config.notifyBeforeInstall) {
+          // Ask before downloading — surface a notification instead of
+          // silently pulling the artifact.
+          this.setState({ notifyBeforeInstall: true });
+          this.notifyUpdateAvailable();
+        } else {
+          this.checking = false;
+          void this.downloadUpdate();
+        }
       }
       return this.getState();
     } catch (e) {
@@ -408,6 +434,7 @@ export class UpdateManager {
         bytesTotal: artifact.size || 0,
         downloadPath: tempDest,
         error: undefined,
+        notifyBeforeInstall: false,
       });
 
       try {
@@ -472,9 +499,16 @@ export class UpdateManager {
         try { fs.chmodSync(file, 0o755); } catch { /* ignore */ }
         spawn(file, [], { detached: true, stdio: "ignore" }).unref();
       } else {
-        await shell.openPath(file);
+        // macOS / win32: surface the installer to the user (Finder opens the
+        // .dmg; Windows runs the installer). The restart is applied separately
+        // via quitAndInstall so the freshly installed app takes effect.
+        const err = await shell.openPath(file);
+        if (err) {
+          this.setState({ status: "error", error: `Could not open installer: ${err}` });
+          return this.getState();
+        }
       }
-      this.setState({ status: "installing" });
+      this.setState({ status: "ready_to_restart" });
       return this.getState();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -487,7 +521,7 @@ export class UpdateManager {
     try {
       if (this._backendProc) this._backendProc.kill("SIGTERM");
     } catch {}
-    
+
     const file = this.state.downloadPath;
     if (!file || !fs.existsSync(file)) {
       this.setState({ status: "error", error: "Installer file missing. Download the update first." });
@@ -499,20 +533,32 @@ export class UpdateManager {
       const batFile = file + '.update.bat';
       fs.writeFileSync(batFile, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart "AIC ADE Update" "${file}"\r\ndel "%~f0"\r\n`);
       spawn('cmd', ['/c', batFile], { detached: true, stdio: 'ignore' }).unref();
+      // Exit immediately so installer can overwrite files
+      setImmediate(() => app.exit(0));
     } else if (process.platform === "linux" && file.endsWith(".AppImage")) {
       try { fs.chmodSync(file, 0o755); } catch {}
       const cmd = `sleep 2 && "${file}"`;
       spawn('sh', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
+      // Let the new AppImage take over — quit gracefully so the backend is
+      // torn down via the normal will-quit path.
+      setImmediate(() => app.quit());
     } else {
-      spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
+      // macOS: never spawn the .dmg as a binary (that fails with
+      // EXEC_BAD_ACCESS). Open the staged .dmg in Finder (no-op if already
+      // mounted) then relaunch so the freshly installed app takes effect.
+      void shell.openPath(file).then(() => {
+        app.relaunch();
+        app.exit(0);
+      });
     }
-    
-    // Exit immediately so installer can overwrite files
-    setImmediate(() => app.exit(0));
   }
 
   dismiss(): void {
-    const allowed: UpdateStatus[] = ["available", "ready_to_install", "up_to_date", "error"];
+    const allowed: UpdateStatus[] = ["available", "ready_to_install", "ready_to_restart", "up_to_date", "error"];
+    // Mandatory updates cannot be dismissed — only install/quit-and-install is allowed.
+    if (this.state.mandatory && (this.state.status === "available" || this.state.status === "ready_to_install" || this.state.status === "ready_to_restart")) {
+      return;
+    }
     if (allowed.includes(this.state.status)) {
       this.setState({
         status: "idle",

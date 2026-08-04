@@ -588,7 +588,7 @@ class ConversationEngine:
         return task_type, worker, title, approval_required
         # Dead code below — kept for reference if LLM classification is ever fixed
         from llm.provider import provider_manager, ModelTier
-        provider = provider_manager.get_active()
+        provider = provider_manager.get_active_with_key()
         if not provider:
             task_type, worker = self._classify_task(content)
             title = self._extract_title(content)
@@ -702,7 +702,9 @@ Respond with ONLY the JSON object."""
         """Handle questions using LLM with full conversation context."""
         from llm.provider import provider_manager, ModelTier
 
-        provider = provider_manager.get_active()
+        # P1 #6: get_active() may return a provider with an empty api_key →
+        # "Illegal header value b'Bearer '". Use get_active_with_key().
+        provider = provider_manager.get_active_with_key()
         if not provider:
             raise LLMUnavailableError("No AI provider configured. Add a provider in Settings to start chatting.")
 
@@ -788,7 +790,9 @@ Respond with ONLY the JSON object."""
         """Handle general chat using LLM with conversation context and memory."""
         from llm.provider import provider_manager, ModelTier
 
-        provider = provider_manager.get_active()
+        # P1 #6: use get_active_with_key() so a provider with an empty api_key
+        # is never selected (otherwise "Illegal header value b'Bearer '").
+        provider = provider_manager.get_active_with_key()
         if not provider:
             raise LLMUnavailableError("No AI provider configured. Add a provider in Settings to start chatting.")
 

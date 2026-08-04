@@ -6,6 +6,7 @@ localhost requests. No authentication required for single-user desktop use.
 """
 
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -145,7 +146,9 @@ async def lifespan(app: FastAPI):
 
     # Validate embedding provider
     from backend.services.embedding_provider import validate_embedding_provider
-    validation = validate_embedding_provider()
+    # P1 #7: validate_embedding_provider() runs a sync httpx probe (Ollama
+    # detect) — run it in a thread so startup never blocks the async loop.
+    validation = await asyncio.to_thread(validate_embedding_provider)
     logger.info(f"Embedding provider: {validation['provider']} (production_ready={validation['production_ready']})")
     if validation['warning']:
         if "CRITICAL" in validation['warning']:
@@ -279,6 +282,10 @@ async def readiness():
 # ── Routes ─────────────────────────────────────────────────────
 
 app.include_router(core_router, prefix="")
+
+# Auth routes (local desktop identity)
+from backend.api.routes.auth import router as auth_router
+app.include_router(auth_router, prefix="")
 
 # PI-1 routes
 from backend.api.routes.orchestration import router as orchestration_router

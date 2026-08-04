@@ -8,11 +8,14 @@ and permission system for dynamic tool loading.
 import time
 import json
 import datetime
+import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.models.mcp import MCPRegistry, MCPTool, MCPToolExecution
 from backend.services.tool_dispatcher import tool_dispatcher
+
+logger = logging.getLogger("aic.mcp.plugin")
 
 
 class MCPService:
@@ -308,6 +311,68 @@ class MCPService:
         if server:
             server.status = "disconnected"
             await db.commit()
+
+    @staticmethod
+    async def register_plugin_server(db: AsyncSession, plugin_id: str, server_def: dict) -> dict:
+        """Register an MCP server declared by a plugin and attempt connection.
+
+        G2 FIX: plugin-declared MCP servers were dead on arrival — agent runners
+        only logged them. This registers the server in the MCP registry (reusing
+        an existing registration with the same name so it is idempotent) and
+        attempts a connection. The pool's stdio allowlist still applies; if the
+        plugin's endpoint is not allowlisted the connection fails and the error
+        is surfaced in the returned status instead of being silently ignored.
+
+        Returns {"server_id": ..., "status": "connected"|"error", "error": ...}.
+        """
+        name = str(server_def.get("name") or f"plugin-{plugin_id}").strip()
+        endpoint = str(server_def.get("endpoint") or "").strip()
+        protocol = str(server_def.get("protocol") or "stdio").strip()
+        config = server_def.get("config") or {}
+        if not name or not endpoint:
+            return {"server_id": None, "status": "error", "error": "Plugin MCP server is missing name/endpoint"}
+
+        # G2: surface a clear error when the plugin's stdio endpoint is not
+        # allowlisted instead of silently failing later. The allowlist itself
+        # (backend.services.mcp_client) is NOT removed — it still applies.
+        if protocol == "stdio":
+            from backend.services.mcp_client import MCPClient
+            if not MCPClient.is_allowed_stdio_endpoint(endpoint):
+                return {
+                    "server_id": None,
+                    "status": "error",
+                    "error": f"Plugin MCP endpoint is not in the stdio allowlist: {endpoint}",
+                }
+
+        # Reuse an existing registration with the same name (idempotent re-runs).
+        res = await db.execute(select(MCPRegistry).where(MCPRegistry.name == name))
+        server = res.scalars().first()
+        if server:
+            server.endpoint = endpoint
+            server.protocol = protocol
+            server.config = config
+            await db.commit()
+            server_id = server.id
+        else:
+            server = MCPRegistry(
+                name=name,
+                endpoint=endpoint,
+                protocol=protocol,
+                description=f"Plugin MCP server: {plugin_id}",
+                config=config,
+                status="disconnected",
+            )
+            db.add(server)
+            await db.commit()
+            await db.refresh(server)
+            server_id = server.id
+
+        try:
+            await MCPService.connect_and_discover(db, server_id)
+            return {"server_id": server_id, "status": "connected", "error": None}
+        except Exception as e:
+            logger.warning(f"Plugin MCP server '{name}' could not connect: {e}")
+            return {"server_id": server_id, "status": "error", "error": str(e)}
 
     @staticmethod
     async def get_all_mcp_tool_schemas(db: AsyncSession) -> list[dict]:

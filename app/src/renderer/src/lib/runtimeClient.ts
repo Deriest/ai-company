@@ -13,6 +13,19 @@ export function configureClient(opts: { baseUrl: string; token: string | null })
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // In Electron the main process picks a free port (8000-8099) at startup —
+  // resolve the real port dynamically so login/me hit the running backend.
+  if (typeof window !== "undefined" && window.aic?.getBackendStatus) {
+    try {
+      const status = await window.aic.getBackendStatus();
+      if (status && status.port) {
+        baseUrl = `http://127.0.0.1:${status.port}`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: HeadersInit = {
     "Content-Type": "application/json",

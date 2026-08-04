@@ -1,4 +1,5 @@
 """Conversation routes — CRUD, search, folders, tags, export/import."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -22,6 +23,8 @@ from backend.services.search_service import (
     index_conversation_fts, index_message_fts,
     remove_fts_by_conversation, init_fts5,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -171,7 +174,14 @@ async def search_conversations(q: str = Query(...), db: AsyncSession = Depends(g
             WHERE search_fts MATCH :query
             LIMIT 50
         """)
-        formatted_query = " ".join([f"{term}*" for term in q.strip().split()])
+        # QA-SEC FIX: quote each term so FTS5 operators (AND/OR/NOT/NEAR/"")
+        # cannot be injected through the MATCH string. Embedded double quotes
+        # are escaped by doubling them (FTS5 phrase escaping), and a trailing
+        # * keeps prefix behavior.
+        terms = [t for t in q.strip().split() if t.strip('"')]
+        if not terms:
+            return []
+        formatted_query = " ".join(f'"{t.replace(chr(34), chr(34) * 2)}"*' for t in terms)
         result = await db.execute(query, {"query": formatted_query})
         rows = result.fetchall()
 
@@ -187,7 +197,8 @@ async def search_conversations(q: str = Query(...), db: AsyncSession = Depends(g
             ))
         return items
     except Exception as e:
-        # Fallback if invalid fts syntax
+        # Fallback if invalid fts syntax (quoted terms should prevent this).
+        logger.warning(f"FTS5 search failed for q={q!r}: {e}")
         return []
 
 

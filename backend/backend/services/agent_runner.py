@@ -251,6 +251,7 @@ class AgentRunner:
             )
         
         # Plugin runtime injection: adapted commands → tools, agents → instructions, hooks → permissions.
+        plugin_tool_names: list[str] = []  # G3: plugin tools to auto-grant to this worker
         if db and assigned_plugins:
             try:
                 from backend.services.plugin_adapter import build_plugin_context
@@ -264,6 +265,13 @@ class AgentRunner:
                         pname = ptool.get("name", "")
                         if pname and pname not in tool_executor_map:
                             script_path = ptool.get("script_path", "")
+                            # G6 FIX: JSON command defs may store a relative
+                            # script path; resolve against the package dir so
+                            # exist() is true regardless of the process cwd.
+                            if script_path and not Path(script_path).exists():
+                                candidate = Path(ppath) / script_path
+                                if candidate.exists():
+                                    script_path = str(candidate)
                             if script_path and Path(script_path).exists():
                                 def make_tool_fn(sp=script_path):
                                     # QA-E2E FIX: quote the script path — a
@@ -271,14 +279,33 @@ class AgentRunner:
                                     # broke out of the shell command.
                                     return lambda a: self.executor.run_shell(f"bash {shlex.quote(sp)}", 60)
                                 tool_executor_map[pname] = make_tool_fn()
+                                plugin_tool_names.append(pname)
                                 tools.append({"function": {"name": pname, "description": ptool.get("description", pname), "parameters": {"type": "object", "properties": ptool.get("arguments", {}), "additionalProperties": False}}})
                     # Inject plugin agent instructions into the context.
                     for instr in pctx.get("agent_instructions", []):
                         pdef.setdefault("_agent_instructions", []).append(instr)
-                    # Inject plugin MCP server definitions.
+                    # G2 FIX: register plugin-declared MCP servers in mcp_service
+                    # (DB + pool) instead of only logging them. The pool's stdio
+                    # allowlist still applies; non-allowlisted endpoints surface a
+                    # clear warning instead of being silently ignored.
                     for mcp_srv in pctx.get("mcp_servers", []):
                         if isinstance(mcp_srv, dict) and mcp_srv.get("name"):
-                            logger.info(f"Plugin MCP server: {mcp_srv['name']}")
+                            try:
+                                from backend.services.mcp_service import mcp_service
+                                if db is not None:
+                                    status = await mcp_service.register_plugin_server(
+                                        db, pdef.get("plugin_id", ""), mcp_srv
+                                    )
+                                    if status.get("status") != "connected":
+                                        err = status.get("error") or "unknown error"
+                                        logger.warning(f"Plugin MCP server '{mcp_srv['name']}' not connected: {err}")
+                                        yield {"type": "warning", "message": f"Plugin MCP server '{mcp_srv['name']}' could not be connected: {err}"}
+                                    else:
+                                        logger.info(f"Plugin MCP server '{mcp_srv['name']}' connected (server_id={status.get('server_id')})")
+                                else:
+                                    logger.info(f"Plugin MCP server '{mcp_srv['name']}' registered (no db session)")
+                            except Exception as mcp_err:
+                                logger.warning(f"Plugin MCP server registration failed: {mcp_err}")
                     # Include plugin skill instructions in the prompt context.
                     p_instructions = pctx.get("instructions", "")
                     if p_instructions:
@@ -365,8 +392,9 @@ class AgentRunner:
                 # Emit tool start
                 yield {"type": "tool_start", "tool": fn_name, "args": args, "call_id": call_id}
                 
-                # Check permission
-                if not check_permission(worker_type, fn_name):
+                # Check permission (G3: plugin-cmd_* tools are auto-granted for
+                # workers the plugin is assigned to via plugin_tool_names).
+                if not check_permission(worker_type, fn_name, allowed_plugin_tools=plugin_tool_names):
                     tool_result = ToolResult(
                         tool=fn_name, success=False, output="",
                         error=f"Permission denied: {worker_type} cannot use {fn_name}"

@@ -6,6 +6,12 @@
 import { describe, expect, it, beforeAll } from "vitest";
 
 const BASE = process.env.AIC_BASE_URL || "http://127.0.0.1:8000";
+// Per-install password is random in Electron; these tests run standalone, so
+// fall back to the backend's default identity (admin/admin123 without an
+// identity file). Override via AIC_USER/AIC_PASS when testing against a
+// backend that has a real identity file.
+const USER = process.env.AIC_USER || "admin";
+const PASS = process.env.AIC_PASS || "admin123";
 
 async function req(method: string, path: string, token?: string, body?: unknown) {
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -22,7 +28,7 @@ let validToken: string | null = null;
 
 beforeAll(async () => {
   try {
-    const r = await req("POST", "/api/auth/login", undefined, { username: "admin", password: "admin123" });
+    const r = await req("POST", "/auth/login", undefined, { username: USER, password: PASS });
     validToken = (r.data as { access_token?: string })?.access_token || null;
   } catch { /* platform down */ }
 });
@@ -30,7 +36,7 @@ beforeAll(async () => {
 describe("edge case: auth failure", () => {
   it("rejects invalid credentials with 401", async () => {
     try {
-      const r = await req("POST", "/api/auth/login", undefined, { username: "bad", password: "bad" });
+      const r = await req("POST", "/auth/login", undefined, { username: "bad", password: "bad" });
       expect(r.ok).toBe(false);
       expect(r.status).toBeGreaterThanOrEqual(400);
     } catch { console.log("SKIP: platform not running"); }
@@ -76,7 +82,7 @@ describe("edge case: non-existent resources", () => {
 describe("edge case: empty/malformed requests", () => {
   it("handles empty body on login", async () => {
     try {
-      const r = await req("POST", "/api/auth/login", undefined, {});
+      const r = await req("POST", "/auth/login", undefined, {});
       expect(r.ok).toBe(false);
     } catch { console.log("SKIP: platform not running"); }
   });

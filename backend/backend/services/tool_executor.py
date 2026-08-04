@@ -255,28 +255,67 @@ AGENT_TOOLS = [
 
 # Permission rules per worker type
 # Format: worker_type → allowed tools
-# Workers not in this dict get FULL access (default)
+# G3 FIX: workers NOT in this dict get a minimal read-only set (default-deny)
+# instead of full access. Every known worker is enumerated explicitly so no
+# capability is silently lost.
+_FULL_TOOLS = frozenset({"read_file", "write_file", "list_directory", "search_files", "run_shell", "mcp_call"})
+_READ_ONLY_TOOLS = frozenset({"read_file", "list_directory", "search_files"})
+_READ_WRITE_TOOLS = frozenset({"read_file", "write_file", "list_directory", "search_files"})
+
 WORKER_PERMISSIONS: dict[str, set[str]] = {
-    "research": {"read_file", "list_directory", "search_files"},
-    "pm": {"read_file", "list_directory", "search_files"},
-    "designer": {"read_file", "list_directory", "search_files"},
-    "documentation": {"read_file", "write_file", "list_directory", "search_files"},
-    "qa": {"read_file", "list_directory", "search_files", "run_shell", "mcp_call"},
-    "security": {"read_file", "list_directory", "search_files", "run_shell", "mcp_call"},
-    "performance": {"read_file", "list_directory", "search_files", "run_shell", "mcp_call"},
-    "review": {"read_file", "list_directory", "search_files"},
-    "vision": {"read_file", "list_directory", "search_files"},
-    # Full access: backend, frontend, coding, fullstack, architect, database, devops, deployment, pm (dispatcher)
+    # Read-only / research & planning workers
+    "research": set(_READ_ONLY_TOOLS),
+    "pm": set(_READ_ONLY_TOOLS),
+    "designer": set(_READ_ONLY_TOOLS),
+    "review": set(_READ_ONLY_TOOLS),
+    "vision": set(_READ_ONLY_TOOLS),
+    "thinker": set(_READ_ONLY_TOOLS),
+    "planner": set(_READ_ONLY_TOOLS),
+    "reviewer": set(_READ_ONLY_TOOLS),
+    # Read + write (no shell / no mcp)
+    "documentation": set(_READ_WRITE_TOOLS),
+    # Implementation / verification / iteration workers
+    "qa": set(_FULL_TOOLS),
+    "security": set(_FULL_TOOLS),
+    "performance": set(_FULL_TOOLS),
+    "sprinter": set(_FULL_TOOLS),
+    "crafter": set(_FULL_TOOLS),
+    "testing": set(_FULL_TOOLS),
+    # Full-access engineering workers
+    "backend": set(_FULL_TOOLS),
+    "frontend": set(_FULL_TOOLS),
+    "coding": set(_FULL_TOOLS),
+    "fullstack": set(_FULL_TOOLS),
+    "architect": set(_FULL_TOOLS),
+    "database": set(_FULL_TOOLS),
+    "devops": set(_FULL_TOOLS),
+    "deployment": set(_FULL_TOOLS),
+    "hermes": set(_FULL_TOOLS),
+    "rex": set(_FULL_TOOLS),
+    "nexus": set(_FULL_TOOLS),
+    "flint": set(_FULL_TOOLS),
+    "debugger": set(_FULL_TOOLS),
 }
 
-def check_permission(worker_type: str, tool_name: str) -> bool:
+# Default-deny minimal set for unknown worker types.
+DEFAULT_MINIMAL_TOOLS = frozenset(_READ_ONLY_TOOLS)
+
+
+def check_permission(worker_type: str, tool_name: str, allowed_plugin_tools: list[str] | None = None) -> bool:
     """Check if a worker is allowed to use a tool. Returns True if allowed.
 
     BUG-17 FIX: Workers with 'mcp_call' permission can also use mcp_* prefixed tools.
+    G3 FIX: unknown worker types default-deny to the minimal read-only set,
+    and plugin tools (plugin_* / plugin_cmd_*) are auto-granted for workers the
+    plugin is assigned to (the caller passes the exact plugin tool names).
     """
+    # G3: auto-grant the plugin's own tools for assigned workers.
+    if allowed_plugin_tools and tool_name in allowed_plugin_tools:
+        return True
+
     allowed = WORKER_PERMISSIONS.get(worker_type)
     if allowed is None:
-        return True  # Not in dict = full access
+        allowed = DEFAULT_MINIMAL_TOOLS  # G3: default-deny, not full access
 
     # Direct match
     if tool_name in allowed:
@@ -288,9 +327,10 @@ def check_permission(worker_type: str, tool_name: str) -> bool:
 
     return False
 
+
 def get_tools_for_worker(worker_type: str) -> list:
     """Get tool definitions filtered by worker type permissions."""
     allowed = WORKER_PERMISSIONS.get(worker_type)
     if allowed is None:
-        return AGENT_TOOLS  # Full access
+        allowed = DEFAULT_MINIMAL_TOOLS  # G3: default-deny for unknown workers
     return [t for t in AGENT_TOOLS if t["function"]["name"] in allowed]

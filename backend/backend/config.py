@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24h
     API_KEY_HEADER: str = "X-API-Key"
 
+    # Per-install desktop identity — written by the Electron main process
+    # to userData/aic-ade/identity.json and passed via AIC_IDENTITY_FILE.
+    # Falls back to defaults below so standalone/dev/tests keep working.
+    AIC_IDENTITY_FILE: str = ""
+    DEFAULT_IDENTITY_USERNAME: str = "admin"
+    DEFAULT_IDENTITY_PASSWORD: str = "admin123"
+    IDENTITY_USERNAME: str = ""
+    IDENTITY_PASSWORD: str = ""
+
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -104,6 +113,20 @@ class Settings(BaseSettings):
             else:
                 self.SECRET_KEY = secrets.token_hex(32)
                 key_file.write_text(self.SECRET_KEY)
+        # Load per-install identity written by the Electron main process.
+        # Falls back to defaults so standalone/dev/tests keep working.
+        if self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
+            try:
+                with open(self.AIC_IDENTITY_FILE, "r", encoding="utf-8") as f:
+                    identity = json.load(f)
+                self.IDENTITY_USERNAME = str(identity.get("username", "")).strip() or self.DEFAULT_IDENTITY_USERNAME
+                self.IDENTITY_PASSWORD = str(identity.get("password", "")).strip() or self.DEFAULT_IDENTITY_PASSWORD
+            except (OSError, json.JSONDecodeError):
+                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
+                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+        else:
+            self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
+            self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
 
 
 settings = Settings()

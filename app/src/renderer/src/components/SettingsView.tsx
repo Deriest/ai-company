@@ -426,7 +426,8 @@ function UpdatesTab() {
   const updateStatus = updateState?.status || 'unknown'
   const updateLabel: Record<string, string> = {
     idle: 'Up to date', checking: 'Checking…', available: 'Update available',
-    downloading: 'Downloading…', ready_to_install: 'Ready to install', error: 'Update error', unknown: '—',
+    downloading: 'Downloading…', ready_to_install: 'Ready to install',
+    ready_to_restart: 'Restart to apply', error: 'Update error', unknown: '—',
   }
 
   return (
@@ -468,6 +469,17 @@ function UpdatesTab() {
                 className="rounded-lg bg-success px-4 py-2 text-sm font-medium text-white">
                 Install & Restart
               </button>
+            )}
+            {updateState?.status === 'ready_to_restart' && (
+              <button onClick={() => window.aic?.updateQuitAndInstall?.()}
+                className="rounded-lg bg-success px-4 py-2 text-sm font-medium text-white">
+                Restart & Apply
+              </button>
+            )}
+            {updateState?.notifyBeforeInstall && (
+              <p className="text-xs text-muted-foreground">
+                A new version is available and will download after you confirm here.
+              </p>
             )}
           </div>
         </div>

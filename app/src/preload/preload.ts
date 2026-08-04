@@ -58,6 +58,8 @@ const api = {
     port: number;
     logFile?: string;
   }> => ipcRenderer.invoke("aic:get-backend-status"),
+  getIdentity: (): Promise<{ username: string; password: string }> =>
+    ipcRenderer.invoke("aic:get-identity"),
   getPaths: (): Promise<AicPaths> => ipcRenderer.invoke("aic:get-paths"),
   storeGet: (key?: string): Promise<unknown> => ipcRenderer.invoke("aic:store-get", key),
   storeSet: (key: string, value: unknown): Promise<boolean> =>

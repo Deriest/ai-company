@@ -8,14 +8,85 @@ OpenCode-inspired: every tool call produces a visible panel in the UI.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
+import socket
 import time
 import logging
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional, Any
 
 logger = logging.getLogger("aic.workers.tools")
+
+
+# ── SSRF guard for web_fetch ─────────────────────────────
+
+# Private / loopback / link-local / metadata / CGNAT ranges that must never be
+# fetched from a server-side tool. Covers 10/8, 172.16/12, 192.168/16, 127/8,
+# 169.254/16 (incl. cloud metadata 169.254.169.254), ::1, fc00::/7, fe80::/10.
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def _ip_is_blocked(ip) -> bool:
+    """Return True if *ip* is a private/loopback/link-local/metadata address."""
+    if ip.is_unspecified or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+        return True
+    if ip.is_private:
+        return True
+    for net in _BLOCKED_NETWORKS:
+        if ip in net:
+            return True
+    return False
+
+
+def _validate_web_url(url: str, previous_scheme: str | None = None) -> None:
+    """Validate a web_fetch URL — scheme + hostname resolution (SSRF guard).
+
+    Raises ValueError with a safe message when the URL is not fetchable.
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Blocked URL scheme '{scheme or 'none'}' — only http/https allowed")
+    if previous_scheme == "https" and scheme == "http":
+        raise ValueError("Blocked HTTPS→HTTP redirect downgrade")
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError("URL has no hostname")
+
+    port = parsed.port or (443 if scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError as e:
+        raise ValueError(f"Could not resolve hostname: {host}") from e
+
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if _ip_is_blocked(ip):
+            raise ValueError(f"Blocked private/internal IP: {ip}")
+
+
+class _WebFetchRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects that escape to a blocked/private IP (SSRF guard)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        previous = getattr(req, "type", None)
+        _validate_web_url(newurl, previous_scheme=previous)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 # ── Tool Call Schema ─────────────────────────────────────
@@ -545,11 +616,26 @@ class ToolExecutor:
         tc = ToolCall(id=self._next_id(), type="web_fetch", label=f"Fetch {url}", status="running", args={"url": url, "format": format}, timestamp=datetime.now(timezone.utc).isoformat())
         await self._emit("tool_start", {"tool_call": tc.to_dict()})
         start = time.monotonic()
+
+        # QA-SEC FIX: web_fetch performs an arbitrary network request — fail
+        # closed when no permission checker is configured (mirror shell()).
+        if not self._permission_checker or not self._permission_checker("web_fetch"):
+            tc.status = "error"
+            tc.error = "Permission denied for tool: web_fetch"
+            tc.output = tc.error
+            tc.duration_ms = 0
+            self.tool_calls.append(tc)
+            await self._emit("tool_result", {"tool_call": tc.to_dict()})
+            return tc
+
         try:
-            import urllib.request
-            import urllib.error
+            # QA-SEC FIX: SSRF guard — validate scheme + block private/loopback/
+            # link-local/metadata targets, and reject redirects that escape to
+            # a blocked IP.
+            _validate_web_url(url)
             req = urllib.request.Request(url, headers={"User-Agent": "AIC-Platform/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            opener = urllib.request.build_opener(_WebFetchRedirectHandler())
+            with opener.open(req, timeout=30) as resp:
                 content = resp.read().decode("utf-8", errors="replace")[:50000]
             tc.output = content
             tc.status = "completed"

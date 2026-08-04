@@ -50,11 +50,17 @@ def adapt_commands_to_tools(package_dir: str) -> list[dict]:
             data = json.loads(f.read_text(encoding="utf-8", errors="replace"))
             if isinstance(data, list):
                 for cmd in data:
+                    # G6 FIX: JSON command defs may store a relative script path
+                    # (e.g. "scripts/run.sh"). Resolve it against the package
+                    # directory so callers can check exist() without knowing the
+                    # package root.
+                    raw_script = cmd.get("script", "")
+                    script_path = str(Path(package_dir) / raw_script) if raw_script else ""
                     tools.append({
                         "name": f"plugin_{cmd.get('name', f.stem)}",
                         "description": cmd.get("description", ""),
                         "plugin_source": package_dir,
-                        "script_path": cmd.get("script", ""),
+                        "script_path": script_path,
                         "type": "json_command",
                         "arguments": cmd.get("arguments", {}),
                     })
@@ -83,7 +89,12 @@ def adapt_agents_to_instructions(package_dir: str) -> list[str]:
 
 
 def adapt_hooks_to_permissions(package_dir: str) -> list[dict]:
-    """Convert plugin hooks/ directory into permission-checked event handlers."""
+    """Convert plugin hooks/ directory into permission-checked event handlers.
+
+    G10 NOTE: hooks are RESERVED — they are collected so the UI can show them,
+    but no hook dispatch is implemented yet. They are intentionally NOT executed
+    (skipped cleanly) to avoid running untrusted plugin code on lifecycle events.
+    """
     hooks_dir = Path(package_dir) / "hooks"
     if not hooks_dir.is_dir():
         return []
@@ -95,6 +106,8 @@ def adapt_hooks_to_permissions(package_dir: str) -> list[dict]:
                 "script_path": str(f),
                 "plugin_source": package_dir,
                 "required_permissions": ["execute_script"],
+                # G10: reserved — no dispatch executes these yet.
+                "reserved": True,
             })
     return hooks
 

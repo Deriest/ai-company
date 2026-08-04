@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import crypto from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import net from "node:net";
 import * as pty from "node-pty";
@@ -90,6 +91,35 @@ function resolveSafe(target: string, extraRoots: string[] = []): string {
 
 function appDataDir(): string {
   return path.join(app.getPath("userData"), "aic-ade");
+}
+
+/** Per-install desktop credential — generated once, persisted to userData,
+ *  and shared with the backend via AIC_IDENTITY_FILE. Never regenerated, so
+ *  the stored token survives restarts. chmod 600 (no-op on Windows). */
+function loadOrCreateIdentity(): { username: string; password: string } {
+  const p = path.join(appDataDir(), "identity.json");
+  if (fs.existsSync(p)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (parsed && typeof parsed.username === "string" && parsed.username
+          && typeof parsed.password === "string" && parsed.password) {
+        return { username: parsed.username, password: parsed.password };
+      }
+    } catch {
+      /* corrupted file — regenerate */
+    }
+  }
+  const identity = {
+    username: "admin",
+    password: crypto.randomBytes(32).toString("hex"),
+  };
+  fs.writeFileSync(p, JSON.stringify(identity, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(p, 0o600);
+  } catch {
+    /* Windows: no chmod */
+  }
+  return identity;
 }
 
 function ensureAppData(): void {
@@ -317,6 +347,7 @@ async function ensureBackendRunning(): Promise<void> {
         ...process.env,
         PYTHONUNBUFFERED: "1",
         AIC_DATA_DIR: appDataDir(),
+        AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
         PYTHONPATH: [platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
       },
       stdio: "pipe",
@@ -351,6 +382,8 @@ async function ensureBackendRunning(): Promise<void> {
 
     backendProc.on("exit", (code: number | null) => {
       backendProc = null;
+      // Drop the stale reference so quitAndInstall never kills a dead PID.
+      updateManager?.setBackendProc(null);
       if (isQuitting) return;
       if (backendStatus !== "stopped") {
         backendStatus = "error";
@@ -362,7 +395,11 @@ async function ensureBackendRunning(): Promise<void> {
           restartAttempts++;
           setTimeout(() => {
             if (isQuitting) return;
-            void ensureBackendRunning();
+            void ensureBackendRunning().then(() => {
+              // Re-register the freshly spawned backend so quitAndInstall
+              // targets the new PID, not the stale one.
+              updateManager?.setBackendProc(backendProc);
+            });
           }, 2000);
         }
       }
@@ -459,6 +496,8 @@ function createWindow(): BrowserWindow {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("aic:get-identity", () => loadOrCreateIdentity());
+
   ipcMain.handle("aic:get-backend-status", async () => {
     await checkBackendHealth();
     return {
@@ -872,6 +911,9 @@ if (!gotLock) {
   app.whenReady().then(() => {
     nativeTheme.themeSource = "dark";
     ensureAppData();
+    // Generate/persist the per-install identity before the backend spawns so
+    // AIC_IDENTITY_FILE always points at an existing file.
+    loadOrCreateIdentity();
     const store = readStore();
     if (typeof store.projectRoot === "string") projectRoot = store.projectRoot;
     initUpdateManager();
@@ -883,7 +925,13 @@ if (!gotLock) {
       updateManager?.setBackendProc(backendProc);
     });
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+        // The backend stays alive on macOS; restart it only if it is not running.
+        if (backendStatus === "stopped" || backendStatus === "error") {
+          void ensureBackendRunning();
+        }
+      }
     });
   });
 }
@@ -900,12 +948,16 @@ app.on("will-quit", () => {
 app.on("window-all-closed", () => {
   if (termPty) termPty.kill();
   if (termProc) termProc.kill();
-  // Mark the backend as stopped BEFORE killing so the exit handler never
-  // schedules a restart while we are tearing down.
-  backendStatus = "stopped";
-  if (backendProc) {
-    backendProc.kill("SIGTERM");
-    backendProc = null;
+  if (process.platform !== "darwin") {
+    // Mark the backend as stopped BEFORE killing so the exit handler never
+    // schedules a restart while we are tearing down.
+    backendStatus = "stopped";
+    if (backendProc) {
+      backendProc.kill("SIGTERM");
+      backendProc = null;
+    }
+    app.quit();
   }
-  if (process.platform !== "darwin") app.quit();
+  // macOS: keep the app and backend alive so `activate` can recreate the
+  // window immediately. Do NOT kill the sidecar here.
 });
