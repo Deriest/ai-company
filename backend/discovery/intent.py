@@ -203,7 +203,7 @@ class IntentClassifier:
         """
         from llm.provider import provider_manager, ModelTier
 
-        provider = provider_manager.get_active()
+        provider = provider_manager.get_active_with_key()
         if not provider:
             # Fallback to regex
             return cls.classify(content, history)

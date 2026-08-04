@@ -265,12 +265,14 @@ export function UpdatesDialog({
   const [channel, setChannel] = useState<"stable" | "beta" | "nightly">("stable");
   const checking = updateState?.status === "checking";
   const downloading = updateState?.status === "downloading";
-  const ready = updateState?.status === "ready_to_install";
-  
+  const ready = updateState?.status === "ready_to_install" || updateState?.status === "ready_to_restart";
+  const mandatory = !!updateState?.mandatory;
+
   const statusLabel =
     updateState?.status === "checking" ? "Checking..." :
     updateState?.status === "downloading" ? "Downloading..." :
     updateState?.status === "ready_to_install" ? "Ready to restart" :
+    updateState?.status === "ready_to_restart" ? "Restart to apply" :
     updateState?.status === "error" ? "Error" :
     updateState?.status === "available" ? "Update available" :
     "Up to date";
@@ -350,7 +352,7 @@ export function UpdatesDialog({
               Check for updates
             </PrimaryButton>
           )}
-          {updateState?.status === "error" || updateState?.status === "available" || ready ? (
+          {!mandatory && (updateState?.status === "error" || updateState?.status === "available" || ready) ? (
             <GhostButton onClick={onDismiss}>
               Remind me later
             </GhostButton>
