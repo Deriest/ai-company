@@ -250,8 +250,21 @@ async def delete_provider(id: str, db: AsyncSession = Depends(get_db)):
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
+    provider_name = provider.name
     await db.delete(provider)
     await db.commit()
+
+    # Round-7 FIX: deregister from provider_manager so the deleted provider
+    # stops serving requests (health llm_configured, /chat) instead of staying
+    # registered/active until restart.
+    try:
+        from llm.provider import provider_manager
+        await provider_manager.unregister(provider_name)
+    except Exception as e:
+        logger.warning(
+            f"Failed to deregister provider '{provider_name}' from provider_manager: {e}"
+        )
+
     return {"status": "ok"}
 
 

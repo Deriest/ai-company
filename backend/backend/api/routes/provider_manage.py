@@ -152,9 +152,20 @@ async def update_env_config(payload: dict):
         from backend.database.session import AsyncSessionLocal
         from backend.services.crypto import encrypt as _encrypt, decrypt as _decrypt
 
-        base_url = payload.get("base_url")
+        base_url = (payload.get("base_url") or "").strip()
         api_key = payload.get("api_key")
-        provider_name = payload.get("provider_name") or "default"
+        provider_name = (payload.get("provider_name") or "").strip()
+
+        # Round-7 FIX: "Apply to Engine" with no provider configured previously
+        # created a junk Provider row (name='default', base_url='') and then
+        # failed on set_active with a 500 — and the junk row later blocked
+        # creating a provider literally named "default" (409). Validate BEFORE
+        # any env mutation or DB write so no row is created on failure.
+        if not provider_name or not base_url:
+            raise HTTPException(
+                status_code=400,
+                detail="provider_name and base_url are required",
+            )
 
         # In-memory env mutation for the live reload below (process-local only,
         # never persisted to disk). Masked/"***" values are skipped so the real
@@ -311,6 +322,10 @@ async def update_env_config(payload: dict):
             provider_manager.set_active(provider_name)
 
         return {"success": True}
+    except HTTPException:
+        # Round-7 FIX: validation errors (400) must pass through untouched —
+        # the broad except below would otherwise rewrite them into a 500.
+        raise
     except Exception as e:
         traceback.print_exc()
         # Round-6 FIX: log the raw error server-side, return a fixed friendly

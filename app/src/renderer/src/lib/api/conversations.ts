@@ -67,6 +67,25 @@ export const conversationsApi = {
     return apiClient.get<ConversationRecord>(`/conversations/${id}`);
   },
 
+  /**
+   * Fetch several conversations by id in parallel, skipping any that no longer
+   * exist (404). Used by sidebar search: /conversations/search returns ids
+   * (not full records), and re-filtering search hits against /conversations —
+   * which defaults to a limit of 50 — silently dropped matches older than the
+   * 50 most-recent conversations. Fetching each hit by id surfaces ALL matches.
+   */
+  async getMany(ids: string[]): Promise<ConversationRecord[]> {
+    const unique = Array.from(new Set(ids));
+    const fetched = await Promise.all(unique.map(async (id) => {
+      try {
+        return await conversationsApi.get(id);
+      } catch {
+        return null;
+      }
+    }));
+    return fetched.filter((c): c is ConversationRecord => c !== null);
+  },
+
   async update(id: string, partial: Partial<{ title: string; folder_id: string | null; is_archived: boolean; is_favorite: boolean; is_pinned: boolean; tags: string[] }>): Promise<ConversationRecord> {
     return apiClient.patch<ConversationRecord>(`/conversations/${id}`, partial);
   },

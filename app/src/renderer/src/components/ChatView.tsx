@@ -30,6 +30,8 @@ interface AssistantMessageState {
   todos: TodoItemData[]
   filesModified: string[]
   isStreaming: boolean
+  /** 'queued' while the agent waits for a free execution slot (backend emits status "queued"). */
+  streamStatus?: 'queued' | 'streaming'
   metadata?: Record<string, any>
   deliverables?: DeliverableSummary
 }
@@ -472,7 +474,9 @@ const MessageRow = memo(function MessageRow({ message, state }: { message: Messa
               return (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" />
-                  <span>thinking…</span>
+                  {state?.streamStatus === 'queued'
+                    ? <span>Queued — waiting for a free agent slot…</span>
+                    : <span>thinking…</span>}
                 </div>
               )
             }
@@ -615,6 +619,23 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 
   const active = useMemo(() => conversations.find(c => c.id === activeId) ?? null, [conversations, activeId])
 
+  // ── Streaming-in-background detection (round-7) ─────────
+  // The temp assistant message carries status "streaming" until the backend
+  // commits the response, so its conversation_id identifies the conversation
+  // that owns the in-flight stream. If the user navigates to a different
+  // conversation mid-stream, the pane must not show the old session's messages
+  // under the new session's header — render a "streaming in background"
+  // placeholder instead. Stream writes stay keyed by the temp message id, so
+  // switching back to the streaming conversation shows the live stream again.
+  const streamingConvId = useMemo(() => {
+    const streaming = messages.find(m => m.status === 'streaming')
+    return streaming?.conversation_id ?? null
+  }, [messages])
+  const visibleMessages = activeId
+    ? messages.filter(m => m.conversation_id === activeId)
+    : messages
+  const streamingBackground = sending && streamingConvId !== null && activeId !== null && activeId !== streamingConvId
+
   // ── Context usage (QA-2439 FIX → QA-2446: consistent per-message estimate)
   // Previous logic switched between backend token_count (crude len//4) and an
   // inflated per-message flat rate depending on whether ANY message had a
@@ -648,8 +669,11 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       if (query.trim()) {
         const results = await conversationsApi.search(query)
         const ids = Array.from(new Set(results.map(r => r.conversation_id)))
-        const all = await conversationsApi.list()
-        setConversations(all.filter(c => ids.includes(c.id)))
+        // /conversations/search returns ids + snippets, not full records.
+        // Re-filtering hits against /conversations (default limit 50) silently
+        // dropped matches older than the 50 most-recent — resolve each hit by
+        // id instead so the sidebar shows ALL matches for the query.
+        setConversations(await conversationsApi.getMany(ids))
       } else {
         const list = await conversationsApi.list()
         setConversations(list)
@@ -1008,14 +1032,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             // PERF-FIX: single source of truth = assistantStates; the messages
             // array is only finalized once on done (no per-chunk O(n) map).
             streamContentRef.current += chunk
-            updateAssistantState(tempAsstId, s => ({ ...s, content: streamContentRef.current }))
+            updateAssistantState(tempAsstId, s => ({ ...s, content: streamContentRef.current, streamStatus: undefined }))
           },
           onToolStart: (tool, args, callId) => {
             const tc: ToolCallData = {
               id: callId || genId('tc'), type: tool, label: `${tool}: ${args.path || args.command || args.pattern || ''}`,
               status: 'running', args, result: {}, output: '', duration_ms: 0, timestamp: new Date().toISOString(), error: null,
             }
-            updateAssistantState(tempAsstId, s => ({ ...s, toolCalls: [...s.toolCalls, tc] }))
+            updateAssistantState(tempAsstId, s => ({ ...s, toolCalls: [...s.toolCalls, tc], streamStatus: undefined }))
           },
           onToolResult: (toolCall) => {
             updateAssistantState(tempAsstId, s => ({
@@ -1027,6 +1051,16 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           },
           onStatus: (status, _data) => {
             if (status === 'overflow_warning') setContextOptimized(true)
+            if (status === 'queued') {
+              // Round-6 backend: agent concurrency cap emits "queued" before
+              // waiting on the semaphore. Show a distinct status instead of
+              // "thinking…" which can otherwise sit for the queue timeout.
+              updateAssistantState(tempAsstId, s => ({ ...s, streamStatus: 'queued' }))
+            }
+            if (status === 'executing' || status === 'completed') {
+              // Slot acquired — the queued state is over.
+              updateAssistantState(tempAsstId, s => ({ ...s, streamStatus: undefined }))
+            }
             if (status === 'cancelled') {
               // Server cooperatively cancelled (Stop) — the SSE parser returns
               // here so onDone never fires. Finalize with the *[stopped]*
@@ -1173,7 +1207,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             <div className="flex items-center gap-2">
               <Terminal className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
-              {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{messages.length} msgs</span>}
+              {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{visibleMessages.length} msgs</span>}
             </div>
           </div>
 
@@ -1195,7 +1229,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                 </button>
               </div>
             )}
-            {messages.length === 0 ? (
+            {streamingBackground ? (
+              <div className="grid h-full place-items-center">
+                <div className="text-center space-y-2">
+                  <Loader2 className="mx-auto size-4 animate-spin text-primary/50" />
+                  <p className="text-xs text-muted-foreground/60">Still streaming in background…</p>
+                </div>
+              </div>
+            ) : visibleMessages.length === 0 ? (
               <div className="grid h-full place-items-center">
                 <div className="text-center space-y-3">
                   <div className="mx-auto grid size-10 place-items-center rounded-xl bg-muted/30">
@@ -1208,7 +1249,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               </div>
             ) : (
               <div className="max-w-3xl mx-auto">
-                {messages.map(m => (
+                {visibleMessages.map(m => (
                   <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} />
                 ))}
               </div>

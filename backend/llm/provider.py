@@ -827,6 +827,31 @@ class ProviderManager:
         self._active = name
         logger.info(f"Active LLM provider: {name}")
 
+    async def unregister(self, name: str) -> None:
+        """Remove a provider from the manager (its DB row was deleted).
+
+        Round-7: DELETE /providers/{id} must deregister the LLMProvider so it
+        stops serving requests and /health llm_configured reflects reality
+        without a restart. Closes the httpx client, drops the config entry, and
+        (when the active provider is removed) promotes the first remaining
+        provider — or clears _active when none are left.
+        """
+        provider = self._providers.pop(name, None)
+        self._configs.pop(name, None)
+        if provider is not None:
+            try:
+                await provider.close()
+            except Exception as e:
+                logger.warning(f"Failed to close removed provider '{name}': {e}")
+        if self._active == name:
+            self._active = None
+            if self._providers:
+                # Keep the app functional: promote the first remaining provider
+                # instead of leaving no active provider.
+                self._active = next(iter(self._providers))
+                logger.info(f"Active LLM provider after unregister: {self._active}")
+        logger.info(f"Unregistered LLM provider: {name}")
+
     def get_active(self) -> LLMProvider | None:
         if not self._active:
             return None
