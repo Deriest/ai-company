@@ -378,6 +378,10 @@ app.include_router(provider_manage_router, prefix="")
 from backend.api.routes.tasks import router as tasks_router
 app.include_router(tasks_router, prefix="")
 
+# Full app-data backup/restore (supersedes the per-conversation export/import)
+from backend.api.routes.backup import router as backup_router
+app.include_router(backup_router, prefix="")
+
 # BUG-03 FIX: Mount workers_router — was orphan (PATCH /runtime/workers/{role} returned 404)
 from backend.api.routes.workers import router as workers_router
 app.include_router(workers_router, prefix="")

@@ -69,6 +69,19 @@ const api = {
   maximize: (): Promise<boolean> => ipcRenderer.invoke("aic:maximize"),
   close: (): Promise<boolean> => ipcRenderer.invoke("aic:close"),
 
+  // Backup / Restore
+  backupCreateTo: (filename?: string): Promise<{
+    saved: boolean;
+    path?: string;
+    error?: string;
+    cancelled?: boolean;
+  }> => ipcRenderer.invoke("aic:backup-create-to", filename),
+  backupRestore: (): Promise<{
+    restored: boolean;
+    error?: string;
+    rollbackDone?: boolean;
+  }> => ipcRenderer.invoke("aic:backup-restore"),
+
   onUpdateStateChanged: (cb: (state: UpdateStateDto) => void) => {
     const handler = (_e: any, s: UpdateStateDto) => cb(s);
     ipcRenderer.on("aic:update-state-changed", handler);

@@ -192,6 +192,9 @@ let backendPort: number | null = null;
 let restartAttempts = 0;
 let updateManager: UpdateManager | null = null;
 let isQuitting = false;
+// Guards against two concurrent restores (each performs a destructive data-dir
+// swap — a second one racing the first would corrupt both).
+let backupRestoreInProgress = false;
 
 export function resolvePlatformDir(): string {
   if (process.env.AIC_PLATFORM_DIR && fs.existsSync(process.env.AIC_PLATFORM_DIR)) {
@@ -436,6 +439,140 @@ async function ensureBackendRunning(): Promise<void> {
     backendStatus = "error";
     backendError = err?.message || String(err);
   }
+}
+
+// ── Backup / Restore helpers ─────────────────────────────────
+const backupsDir = (): string => path.join(appDataDir(), "backups");
+
+/** Wait for a spawned process to exit (bounded) so files it holds are released. */
+function waitForExit(proc: ChildProcessWithoutNullStreams, timeoutMs = 10000): Promise<void> {
+  return new Promise((resolve) => {
+    if (proc.exitCode !== null) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => resolve(), timeoutMs);
+    proc.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+/** Stop the backend sidecar and wait for it to release the data dir / DB. */
+async function stopBackend(): Promise<void> {
+  const proc = backendProc;
+  if (proc) {
+    // Mark stopped BEFORE killing so the exit handler never schedules a restart.
+    backendStatus = "stopped";
+    const exited = waitForExit(proc);
+    proc.kill("SIGTERM");
+    backendProc = null;
+    await exited;
+  } else {
+    backendStatus = "stopped";
+  }
+  backendPort = null;
+  try {
+    fs.unlinkSync(path.join(appDataDir(), "runtime.json"));
+  } catch {
+    /* not present */
+  }
+}
+
+/** POST to the running backend (backup endpoints). */
+async function backendPost(pathname: string, body?: unknown): Promise<any> {
+  if (!backendPort) throw new Error("Backend is not running");
+  const res = await fetch(`http://127.0.0.1:${backendPort}${pathname}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const errBody: any = await res.json();
+      if (errBody?.detail) detail = String(errBody.detail);
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+/** Extract a backup zip using the bundled Python stdlib — cross-platform and
+ *  dependency-free for the packaged app (no third-party zip lib in deps).
+ *  Runs with a zip-slip guard so archive entries cannot escape the target dir. */
+async function extractBackupZip(zipPath: string, destDir: string): Promise<void> {
+  const platformDir = resolvePlatformDir();
+  const pythonPath = resolvePythonPath(platformDir);
+  if (!pythonPath) throw new Error("Python runtime not found — cannot extract backup archive");
+  const script = [
+    "import sys, zipfile, pathlib",
+    "src, dst = sys.argv[1], sys.argv[2]",
+    "root = pathlib.Path(dst).resolve()",
+    "with zipfile.ZipFile(src) as z:",
+    "    for name in z.namelist():",
+    "        target = (root / name).resolve()",
+    "        if not (target == root or root in target.parents):",
+    '            raise SystemExit("unsafe entry in archive: " + name)',
+    "    z.extractall(dst)",
+    "",
+  ].join("\n");
+  const scriptPath = path.join(app.getPath("temp"), `aic-extract-${Date.now()}.py`);
+  fs.writeFileSync(scriptPath, script, "utf8");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(pythonPath, [scriptPath, zipPath, destDir], { stdio: "ignore" });
+      proc.on("error", (err) => reject(err));
+      proc.on("exit", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Backup extraction failed (python exited ${code})`));
+      });
+    });
+  } finally {
+    try {
+      fs.unlinkSync(scriptPath);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** If the archive wraps everything in a single top-level folder, unwrap it. */
+function dataRootFromExtract(extractDir: string): string {
+  const entries = fs.readdirSync(extractDir).filter((e) => e !== "__MACOSX" && !e.startsWith("."));
+  if (entries.length === 1) {
+    const only = path.join(extractDir, entries[0]);
+    try {
+      if (fs.statSync(only).isDirectory()) return only;
+    } catch {
+      /* fall through */
+    }
+  }
+  return extractDir;
+}
+
+/** Verify the extracted data root has the backup manifest + snapshot DB. */
+function verifyBackupContents(root: string): { ok: boolean; error?: string } {
+  const manifestPath = path.join(root, "backup-manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    return { ok: false, error: "backup-manifest.json is missing from the archive" };
+  }
+  let manifest: Record<string, unknown> = {};
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    return { ok: false, error: "backup-manifest.json is not valid JSON" };
+  }
+  const dbCandidates = [manifest.db, manifest.database, manifest.snapshot_db, "aic.db", "snapshot.db", "data/aic.db"]
+    .filter((c): c is string => typeof c === "string" && c.length > 0);
+  const hasDb = dbCandidates.some((c) => fs.existsSync(path.join(root, c)));
+  if (!hasDb) {
+    return { ok: false, error: "snapshot database is missing from the archive" };
+  }
+  return { ok: true };
 }
 
 /** Navigation allowlist — only the app's own dist bundle file:// pages and
@@ -741,6 +878,132 @@ function registerIpc(): void {
     return updateManager?.getState() ?? null;
   });
   ipcMain.handle("aic:get-app-version", () => app.getVersion());
+
+  // ── Backup / Restore ────────────────────────────────────
+  ipcMain.handle("aic:backup-create-to", async (_e, filename?: string): Promise<{
+    saved: boolean;
+    path?: string;
+    error?: string;
+    cancelled?: boolean;
+  }> => {
+    try {
+      // The renderer usually creates the archive via POST /backup/create and
+      // passes the filename; if it didn't (or the name is unsafe), create it
+      // here so the save dialog always has a real file to copy.
+      await ensureBackendRunning();
+      let backupFilename = typeof filename === "string" ? path.basename(filename) : "";
+      if (!backupFilename || !backupFilename.toLowerCase().endsWith(".zip")) {
+        const created = await backendPost("/backup/create");
+        backupFilename = typeof created?.filename === "string" ? path.basename(created.filename) : "";
+      }
+      if (!backupFilename || !backupFilename.toLowerCase().endsWith(".zip")) {
+        return { saved: false, error: "Backend returned an invalid backup filename" };
+      }
+      const srcFile = path.join(backupsDir(), backupFilename);
+      if (!fs.existsSync(srcFile)) {
+        return { saved: false, error: `Backup file not found on disk: ${backupFilename}` };
+      }
+      const opts = {
+        title: "Save Backup",
+        defaultPath: backupFilename,
+        filters: [{ name: "Backup Archive", extensions: ["zip"] }],
+      };
+      const res = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, opts)
+        : await dialog.showSaveDialog(opts);
+      if (res.canceled || !res.filePath) return { saved: false, cancelled: true };
+      fs.copyFileSync(srcFile, res.filePath);
+      return { saved: true, path: res.filePath };
+    } catch (e: any) {
+      return { saved: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle("aic:backup-restore", async (): Promise<{
+    restored: boolean;
+    error?: string;
+    rollbackDone?: boolean;
+  }> => {
+    if (backupRestoreInProgress) {
+      return { restored: false, error: "A restore is already in progress" };
+    }
+    backupRestoreInProgress = true;
+    let tmpRoot: string | null = null;
+    let preRestoreDir: string | null = null;
+    try {
+      const openOpts = {
+        title: "Restore from Backup",
+        properties: ["openFile"] as Array<"openFile">,
+        filters: [{ name: "Backup Archive", extensions: ["zip"] }],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, openOpts)
+        : await dialog.showOpenDialog(openOpts);
+      if (res.canceled || !res.filePaths[0]) return { restored: false, error: "cancelled" };
+      const zipPath = res.filePaths[0];
+      if (!fs.existsSync(zipPath)) return { restored: false, error: "Selected file does not exist" };
+
+      // Extract to a sibling of the data dir (same filesystem → atomic renames).
+      tmpRoot = fs.mkdtempSync(path.join(app.getPath("userData"), "aic-restore-"));
+      await extractBackupZip(zipPath, tmpRoot);
+      const dataRoot = dataRootFromExtract(tmpRoot);
+      const check = verifyBackupContents(dataRoot);
+      if (!check.ok) throw new Error(check.error || "Invalid backup archive");
+
+      // Stop the backend before touching its DB/files.
+      await stopBackend();
+
+      // Safety copy of the current data for rollback.
+      const ts = Date.now();
+      preRestoreDir = `${appDataDir()}.pre-restore-${ts}`;
+      fs.renameSync(appDataDir(), preRestoreDir);
+
+      fs.mkdirSync(appDataDir(), { recursive: true });
+      for (const entry of fs.readdirSync(dataRoot)) {
+        fs.renameSync(path.join(dataRoot, entry), path.join(appDataDir(), entry));
+      }
+      // runtime.json is transient — the freshly spawned backend rewrites it.
+      try {
+        fs.unlinkSync(path.join(appDataDir(), "runtime.json"));
+      } catch {
+        /* ignore */
+      }
+      // Keep the desktop credential stable across machines/installs.
+      const identityPath = path.join(preRestoreDir, "identity.json");
+      if (fs.existsSync(identityPath)) {
+        fs.copyFileSync(identityPath, path.join(appDataDir(), "identity.json"));
+      }
+
+      await ensureBackendRunning();
+      updateManager?.setBackendProc(backendProc);
+      return { restored: true };
+    } catch (e: any) {
+      let rollbackDone = false;
+      if (preRestoreDir && fs.existsSync(preRestoreDir)) {
+        try {
+          fs.rmSync(appDataDir(), { recursive: true, force: true });
+          fs.renameSync(preRestoreDir, appDataDir());
+          rollbackDone = true;
+        } catch (rbErr) {
+          console.error("[backup-restore] rollback failed", rbErr);
+        }
+      }
+      try {
+        await ensureBackendRunning();
+        updateManager?.setBackendProc(backendProc);
+      } catch (restartErr) {
+        console.error("[backup-restore] backend restart after failure failed", restartErr);
+      }
+      return { restored: false, error: e?.message || String(e), rollbackDone };
+    } finally {
+      backupRestoreInProgress = false;
+      try {
+        if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 
   // Window controls
   ipcMain.handle("aic:minimize", () => {

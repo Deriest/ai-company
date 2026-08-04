@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Cpu, Download, FolderOpen,
+  Cpu, Download, FolderOpen, Database, RotateCcw,
 } from 'lucide-react'
 import { Card, PageHeader } from './kit'
 import { cn } from '../lib/utils'
@@ -9,10 +9,11 @@ import { ProviderSetup } from './auth/ProviderSetup'
 import { profileApi, type LocalProfile } from '../lib/api/profile'
 import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
 import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
+import { backupApi, type BackupRecord, type BackupValidateResult } from '../lib/api/backup'
 
 const tabs = [
   'General', 'Workspace', 'Providers',
-  'Updates',
+  'Updates', 'Data',
 ] as const
 export type SettingsTab = (typeof tabs)[number]
 type Tab = SettingsTab
@@ -103,7 +104,7 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
   const [providers, setProviders] = useState<ProviderRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   // Per-tier provider+model state
   const [thinkerProvider, setThinkerProvider] = useState<string>('')
@@ -262,7 +263,7 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
 
   const handleSave = async () => {
     setSaving(true)
-    setMsg('')
+    setMsg(null)
     try {
       // Persist per-tier provider selections to localStorage
       localStorage.setItem('aic-ade-engine-tiers', JSON.stringify({
@@ -282,8 +283,8 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
         sprinter: sprinterModel,
         vision: visionModel,
       })
-      setMsg('Engine updated successfully!')
-      setTimeout(() => setMsg(''), 3000)
+      setMsg({ kind: 'success', text: 'Engine updated successfully!' })
+      setTimeout(() => setMsg(null), 3000)
 
       // Persist to IPC store (disk, survives app restart)
       if (window.aic) {
@@ -299,7 +300,7 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
         })
       }
     } catch (e: any) {
-      setMsg('Failed: ' + (e?.message || String(e)))
+      setMsg({ kind: 'error', text: 'Failed: ' + (e?.message || String(e)) })
     }
     setSaving(false)
   }
@@ -324,7 +325,16 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       </div>
 
-      {msg && <div className="mb-4 rounded-lg bg-success/10 border border-success/20 px-4 py-2 text-sm text-success">{msg}</div>}
+      {msg && (
+        <div className={cn(
+          'mb-4 rounded-lg border px-4 py-2 text-sm',
+          msg.kind === 'error'
+            ? 'bg-destructive/10 border-destructive/20 text-destructive'
+            : 'bg-success/10 border-success/20 text-success',
+        )}>
+          {msg.text}
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* THINKER */}
@@ -487,6 +497,159 @@ function UpdatesTab() {
   )
 }
 
+/* ─── Data Tab (Backup / Restore) ─── */
+
+function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
+function DataTab() {
+  const [backups, setBackups] = useState<BackupRecord[]>([])
+  const [busy, setBusy] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const [validated, setValidated] = useState<Record<string, BackupValidateResult>>({})
+  const [msg, setMsg] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      setBackups(await backupApi.listBackups())
+    } catch {
+      // keep the last known list — backend may be down
+    }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const handleCreate = async () => {
+    if (busy || restoring) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      // Create the archive in the backend data dir, then offer it through the
+      // native save dialog.
+      const created = await backupApi.createBackup()
+      const res = await window.aic?.backupCreateTo?.(created.filename)
+      if (res?.cancelled) {
+        setMsg({ kind: 'info', text: 'Backup created but save cancelled.' })
+      } else if (res?.saved) {
+        setMsg({ kind: 'success', text: `Backup created: ${created.filename}` })
+      } else {
+        setMsg({ kind: 'error', text: `Backup failed: ${res?.error || 'unknown error'}` })
+      }
+      void refresh()
+    } catch (e: any) {
+      setMsg({ kind: 'error', text: 'Backup failed: ' + (e?.message || String(e)) })
+    }
+    setBusy(false)
+  }
+
+  const handleRestore = async () => {
+    if (busy || restoring) return
+    const ok = window.confirm('This will replace all current data. A safety copy will be kept. Continue?')
+    if (!ok) return
+    setRestoring(true)
+    setMsg(null)
+    try {
+      const res = await window.aic?.backupRestore?.()
+      if (res?.restored) {
+        setMsg({ kind: 'success', text: 'Restore complete. Reloading the app…' })
+        setTimeout(() => window.location.reload(), 1500)
+      } else if (res?.error === 'cancelled') {
+        setMsg(null)
+      } else {
+        setMsg({ kind: 'error', text: `Restore failed: ${res?.error || 'unknown error'}${res?.rollbackDone ? ' — previous data restored.' : ''}` })
+      }
+    } catch (e: any) {
+      setMsg({ kind: 'error', text: 'Restore failed: ' + (e?.message || String(e)) })
+    }
+    setRestoring(false)
+  }
+
+  const handleValidate = async (filename: string) => {
+    try {
+      const result = await backupApi.validateBackup(filename)
+      setValidated(prev => ({ ...prev, [filename]: result }))
+    } catch (e: any) {
+      setValidated(prev => ({ ...prev, [filename]: { valid: false, error: e?.message || String(e) } }))
+    }
+  }
+
+  const msgStyle =
+    msg?.kind === 'error' ? 'bg-destructive/10 border-destructive/20 text-destructive'
+    : msg?.kind === 'success' ? 'bg-success/10 border-success/20 text-success'
+    : 'bg-info/10 border-info/20 text-info'
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
+          <Database className="size-5" /> Backups
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Back up all conversations, settings and files, or restore an earlier backup.
+          A restore replaces the current data — a safety copy is kept for rollback.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button onClick={() => void handleCreate()} disabled={busy || restoring}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            {busy ? 'Creating…' : 'Create Backup'}
+          </button>
+          <button onClick={() => void handleRestore()} disabled={busy || restoring}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">
+            <RotateCcw className="size-3.5" />
+            {restoring ? 'Restoring…' : 'Restore from Backup'}
+          </button>
+        </div>
+
+        {msg && <div className={cn('mt-4 rounded-lg border px-4 py-2 text-sm', msgStyle)}>{msg.text}</div>}
+      </Card>
+
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold">Saved Backups</h4>
+          <button onClick={() => void refresh()} className="text-xs text-muted-foreground hover:text-foreground" disabled={busy || restoring}>
+            Refresh
+          </button>
+        </div>
+        {backups.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No backups yet. Create one to get started.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {backups.map(b => {
+              const v = validated[b.filename]
+              return (
+                <li key={b.filename} className="py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-mono text-sm">{b.filename}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatSize(b.size)} · {new Date(b.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <button onClick={() => void handleValidate(b.filename)} disabled={busy || restoring}
+                      className="shrink-0 rounded border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50">
+                      Validate
+                    </button>
+                  </div>
+                  {v && (
+                    <p className={cn('mt-1 text-xs', v.valid ? 'text-success' : 'text-destructive')}>
+                      {v.valid ? `Valid backup · ${v.entries ?? '?'} entries${v.version ? ` · v${v.version}` : ''}` : `Invalid backup: ${v.error || 'unknown error'}`}
+                    </p>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 /* ─── Main Settings View ─── */
 
 export function SettingsView({
@@ -531,6 +694,7 @@ export function SettingsView({
         {tab === 'Workspace' && <WorkspaceTab onProjectRootChange={onProjectRootChange} />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
+        {tab === 'Data' && <DataTab />}
       </div>
     </div>
   )
