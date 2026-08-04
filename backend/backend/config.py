@@ -56,8 +56,12 @@ class Settings(BaseSettings):
 
     # Per-install desktop identity — written by the Electron main process
     # to userData/aic-ade/identity.json and passed via AIC_IDENTITY_FILE.
-    # Falls back to defaults below so standalone/dev/tests keep working.
+    # AIC_IDENTITY_USERNAME / AIC_IDENTITY_PASSWORD env vars take precedence
+    # over the file. Falls back to the defaults below only when neither env
+    # nor file is present, so standalone/dev/tests keep working.
     AIC_IDENTITY_FILE: str = ""
+    AIC_IDENTITY_USERNAME: str = ""
+    AIC_IDENTITY_PASSWORD: str = ""
     DEFAULT_IDENTITY_USERNAME: str = "admin"
     DEFAULT_IDENTITY_PASSWORD: str = "admin123"
     IDENTITY_USERNAME: str = ""
@@ -121,8 +125,13 @@ class Settings(BaseSettings):
                 except OSError:
                     pass
         # Load per-install identity written by the Electron main process.
-        # Falls back to defaults so standalone/dev/tests keep working.
-        if self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
+        # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE > defaults.
+        env_username = (self.AIC_IDENTITY_USERNAME or "").strip()
+        env_password = (self.AIC_IDENTITY_PASSWORD or "").strip()
+        if env_username or env_password:
+            self.IDENTITY_USERNAME = env_username or self.DEFAULT_IDENTITY_USERNAME
+            self.IDENTITY_PASSWORD = env_password or self.DEFAULT_IDENTITY_PASSWORD
+        elif self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
             try:
                 with open(self.AIC_IDENTITY_FILE, "r", encoding="utf-8") as f:
                     identity = json.load(f)
@@ -154,14 +163,16 @@ class Settings(BaseSettings):
                 self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
                 self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
         else:
-            # No AIC_IDENTITY_FILE configured (standalone/dev/tests). The
-            # default credentials are a known fallback — warn loudly so it is
-            # never silently carried into a production deployment.
+            # No AIC_IDENTITY_FILE and no AIC_IDENTITY_* env vars (standalone/
+            # dev/tests). The default credentials are a known fallback — warn
+            # loudly so it is never silently carried into a production deployment.
             self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
             self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
             logger.warning(
-                "AIC_IDENTITY_FILE is not set — using default admin credentials. "
-                "Set AIC_IDENTITY_FILE (or run via the Electron app) before production use."
+                "AIC_IDENTITY_FILE is not set and no AIC_IDENTITY_USERNAME / "
+                "AIC_IDENTITY_PASSWORD env vars are present — using the default "
+                "admin credentials. Set AIC_IDENTITY_FILE (or run via the Electron "
+                "app) before production use."
             )
 
 

@@ -3,6 +3,8 @@ import glob
 import time
 from typing import Dict, Any, List
 
+from backend.services.path_utils import resolve_workspace_path
+
 class ToolDispatcher:
     def __init__(self, workspace_dir: str = "/tmp/aic-workspace"):
         self.workspace_dir = workspace_dir
@@ -30,33 +32,22 @@ class ToolDispatcher:
             exec_time = int((time.time() - start_time) * 1000)
             return {"result": None, "error": str(e), "execution_time_ms": exec_time}
 
-    def _resolve_path(self, rel_path: str) -> str:
-        # safe resolve inside workspace
-        root = os.path.abspath(self.workspace_dir)
-        p = os.path.abspath(os.path.join(root, rel_path.lstrip("/")))
-        # QA-E2E FIX: startswith(root) without a separator allowed a sibling
-        # prefix bypass (/tmp/aic-workspace-evil/...). The boundary check must
-        # compare against root + os.sep, and the root itself is allowed.
-        if p != root and not p.startswith(root + os.sep):
-            raise PermissionError("Access outside workspace is denied.")
-        return p
-
     def _read_file(self, path: str) -> Dict[str, Any]:
-        full_path = self._resolve_path(path)
+        full_path = resolve_workspace_path(self.workspace_dir, path)
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"File not found: {path}")
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:
             return {"content": f.read()}
 
     def _write_file(self, path: str, content: str) -> Dict[str, Any]:
-        full_path = self._resolve_path(path)
+        full_path = resolve_workspace_path(self.workspace_dir, path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
         return {"status": "ok", "bytes_written": len(content)}
 
     def _list_directory(self, path: str) -> Dict[str, Any]:
-        full_path = self._resolve_path(path)
+        full_path = resolve_workspace_path(self.workspace_dir, path)
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"Directory not found: {path}")
         entries = []

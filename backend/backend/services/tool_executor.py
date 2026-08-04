@@ -5,6 +5,8 @@ import glob as glob_mod
 from dataclasses import dataclass, field
 from typing import Optional
 
+from backend.services.path_utils import resolve_workspace_path
+
 @dataclass
 class ToolResult:
     """Result of a tool execution."""
@@ -25,23 +27,17 @@ class WorkerToolExecutor:
         self.workspace_root = workspace_root
 
     def _resolve_path(self, path: str) -> str:
-        """Resolve a path inside the workspace, blocking traversal outside.
+        """Resolve a path inside the workspace (delegates to the shared helper).
 
-        QA-E2E FIX: previously os.path.isabs() accepted absolute paths and
-        '..' was never normalized, so a worker could read/write arbitrary
-        files outside the workspace (e.g. /etc/passwd). Now every path is
-        resolved against the workspace root and must stay inside it.
+        Kept as a thin backward-compat shim — all logic lives in
+        backend.services.path_utils.resolve_workspace_path.
         """
-        root = os.path.abspath(self.workspace_root)
-        candidate = os.path.abspath(os.path.join(root, path))
-        if candidate != root and not candidate.startswith(root + os.sep):
-            raise ValueError(f"Path is outside the workspace: {path}")
-        return candidate
+        return resolve_workspace_path(self.workspace_root, path)
 
     async def read_file(self, path: str, offset: int = 0, limit: int = -1) -> ToolResult:
         """Read file contents."""
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
                 if offset > 0:
                     for _ in range(offset):
@@ -62,7 +58,7 @@ class WorkerToolExecutor:
     async def write_file(self, path: str, content: str) -> ToolResult:
         """Write content to file."""
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -78,7 +74,7 @@ class WorkerToolExecutor:
     async def list_directory(self, path: str = ".") -> ToolResult:
         """List directory contents."""
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             entries = []
             for entry in os.scandir(full_path):
                 type_str = "dir" if entry.is_dir() else "file"
@@ -99,7 +95,7 @@ class WorkerToolExecutor:
     async def search_files(self, pattern: str, path: str = ".", file_pattern: str = "*") -> ToolResult:
         """Search for pattern in files (grep-like)."""
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             matches = []
             search_pattern = os.path.join(full_path, "**", file_pattern)
             for filepath in glob_mod.glob(search_pattern, recursive=True):

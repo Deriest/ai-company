@@ -45,6 +45,15 @@ def _load_permissions() -> dict[str, dict]:
 def check_tool_permission(worker_type: str, tool_name: str) -> bool:
     """Check if a worker is allowed to use a specific tool.
 
+    NOTE (consolidation audit): this is the LEGACY permission system used by
+    workers/base.py (``_make_permission_checker`` and the Review/Designer/Rex
+    direct constructions). Its permissive default for unknown worker types is
+    INTENTIONAL: workers/base.py workers are catalog-driven and their tool sets
+    come from AGENT_REGISTRY; the stricter default-deny policy lives in
+    backend.services.tool_executor.check_permission (used by AgentRunner).
+    Do NOT change the permissive default here without a corresponding review of
+    workers/base.py's ToolExecutor construction.
+
     Returns True if:
     - The worker has no permissions defined (permissive default)
     - The tool is in the worker's allowed list

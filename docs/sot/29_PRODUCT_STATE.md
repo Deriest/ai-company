@@ -1,6 +1,6 @@
 # 29 — Product State
 
-**Current Version:** **2.3.0** (AI Engineering Company — Production)
+**Current Version:** See [`CHANGELOG.md`](../../CHANGELOG.md) for the current release (AI Engineering Company — Production), not pinned here.
 **Build Status:** Active development
 **Last Audit / Closeout:** 2026-07-30
 **Authoritative SOT:** `docs/sot/62_PHASE_A_B_C_IMPLEMENTATION_PLAN.md`

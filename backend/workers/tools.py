@@ -19,6 +19,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional, Any
 
+from backend.services.path_utils import resolve_workspace_path
+
 logger = logging.getLogger("aic.workers.tools")
 
 
@@ -205,7 +207,7 @@ class ToolExecutor:
         start = time.monotonic()
 
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 # FIX: seek by BYTES previously — the schema documents offset as
                 # a LINE offset. Skip lines like tool_executor.run_shell does so
@@ -270,7 +272,7 @@ class ToolExecutor:
         start = time.monotonic()
 
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
 
             # Capture before state
             before = ""
@@ -428,7 +430,7 @@ class ToolExecutor:
         start = time.monotonic()
 
         try:
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             tree_lines = []
             file_count = 0
 
@@ -502,7 +504,7 @@ class ToolExecutor:
 
         try:
             import re
-            full_path = self._resolve_path(path)
+            full_path = resolve_workspace_path(self.workspace_root, path)
             regex = re.compile(pattern, re.IGNORECASE)
             matches = []
 
@@ -654,21 +656,6 @@ class ToolExecutor:
         return tc
 
     # ── Helpers ──────────────────────────────────────────
-
-    def _resolve_path(self, path: str) -> str:
-        """Resolve a path inside the workspace, blocking traversal outside.
-
-        QA-E2E FIX: previously os.path.isabs() accepted absolute paths and
-        '..' was never normalized, so an LLM-controlled tool call could read
-        or write arbitrary files outside the workspace (e.g. /etc/passwd).
-        Now every path is resolved against the workspace root and must stay
-        inside it (port of backend/services/tool_executor.py logic).
-        """
-        root = os.path.abspath(self.workspace_root)
-        candidate = os.path.abspath(os.path.join(root, path))
-        if candidate != root and not candidate.startswith(root + os.sep):
-            raise ValueError(f"Path is outside the workspace: {path}")
-        return candidate
 
     def to_openai_schema(self) -> list[dict]:
         """Return tool definitions in OpenAI function-calling format."""

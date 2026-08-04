@@ -2,7 +2,7 @@
 
 **Product:** AIC-ADE (Agentic Development Environment)
 **Repository:** `AI-Company`
-**Version:** SoT v2.0.2 → v2.1.0
+**Version:** SoT v2.0.2 → v2.4.65 — these documents describe the architecture and are maintained independently of the app release; the **current app version is tracked in [`CHANGELOG.md`](../../CHANGELOG.md)**, not pinned here.
 
 This directory contains the official permanent engineering constitution of **AIC-ADE**. Every autonomous software decision, architecture change, worker specification, and release policy must follow these documents.
 
@@ -54,6 +54,8 @@ This directory contains the official permanent engineering constitution of **AIC
 ## Document Map — Implementation Contract v2.0.2 → v2.1.0 (40-60)
 
 **These documents are the AUTHORITATIVE source of truth for all implementation work between v2.0.2 and v2.1.0. If existing code conflicts with these documents, the code is considered incorrect.**
+
+> Historical note: the v2.0.2 → v2.1.0 range above is the scope of the 40-60 implementation contract, not the current app version. Current release is tracked in [`CHANGELOG.md`](../../CHANGELOG.md).
 
 | # | Document Title | File |
 |---|---|---|

@@ -64,6 +64,19 @@ def _worker_fallback_chain(tier: "ModelTier | str") -> list["ModelTier"]:
         return [ModelTier.CRAFTER]
 
 
+def _is_vansrouter_provider(name: str, base_url: str) -> bool:
+    """Return True when a provider name/base_url identifies a VansRouter-style
+    gateway that needs the multi-turn history flattening workaround (QA-249-R6).
+
+    VansRouter returns empty responses (200, len=0) for large multi-turn
+    conversations, so those providers flatten history to [system, user].
+    OpenAI/OpenRouter/Gemini and other OpenAI-compatible endpoints keep native
+    multi-turn framing.
+    """
+    haystack = f"{name or ''} {base_url or ''}".lower()
+    return "vansrouter" in haystack or "vansroute" in haystack
+
+
 @dataclass
 class ProviderConfig:
     """Configuration for an LLM provider."""
@@ -78,6 +91,10 @@ class ProviderConfig:
     timeout: int = 120
     max_retries: int = 4
     fallback_provider: str | None = None
+    # QA-249-R6: only VansRouter-style gateways need multi-turn history
+    # flattening (they return empty responses for large multi-turn payloads).
+    # OpenAI/OpenRouter/Gemini keep native multi-turn framing.
+    flatten_history: bool = False
 
     def __post_init__(self):
         # QA-E2E FIX: callers sometimes pass models=None (e.g. empty DB
@@ -85,6 +102,10 @@ class ProviderConfig:
         # and get_model() never crash on a None models attribute.
         if self.models is None:
             self.models = {}
+        # QA-249-R6: auto-enable flattening for VansRouter-style gateways
+        # based on name/base_url (an explicit config flag always wins).
+        if not self.flatten_history and _is_vansrouter_provider(self.name, self.base_url):
+            self.flatten_history = True
 
     def get_model(self, tier: ModelTier | str) -> str:
         t = tier.value if isinstance(tier, ModelTier) else str(tier)
@@ -255,8 +276,11 @@ class LLMProvider:
                 f"Select a model in Settings > Providers."
             )
 
-        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
-        messages = _flatten_history(messages)
+        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug.
+        # Only VansRouter-style gateways need this; other providers keep
+        # native multi-turn framing (flattening collapses tool_calls/context).
+        if self.config.flatten_history:
+            messages = _flatten_history(messages)
 
         payload = {
             "model": model,
@@ -561,8 +585,10 @@ class LLMProvider:
             yield {"type": "error", "error": f"Model is not configured for tier '{tier_str}'. Select a model in Settings > Providers."}
             return
 
-        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
-        messages = _flatten_history(messages)
+        # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug.
+        # Only VansRouter-style gateways need this.
+        if self.config.flatten_history:
+            messages = _flatten_history(messages)
 
         payload = {
             "model": model,
