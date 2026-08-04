@@ -91,6 +91,7 @@ export type StreamEvent =
   | { type: "deliverables"; deliverables: DeliverableSummary }
   | { type: "done"; intent?: string; metadata?: Record<string, any> }
   | { type: "error"; error: string }
+  | { type: "cancelled"; reason?: string }
   | { type: "overflow_warning"; summary?: string };
 
 /** Callback interface for stream events */
@@ -243,14 +244,6 @@ export const chatApi = {
     });
   },
 
-  async cancel(message_id: string): Promise<void> {
-    await apiClient.post("/chat/cancel", { message_id });
-  },
-
-  async regenerate(conversation_id: string, message_id: string): Promise<MessageRecord> {
-    return apiClient.post<MessageRecord>("/chat/regenerate", { conversation_id, message_id });
-  },
-
   async executeAgent(payload: {
     conversation_id: string;
     messages: { role: string; content: string }[];
@@ -337,6 +330,15 @@ export const chatApi = {
               case "error":
                 callbacks.onError(evt.error || "Unknown error");
                 return;
+              case "cancelled":
+                // Cooperative cancel (Stop): forward as a status so the UI can
+                // keep its *[stopped]* marker instead of the stream closing
+                // cleanly and firing onDone("") with partial content.
+                callbacks.onStatus("cancelled", evt);
+                return;
+              case "overflow_warning":
+                callbacks.onStatus("overflow_warning", evt);
+                break;
             }
           } catch { /* ignore parse errors */ }
         }

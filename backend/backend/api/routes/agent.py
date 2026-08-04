@@ -43,7 +43,7 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
         logger.warning("Agent run rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    from backend.services.agent_runner import AgentRunner
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AgentRunner
     runner = AgentRunner(workspace_root=workspace)
     logger.info(
         "Agent run started: worker_type=%s model_tier=%s", worker_type, model_tier,
@@ -51,11 +51,16 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
     
     async def event_stream():
         try:
-            async for event in runner.run_agent(
-                worker_type, prompt, system_prompt, model_tier,
-                db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
-            ):
-                yield f"data: {json.dumps(event)}\n\n"
+            # QA-R5 FIX: cap concurrent agent runs — same shared semaphore as
+            # /chat/execute, so the two entry points cannot collectively exceed
+            # the limit. Excess runs queue (awaited) instead of overloading the
+            # box with parallel LLM streams / subprocesses.
+            async with AGENT_RUN_SEMAPHORE:
+                async for event in runner.run_agent(
+                    worker_type, prompt, system_prompt, model_tier,
+                    db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             # F14 FIX: a mid-stream exception would otherwise kill the SSE
             # generator with no structured error (renderer would fire onDone
@@ -82,14 +87,16 @@ async def run_agent_sync(payload: dict, db: AsyncSession = Depends(get_db)):
         logger.warning("Agent run-sync rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    from backend.services.agent_runner import run_worker_with_tools
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, run_worker_with_tools
     logger.info(
         "Agent run-sync started: worker_type=%s model_tier=%s", worker_type, model_tier,
     )
-    result = await run_worker_with_tools(
-        worker_type, prompt, system_prompt, workspace, model_tier,
-        db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
-    )
+    # QA-R5 FIX: same global concurrency cap as /agent/run and /chat/execute.
+    async with AGENT_RUN_SEMAPHORE:
+        result = await run_worker_with_tools(
+            worker_type, prompt, system_prompt, workspace, model_tier,
+            db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+        )
     logger.info(
         "Agent run-sync finished: worker_type=%s success=%s", worker_type, result.get("success"),
     )

@@ -8,7 +8,7 @@ from backend.database.session import get_db
 
 router = APIRouter()
 
-from backend.services.orchestrator_service import orchestrator_service
+from backend.services.orchestrator_service import orchestrator_service, MalformedDefinitionError
 from backend.models.orchestration import WorkflowDefinition, Checkpoint
 
 
@@ -38,9 +38,16 @@ async def get_workflow(wf_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/workflows/{wf_id}/instantiate")
 async def instantiate_workflow(wf_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+    # QA-R5 FIX: a missing conversation_id previously raised KeyError → 500.
+    conversation_id = payload.get("conversation_id")
+    if not conversation_id:
+        raise HTTPException(status_code=400, detail="missing conversation_id")
     try:
-        session = await orchestrator_service.instantiate_workflow(db, wf_id, payload["conversation_id"])
+        session = await orchestrator_service.instantiate_workflow(db, wf_id, conversation_id)
         return {"id": session.id, "status": session.status, "mode": session.mode}
+    except MalformedDefinitionError as e:
+        # QA-R5 FIX: malformed DAG nodes/edges mapped to 400 instead of a raw 500.
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

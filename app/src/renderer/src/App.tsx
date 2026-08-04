@@ -210,9 +210,11 @@ const boot = useBoot({
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {/* Per-view boundary: a render error in one view shows a
                   "View failed to render" message instead of nuking the app.
-                  `key={view}` gives each view its own boundary instance so
-                  switching views resets the error state. */}
-              <ErrorBoundary key={view} compact label="View failed to render">
+                  resetKey={view} clears the boundary's error state on view
+                  change WITHOUT remounting the subtree — views stay mounted
+                  (CSS hidden) so scroll position, unsaved form fields and
+                  in-flight fetches survive navigation. */}
+              <ErrorBoundary resetKey={view} compact label="View failed to render">
                 {renderView()}
               </ErrorBoundary>
             </div>

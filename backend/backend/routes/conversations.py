@@ -16,7 +16,8 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
-from storage.models import Conversation, Message, Project, Task
+from storage.models import Conversation, Message, Project, Task, DiscoverySession
+from backend.models.conversation import Attachment
 from conversation.engine import ConversationEngine, LLMUnavailableError, LLMInferenceError
 
 logger = logging.getLogger("aic.chat")
@@ -167,6 +168,13 @@ async def delete_conversation(
 
     # Delete all messages first
     await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
+    # FIX (round-5): discovery_sessions reference the conversation with no
+    # cascade, and Attachment rows have no FK — delete both explicitly so the
+    # ORM delete of the conversation does not hit a NOT NULL/FK violation.
+    await session.execute(delete(DiscoverySession).where(DiscoverySession.conversation_id == conversation_id))
+    await session.execute(delete(Attachment).where(Attachment.message_id.in_(
+        select(Message.id).where(Message.conversation_id == conversation_id)
+    )))
     await session.delete(conv)
     await session.commit()
     return {"deleted": True, "id": conversation_id}

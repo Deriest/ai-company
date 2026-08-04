@@ -47,7 +47,9 @@ class ToolDispatcher:
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"File not found: {path}")
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-            return {"content": f.read()}
+            # QA-R5 FIX: cap reads at 50KB (mirrors tool_executor.py) so a huge
+            # file cannot balloon into a 500MB read + JSON response.
+            return {"content": f.read(50000)}
 
     def _write_file(self, path: str, content: str) -> Dict[str, Any]:
         full_path = resolve_workspace_path(self.workspace_dir, path)

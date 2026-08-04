@@ -174,6 +174,40 @@ MIGRATIONS = [
         """,
         "down": "SELECT 1",
     },
+    {
+        "version": "017",
+        "name": "remove_discovery_sessions_conversation_fk",
+        "description": "Rebuild discovery_sessions without the FK on conversation_id (the pipeline stores a task id there, not a conversation id)",
+        # SQLite cannot drop an FK constraint without a table rebuild, and the
+        # rebuild must run with FK enforcement OFF (the referenced chain
+        # discovery_sessions <- engineering_briefs <- ... makes an FK-ordered
+        # drop impossible). The runner applies fk_off migrations on a connection
+        # with PRAGMA foreign_keys=OFF, then re-enables it.
+        "fk_off": True,
+        "up": """
+            DROP TABLE IF EXISTS discovery_sessions_new;
+            CREATE TABLE discovery_sessions_new (
+                id VARCHAR PRIMARY KEY,
+                conversation_id VARCHAR NOT NULL,
+                user_id VARCHAR,
+                status VARCHAR NOT NULL DEFAULT 'new_request',
+                round_number INTEGER DEFAULT 0,
+                questions_asked INTEGER DEFAULT 0,
+                questions_answered INTEGER DEFAULT 0,
+                context TEXT DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO discovery_sessions_new (id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
+                SELECT id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions;
+            DROP TABLE discovery_sessions;
+            ALTER TABLE discovery_sessions_new RENAME TO discovery_sessions;
+            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(conversation_id);
+            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_user ON discovery_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_status ON discovery_sessions(status);
+        """,
+        "down": "SELECT 1",
+    },
 ]
 
 
@@ -228,6 +262,39 @@ async def _verify_alter_columns(up_sql: str) -> bool:
     return True
 
 
+async def _apply_migration(migration: dict) -> None:
+    """Apply a normal migration inside a transaction."""
+    async with engine.begin() as conn:
+        for stmt in migration["up"].strip().split(";"):
+            stmt = stmt.strip()
+            if stmt and stmt != "SELECT 1":
+                await conn.execute(text(stmt))
+        await conn.execute(text(
+            "INSERT INTO schema_migrations (version, name) VALUES (:v, :n)"
+        ), {"v": migration["version"], "n": migration["name"]})
+
+
+async def _apply_migration_fk_off(migration: dict) -> None:
+    """Apply a table-rebuild migration with FK enforcement relaxed.
+
+    SQLite cannot drop/modify an FK column without rebuilding the table, and the
+    referenced-table chain makes an FK-ordered drop impossible. PRAGMA
+    foreign_keys is a no-op inside a transaction, so it is set on the connection
+    before the DDL statements run, then re-enabled before the connection returns
+    to the pool.
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        for stmt in migration["up"].strip().split(";"):
+            stmt = stmt.strip()
+            if stmt and stmt != "SELECT 1":
+                await conn.execute(text(stmt))
+        await conn.execute(text(
+            "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (:v, :n)"
+        ), {"v": migration["version"], "n": migration["name"]})
+        await conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
 async def run_migrations():
     """Run all pending migrations."""
     applied = await get_applied_versions()
@@ -240,14 +307,10 @@ async def run_migrations():
     for migration in pending:
         logger.info(f"Applying migration {migration['version']}: {migration['name']}")
         try:
-            async with engine.begin() as conn:
-                for stmt in migration["up"].strip().split(";"):
-                    stmt = stmt.strip()
-                    if stmt and stmt != "SELECT 1":
-                        await conn.execute(text(stmt))
-                await conn.execute(text(
-                    "INSERT INTO schema_migrations (version, name) VALUES (:v, :n)"
-                ), {"v": migration["version"], "n": migration["name"]})
+            if migration.get("fk_off"):
+                await _apply_migration_fk_off(migration)
+            else:
+                await _apply_migration(migration)
             logger.info(f"  Applied: {migration['description']}")
         except Exception as e:
             if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():

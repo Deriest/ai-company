@@ -662,7 +662,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const loadMessages = async (convId: string) => {
     const requestId = ++loadRequestRef.current
     try {
-      const loaded = await conversationsApi.listMessages(convId)
+      const loaded = await conversationsApi.listMessages(convId, 1000)
       // A slow response from an older request must never overwrite a newer
       // conversation or the local stream currently being displayed.
       if (requestId !== loadRequestRef.current || activeIdRef.current !== convId) return
@@ -1027,6 +1027,26 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           },
           onStatus: (status, _data) => {
             if (status === 'overflow_warning') setContextOptimized(true)
+            if (status === 'cancelled') {
+              // Server cooperatively cancelled (Stop) — the SSE parser returns
+              // here so onDone never fires. Finalize with the *[stopped]*
+              // marker; never overwrite the partial content with a normal done.
+              if (streamMsgIdRef.current !== tempAsstId) return
+              abortRef.current = null
+              streamMsgIdRef.current = null
+              const finalContent = streamContentRef.current
+              streamContentRef.current = ''
+              setAssistantStates(prev => {
+                const next = new Map(prev)
+                next.delete(tempAsstId)
+                return next
+              })
+              setMessages(prev => prev.map(m => m.id === tempAsstId
+                ? { ...m, content: (finalContent || '') + '\n\n*[stopped]*', status: 'completed' }
+                : m))
+              setSending(false)
+              sendingRef.current = false
+            }
           },
           onDeliverables: (deliverables) => {
             updateAssistantState(tempAsstId, s => ({ ...s, deliverables }))
@@ -1168,8 +1188,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           >
             {contextOptimized && (
               <div className="mx-auto max-w-3xl mb-3 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-primary">
-                <Loader2 className="size-3 animate-spin" />
-                <span>Context optimized — older messages summarized</span>
+                <Check className="size-3 shrink-0" />
+                <span>Context refreshed</span>
                 <button onClick={() => setContextOptimized(false)} className="ml-auto text-primary/60 hover:text-primary" aria-label="Dismiss context optimization notice">
                   <X className="size-3" />
                 </button>

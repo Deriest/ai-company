@@ -25,6 +25,14 @@ from backend.services.chat_service import chat_service
 logger = logging.getLogger(__name__)
 
 
+class MalformedDefinitionError(ValueError):
+    """Raised when a workflow DAG is malformed (missing/invalid node/edge fields).
+
+    Subclasses ValueError but is handled separately by routes so a malformed
+    definition maps to a 400 instead of the generic 404 used for missing rows.
+    """
+
+
 class OrchestratorService:
     """Core orchestration engine for multi-worker task execution."""
 
@@ -403,27 +411,43 @@ class OrchestratorService:
         if not wf:
             raise ValueError(f"Workflow {workflow_id} not found")
         dag = wf.dag
+        if not isinstance(dag, dict):
+            raise MalformedDefinitionError("Workflow DAG must be an object")
         nodes = dag.get("nodes", [])
         edges = dag.get("edges", [])
+        if not isinstance(nodes, list) or not isinstance(edges, list):
+            raise MalformedDefinitionError("Workflow DAG 'nodes' and 'edges' must be lists")
 
         session = await OrchestratorService.create_session(db, conversation_id, mode="sequential")
         node_id_to_task_id: dict[str, str] = {}
 
-        for node in nodes:
+        for idx, node in enumerate(nodes):
+            # QA-R5 FIX: validate before indexing — a malformed node/edge used
+            # to raise KeyError and surface as a raw 500.
+            if not isinstance(node, dict):
+                raise MalformedDefinitionError(f"DAG node #{idx} must be an object")
+            node_id = node.get("id")
+            if not node_id:
+                raise MalformedDefinitionError(f"DAG node #{idx} is missing 'id'")
             # Find dependency node IDs from edges
-            dep_node_ids = [e["from"] for e in edges if e["to"] == node["id"]]
+            dep_node_ids = []
+            for e in edges:
+                if not isinstance(e, dict) or "from" not in e or "to" not in e:
+                    raise MalformedDefinitionError(f"DAG edge must have 'from' and 'to': {e!r}")
+                if e["to"] == node_id:
+                    dep_node_ids.append(e["from"])
             # Map to actual task IDs
             dep_task_ids = [node_id_to_task_id[nid] for nid in dep_node_ids if nid in node_id_to_task_id]
 
             task = await OrchestratorService.add_task(
                 db, session.id,
                 worker_role=node.get("worker", "thinker"),
-                title=node.get("title", node["id"]),
+                title=node.get("title", node_id),
                 description=node.get("description", ""),
                 input_context=node.get("input", {}),
                 depends_on=dep_task_ids if dep_task_ids else None,
             )
-            node_id_to_task_id[node["id"]] = task.id
+            node_id_to_task_id[node_id] = task.id
 
         return session
 

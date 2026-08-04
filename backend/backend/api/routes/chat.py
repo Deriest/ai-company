@@ -100,7 +100,7 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     Use this for 'build' mode — user sees everything the AI company does.
     """
     from shared.intent_patterns import classify_intent
-    from backend.services.agent_runner import AgentRunner
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AgentRunner
     from storage.models import Conversation
 
     user_content = payload.messages[-1].content if payload.messages else ""
@@ -199,55 +199,62 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 runner = AgentRunner(workspace_root=workspace)
                 final_content = ""
 
-                async for event in runner.run_agent(
-                    worker_type=worker_type,
-                    prompt=user_content,
-                    model_tier=model_tier,
-                    max_iterations=10,
-                    attachments=payload.attachments,
-                    db=db,
-                    cancel_event=cancel_event,
-                ):
-                    if event["type"] == "content":
-                        chunk = event.get("content", "")
-                        final_content += chunk
-                        assistant_msg.content = final_content
-                        assistant_msg.updated_at = datetime.now(timezone.utc)
-                        assistant_msg.token_count = len(final_content) // 4 + len(user_content) // 4
-                        chunks_since_commit += 1
-                        # Bound database traffic while ensuring partial output
-                        # is durable during long-running agent executions.
-                        if chunks_since_commit >= 10:
+                # QA-R5 FIX: cap concurrent agent runs. Every run holds a DB
+                # session, an open LLM stream, and possibly subprocesses, so
+                # unbounded parallelism (N open chats → N agent runs) is a
+                # resource-exhaustion risk. The shared semaphore (also used by
+                # /agent/run) is awaited — excess runs queue instead of
+                # overloading the box. The non-agent chat paths never touch it.
+                async with AGENT_RUN_SEMAPHORE:
+                    async for event in runner.run_agent(
+                        worker_type=worker_type,
+                        prompt=user_content,
+                        model_tier=model_tier,
+                        max_iterations=10,
+                        attachments=payload.attachments,
+                        db=db,
+                        cancel_event=cancel_event,
+                    ):
+                        if event["type"] == "content":
+                            chunk = event.get("content", "")
+                            final_content += chunk
+                            assistant_msg.content = final_content
+                            assistant_msg.updated_at = datetime.now(timezone.utc)
+                            assistant_msg.token_count = len(final_content) // 4 + len(user_content) // 4
+                            chunks_since_commit += 1
+                            # Bound database traffic while ensuring partial output
+                            # is durable during long-running agent executions.
+                            if chunks_since_commit >= 10:
+                                await persist_session.commit()
+                                chunks_since_commit = 0
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                        elif event["type"] == "tool_start":
+                            yield f"data: {json.dumps({'type': 'tool_start', 'tool': event['tool'], 'args': event.get('args', {}), 'call_id': event.get('call_id', '')})}\n\n"
+                        elif event["type"] == "tool_result":
+                            args = event.get('args', {})
+                            label_path = args.get('path', args.get('command', ''))
+                            label = f"{event['tool']}: {label_path}"
+                            yield f"data: {json.dumps({'type': 'tool_result', 'tool_call': {'id': event.get('call_id', ''), 'type': event['tool'], 'label': label, 'status': 'completed' if event.get('success') else 'error', 'output': event.get('output', ''), 'error': event.get('error'), 'args': args, 'duration_ms': 0, 'timestamp': ''}})}\n\n"
+                        elif event["type"] == "error":
+                            assistant_msg.status = "error"
+                            assistant_msg.updated_at = datetime.now(timezone.utc)
                             await persist_session.commit()
-                            chunks_since_commit = 0
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                    elif event["type"] == "tool_start":
-                        yield f"data: {json.dumps({'type': 'tool_start', 'tool': event['tool'], 'args': event.get('args', {}), 'call_id': event.get('call_id', '')})}\n\n"
-                    elif event["type"] == "tool_result":
-                        args = event.get('args', {})
-                        label_path = args.get('path', args.get('command', ''))
-                        label = f"{event['tool']}: {label_path}"
-                        yield f"data: {json.dumps({'type': 'tool_result', 'tool_call': {'id': event.get('call_id', ''), 'type': event['tool'], 'label': label, 'status': 'completed' if event.get('success') else 'error', 'output': event.get('output', ''), 'error': event.get('error'), 'args': args, 'duration_ms': 0, 'timestamp': ''}})}\n\n"
-                    elif event["type"] == "error":
-                        assistant_msg.status = "error"
-                        assistant_msg.updated_at = datetime.now(timezone.utc)
-                        await persist_session.commit()
-                        yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': event.get('error', 'Unknown error')})}\n\n"
-                        return
-                    elif event["type"] == "done":
-                        yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'iterations': event.get('iterations', 0)})}\n\n"
-                        deliverables = event.get("deliverables")
-                        if deliverables:
-                            yield f"data: {json.dumps({'type': 'deliverables', 'deliverables': deliverables})}\n\n"
-                    elif event["type"] == "cancelled":
-                        # FIX: AgentRunner stopped cooperatively after the user
-                        # hit Stop — persist a cancelled status instead of
-                        # leaving the row in "streaming".
-                        assistant_msg.status = "cancelled"
-                        assistant_msg.updated_at = datetime.now(timezone.utc)
-                        await persist_session.commit()
-                        yield f"data: {json.dumps({'type': 'cancelled', 'reason': event.get('reason', 'User cancelled')})}\n\n"
-                        return
+                            yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': event.get('error', 'Unknown error')})}\n\n"
+                            return
+                        elif event["type"] == "done":
+                            yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'iterations': event.get('iterations', 0)})}\n\n"
+                            deliverables = event.get("deliverables")
+                            if deliverables:
+                                yield f"data: {json.dumps({'type': 'deliverables', 'deliverables': deliverables})}\n\n"
+                        elif event["type"] == "cancelled":
+                            # FIX: AgentRunner stopped cooperatively after the user
+                            # hit Stop — persist a cancelled status instead of
+                            # leaving the row in "streaming".
+                            assistant_msg.status = "cancelled"
+                            assistant_msg.updated_at = datetime.now(timezone.utc)
+                            await persist_session.commit()
+                            yield f"data: {json.dumps({'type': 'cancelled', 'reason': event.get('reason', 'User cancelled')})}\n\n"
+                            return
             except LLMUnavailableError:
                 assistant_msg.status = "error"
                 assistant_msg.updated_at = datetime.now(timezone.utc)

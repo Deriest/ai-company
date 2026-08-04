@@ -182,8 +182,27 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(text(
         "DELETE FROM workflow_states WHERE task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
     ), {"pid": project_id})
+    # Subtasks first (self-referential FK on tasks.parent_task_id) — a single
+    # DELETE of all project tasks would also work, but deleting children first
+    # is robust against cross-project parent references.
+    await db.execute(text(
+        "DELETE FROM tasks WHERE parent_task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+    ), {"pid": project_id})
     await db.execute(text("DELETE FROM tasks WHERE project_id = :pid"), {"pid": project_id})
     await db.execute(text("DELETE FROM milestones WHERE project_id = :pid"), {"pid": project_id})
+    # Project's conversations: clear discovery_sessions, their messages'
+    # attachments, and messages (FK → conversations, no ondelete) BEFORE the
+    # raw-SQL delete — raw SQL bypasses the ORM cascade on Message.messages.
+    await db.execute(text(
+        "DELETE FROM discovery_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
+    ), {"pid": project_id})
+    await db.execute(text(
+        "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid))"
+    ), {"pid": project_id})
+    await db.execute(text(
+        "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
+    ), {"pid": project_id})
+    # conversations (conversation_tags/pins cascade via DB ondelete CASCADE)
     await db.execute(text("DELETE FROM conversations WHERE project_id = :pid"), {"pid": project_id})
     await db.execute(text("DELETE FROM memory_entries WHERE project_id = :pid"), {"pid": project_id})
 

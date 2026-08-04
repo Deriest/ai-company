@@ -6,6 +6,13 @@ interface ErrorBoundaryProps {
   label?: string;
   /** When true, render a compact in-place fallback (used per-view). */
   compact?: boolean;
+  /**
+   * When this value changes, the boundary clears its error state without
+   * remounting the wrapped subtree. Used by the per-view boundary so hidden
+   * views keep their internal state (scroll, form fields, in-flight fetches)
+   * while a render error in one view doesn't leak into the next view.
+   */
+  resetKey?: string;
 }
 
 interface ErrorBoundaryState {
@@ -27,6 +34,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: unknown, errorInfo: unknown) {
     console.error("Render error:", error, errorInfo);
+  }
+
+  // resetKey pattern: clear the error state when the view changes instead of
+  // remounting the whole subtree via key={view}. A broken view still re-shows
+  // its fallback on return (the render error re-fires), while healthy hidden
+  // views keep their internal state across navigation.
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   private handleReload = () => {

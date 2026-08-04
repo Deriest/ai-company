@@ -83,8 +83,11 @@ export const conversationsApi = {
     return apiClient.get<SearchResultItem[]>(`/conversations/search?q=${encodeURIComponent(query)}`);
   },
 
-  async listMessages(conversationId: string): Promise<MessageRecord[]> {
-    return apiClient.get<MessageRecord[]>(`/conversations/${conversationId}/messages`);
+  async listMessages(conversationId: string, limit?: number): Promise<MessageRecord[]> {
+    // Backend caps limit at 1000 (messages route). Explicit limit avoids the
+    // 500-message default silently truncating long conversations.
+    const qs = limit !== undefined ? `?limit=${Math.min(Math.max(limit, 1), 1000)}` : "";
+    return apiClient.get<MessageRecord[]>(`/conversations/${conversationId}/messages${qs}`);
   },
 
   async createMessage(conversationId: string, payload: { role: string; content: string; message_metadata?: any; token_count?: number; model_id?: string; provider_id?: string; status?: string; attachments?: any[] }): Promise<MessageRecord> {

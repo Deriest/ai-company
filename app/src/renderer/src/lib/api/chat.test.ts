@@ -114,6 +114,64 @@ describe("executeAgent SSE parser", () => {
     expect(callbacks.onError).toHaveBeenCalledWith("boom");
     expect(callbacks.onDone).not.toHaveBeenCalled();
   });
+
+  it("dispatches cancelled events as a status and never fires done", async () => {
+    const sse = 'data: {"type":"cancelled","reason":"User cancelled"}\n\n';
+    mockFetchWithSSE([sse]);
+
+    const callbacks = {
+      onChunk: vi.fn(),
+      onToolStart: vi.fn(),
+      onToolResult: vi.fn(),
+      onStatus: vi.fn(),
+      onDeliverables: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    await chatApi.executeAgent({ conversation_id: "c", messages: [] }, callbacks);
+    await flush();
+
+    // The cancelled event must be forwarded as a status (so ChatView can keep
+    // its *[stopped]* marker) and must terminate the stream — a fallthrough
+    // would let the later onDone("") overwrite the partial content.
+    expect(callbacks.onStatus).toHaveBeenCalledWith(
+      "cancelled",
+      expect.objectContaining({ type: "cancelled", reason: "User cancelled" }),
+    );
+    expect(callbacks.onDone).not.toHaveBeenCalled();
+    expect(callbacks.onError).not.toHaveBeenCalled();
+  });
+
+  it("dispatches overflow_warning through onStatus without terminating", async () => {
+    const sse = [
+      'data: {"type":"overflow_warning","estimated":9000,"budget":8000}\n\n',
+      'data: {"type":"chunk","content":"still going"}\n\n',
+      'data: {"type":"done","intent":"ok"}\n\n',
+    ].join("");
+    mockFetchWithSSE([sse]);
+
+    const callbacks = {
+      onChunk: vi.fn(),
+      onToolStart: vi.fn(),
+      onToolResult: vi.fn(),
+      onStatus: vi.fn(),
+      onDeliverables: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    };
+
+    await chatApi.executeAgent({ conversation_id: "c", messages: [] }, callbacks);
+    await flush();
+
+    expect(callbacks.onStatus).toHaveBeenCalledWith(
+      "overflow_warning",
+      expect.objectContaining({ type: "overflow_warning" }),
+    );
+    // The warning is mid-stream: the stream must continue to the done event.
+    expect(callbacks.onChunk).toHaveBeenCalledWith("still going");
+    expect(callbacks.onDone).toHaveBeenCalledWith("ok");
+  });
 });
 
 describe("streamWithTools SSE parser", () => {

@@ -343,7 +343,12 @@ class DiscoverySession(Base):
     """
     __tablename__ = "discovery_sessions"
     id = Column(String, primary_key=True, default=_uuid)
-    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    # FIX (round-5): conversation_id is NOT a FK — the pipeline passes a task id
+    # here (a _TaskProxy), so the FK on conversations.id was violated with FK
+    # enforcement ON and stalled every batch task at the discovery stage. The
+    # column is kept NOT NULL but unconstrained (it semantically references a
+    # task, not a conversation).
+    conversation_id = Column(String, nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String(32), nullable=False, default="new_request", index=True)
     round_number = Column(Integer, default=0)
@@ -353,7 +358,6 @@ class DiscoverySession(Base):
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
-    conversation = relationship("Conversation", backref="discovery_sessions")
     briefs = relationship("EngineeringBrief", back_populates="discovery_session",
                          cascade="all, delete-orphan")
 

@@ -296,6 +296,20 @@ class MasterOrchestrator:
     async def _create_minimal_brief(self, task: Task) -> Optional[str]:
         """Create a minimal Engineering Brief when Discovery can't produce one."""
         from discovery.brief import EngineeringBriefData
+        from storage.models import DiscoverySession as DiscoverySessionORM
+
+        # FIX (round-5): engineering_briefs.discovery_session_id is a FK — the
+        # previous literal "direct" violated it with FK enforcement ON. Create a
+        # real discovery session row (conversation_id is unconstrained now, so a
+        # task id is fine) and attach the minimal brief to it.
+        ds = DiscoverySessionORM(
+            conversation_id=task.id,
+            user_id=task.created_by,
+            status="minimal",
+        )
+        self.session.add(ds)
+        await self.session.flush()
+        discovery_session_id = ds.id
 
         brief_id = f"BRIEF-{uuid.uuid4().hex[:12]}"
         brief_data = EngineeringBriefData(
@@ -317,7 +331,7 @@ class MasterOrchestrator:
         # Persist
         brief_orm = EngineeringBriefORM(
             id=brief_id,
-            discovery_session_id="direct",
+            discovery_session_id=discovery_session_id,
             engineering_goal=brief_data.engineering_goal,
             user_intent=brief_data.user_intent,
             request_category=brief_data.request_category,

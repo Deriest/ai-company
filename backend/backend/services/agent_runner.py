@@ -29,6 +29,13 @@ IMAGE_MAX_BYTES = 10 * 1024 * 1024
 TOOL_OUTPUT_LIMIT = 5000
 MAX_SHELL_TIMEOUT = 120
 
+# Global cap on concurrent agent runs across every entry point (/chat/execute,
+# /agent/run, /agent/run-sync). Each run holds a DB session, an open LLM stream,
+# and possibly subprocesses, so unbounded parallelism (N open chats → N runs) is
+# a resource-exhaustion risk. Entry routes acquire this before running an agent;
+# the non-agent chat paths never touch it.
+AGENT_RUN_SEMAPHORE = asyncio.Semaphore(4)
+
 
 def _truncate_output(text: str, limit: int = TOOL_OUTPUT_LIMIT) -> str:
     """Truncate output with a marker so the agent knows how to page further."""

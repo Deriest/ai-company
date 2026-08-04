@@ -310,10 +310,12 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
 
     # FIX: Attachment rows have no FK/relationship to messages — delete them
     # explicitly so they don't become orphans when the conversation (and its
-    # messages via ORM cascade) is removed.
+    # messages via ORM cascade) is removed. Discovery sessions also reference
+    # the conversation (no cascade) — delete them explicitly too.
     await db.execute(text(
         "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = :cid)"
     ), {"cid": id})
+    await db.execute(text("DELETE FROM discovery_sessions WHERE conversation_id = :cid"), {"cid": id})
     await db.delete(conv)
     await db.commit()
     await remove_fts_by_conversation(db, id)

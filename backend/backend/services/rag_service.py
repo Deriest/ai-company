@@ -28,6 +28,10 @@ except ImportError:  # pragma: no cover — packaged Python may omit numpy
 # Cap the number of chunks scanned per retrieval (full-table scan guard).
 _SCAN_LIMIT = 2000
 
+# QA-R5 FIX: maximum number of chunks a single retrieve() may return — an
+# unbounded top_k (e.g. 2000) would balloon the response and client payload.
+MAX_TOP_K = 20
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
@@ -145,6 +149,14 @@ class RAGService:
         db: AsyncSession, query: str, top_k: int = 5
     ) -> list[dict]:
         """Retrieve top-k most similar chunks to the query."""
+        # QA-R5 FIX: clamp top_k — callers may pass an unbounded value (or a
+        # non-numeric one); neither should blow up retrieval or the response.
+        try:
+            top_k = int(top_k)
+        except (TypeError, ValueError):
+            top_k = 5
+        top_k = max(1, min(top_k, MAX_TOP_K))
+
         # P1 #10: embed_single is sync — run in a thread to avoid blocking the loop.
         query_embedding = await asyncio.to_thread(embed_single, query)
 
