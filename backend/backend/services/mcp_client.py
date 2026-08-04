@@ -21,14 +21,9 @@ from typing import Optional, Any
 logger = logging.getLogger("aic.mcp.client")
 
 
-# Known stdio MCP server packages that may be spawned. Endpoints are validated
-# against this allowlist before create_subprocess_exec — anything else is
-# rejected to prevent arbitrary command execution via POST /mcp/servers.
-# Only the exact pattern "npx -y <known-package>" is accepted.
-MCP_STDIO_ALLOWED_PACKAGES: frozenset[str] = frozenset({
-    "@modelcontextprotocol/server-memory",
-    "@modelcontextprotocol/server-filesystem",
-})
+# Stdio MCP server endpoints are spawned as-is. AIC-ADE is a local desktop
+# app (bind 127.0.0.1, single-user) — the same user already owns the machine,
+# so no package allowlist is enforced. Only a non-empty command is required.
 
 
 class MCPError(Exception):
@@ -71,23 +66,15 @@ class MCPClient:
 
     @staticmethod
     def is_allowed_stdio_endpoint(endpoint: str) -> bool:
-        """Public allowlist check for stdio endpoints.
+        """Validate a stdio endpoint is spawnable.
 
-        QA-E2E FIX: endpoints were split() and passed straight to
-        create_subprocess_exec with no validation, so POST /mcp/servers could
-        spawn arbitrary commands. Only the exact "npx -y <known-package>"
-        pattern is permitted, and the package must be in the allowlist.
-        Exposed as a static method so plugin/registration code can surface a
-        clear error before attempting a connection.
+        AIC-ADE is a local single-user desktop app — no package allowlist is
+        enforced. Only a non-empty command line is required (an empty endpoint
+        would error at spawn time). Kept for compatibility with callers that
+        pre-check endpoints before connecting.
         """
         ep = (endpoint or "").strip()
-        parts = ep.split()
-        return (
-            len(parts) == 3
-            and parts[0] == "npx"
-            and parts[1] == "-y"
-            and parts[2] in MCP_STDIO_ALLOWED_PACKAGES
-        )
+        return bool(ep) and not ep.startswith(("-", "--"))
 
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""

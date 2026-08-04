@@ -8,12 +8,23 @@ from backend.services.search_service import init_fts5
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
+    # Drop BOTH StorageBase (storage.models — rag_documents/rag_chunks live
+    # here) and Base (backend tables) so the persistent data/aic.db never
+    # accumulates rows across runs. Previously only Base was dropped, so
+    # rag data leaked between runs and the count assertions became flaky.
+    from storage.models import Base as StorageBase
+    async with engine.begin() as conn:
+        await conn.run_sync(StorageBase.metadata.drop_all)
+        await conn.run_sync(Base.metadata.drop_all)
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
     yield
+    # Post-cleanup: drop and recreate both, leaving a clean DB for other tests.
     async with engine.begin() as conn:
+        await conn.run_sync(StorageBase.metadata.drop_all)
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(StorageBase.metadata.create_all)
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await init_fts5(db)

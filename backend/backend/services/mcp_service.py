@@ -319,9 +319,9 @@ class MCPService:
         G2 FIX: plugin-declared MCP servers were dead on arrival — agent runners
         only logged them. This registers the server in the MCP registry (reusing
         an existing registration with the same name so it is idempotent) and
-        attempts a connection. The pool's stdio allowlist still applies; if the
-        plugin's endpoint is not allowlisted the connection fails and the error
-        is surfaced in the returned status instead of being silently ignored.
+        attempts a connection. AIC-ADE is a local desktop app — no stdio
+        allowlist is enforced, so any non-empty endpoint is registered and
+        connection is attempted; failures are surfaced in the returned status.
 
         Returns {"server_id": ..., "status": "connected"|"error", "error": ...}.
         """
@@ -332,16 +332,15 @@ class MCPService:
         if not name or not endpoint:
             return {"server_id": None, "status": "error", "error": "Plugin MCP server is missing name/endpoint"}
 
-        # G2: surface a clear error when the plugin's stdio endpoint is not
-        # allowlisted instead of silently failing later. The allowlist itself
-        # (backend.services.mcp_client) is NOT removed — it still applies.
+        # G2: AIC-ADE is a local desktop app — no stdio allowlist is enforced.
+        # Any non-empty endpoint is registered and connection is attempted.
         if protocol == "stdio":
             from backend.services.mcp_client import MCPClient
             if not MCPClient.is_allowed_stdio_endpoint(endpoint):
                 return {
                     "server_id": None,
                     "status": "error",
-                    "error": f"Plugin MCP endpoint is not in the stdio allowlist: {endpoint}",
+                    "error": f"Plugin MCP endpoint is empty: {endpoint}",
                 }
 
         # Reuse an existing registration with the same name (idempotent re-runs).
