@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from typing import List
 from datetime import datetime, timezone
 import logging
@@ -171,6 +172,17 @@ async def list_providers(db: AsyncSession = Depends(get_db)):
 
 @router.post("/providers", response_model=ProviderWithModelsResponse)
 async def create_provider(provider: ProviderCreate, db: AsyncSession = Depends(get_db)):
+    # Round-6 FIX: reject duplicate names with a clear 409 instead of creating
+    # silent duplicate rows. POST /providers/config already upserts by name, so
+    # the two creation paths must not diverge — a re-added or double-submitted
+    # provider must not produce two identical rows in Settings.
+    existing = await db.execute(select(Provider.id).where(Provider.name == provider.name))
+    if existing.scalars().first():
+        raise HTTPException(
+            status_code=409,
+            detail="A provider with this name already exists",
+        )
+
     new_provider = Provider(
         name=provider.name,
         base_url=provider.endpoint,
@@ -180,7 +192,17 @@ async def create_provider(provider: ProviderCreate, db: AsyncSession = Depends(g
         latency_ms=0
     )
     db.add(new_provider)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race: a concurrent request created the same name between the check
+        # and the commit. The unique index (migration 018) backstops us.
+        await db.rollback()
+        logger.warning(f"Duplicate provider name rejected (race): {provider.name}")
+        raise HTTPException(
+            status_code=409,
+            detail="A provider with this name already exists",
+        )
     await db.refresh(new_provider)
 
     # BUG-15 FIX: Register provider live so /health and /chat/execute see it immediately
@@ -336,4 +358,7 @@ async def fetch_provider_models(id: str, db: AsyncSession = Depends(get_db)):
         await client.close()
         provider.status = "error"
         await db.commit()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Round-6 FIX: log the raw error server-side, return a fixed friendly
+        # message to the client (no raw exception text in the API response).
+        logger.error(f"Failed to fetch models for provider '{provider.name}': {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch models")

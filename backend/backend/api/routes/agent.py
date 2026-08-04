@@ -12,6 +12,7 @@ Not just chat.
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 import json
 import logging
 
@@ -43,7 +44,7 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
         logger.warning("Agent run rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AgentRunner
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AGENT_RUN_QUEUE_TIMEOUT, AgentRunner
     runner = AgentRunner(workspace_root=workspace)
     logger.info(
         "Agent run started: worker_type=%s model_tier=%s", worker_type, model_tier,
@@ -55,18 +56,34 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
             # /chat/execute, so the two entry points cannot collectively exceed
             # the limit. Excess runs queue (awaited) instead of overloading the
             # box with parallel LLM streams / subprocesses.
-            async with AGENT_RUN_SEMAPHORE:
+            # Round-6 FIX: emit a "queued" status before waiting so the UI shows
+            # the run is queued instead of silently hanging, and bound the wait
+            # with a generous timeout (clean error on timeout).
+            semaphore_acquired = False
+            try:
+                yield f"data: {json.dumps({'type': 'status', 'status': 'queued', 'worker': worker_type})}\n\n"
+                await asyncio.wait_for(AGENT_RUN_SEMAPHORE.acquire(), timeout=AGENT_RUN_QUEUE_TIMEOUT)
+                semaphore_acquired = True
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'error': 'Agent queue is full. Try again in a moment.'})}\n\n"
+                return
+            try:
                 async for event in runner.run_agent(
                     worker_type, prompt, system_prompt, model_tier,
                     db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
+            finally:
+                if semaphore_acquired:
+                    AGENT_RUN_SEMAPHORE.release()
         except Exception as e:
             # F14 FIX: a mid-stream exception would otherwise kill the SSE
             # generator with no structured error (renderer would fire onDone
             # with a truncated response). Surface a proper error event instead.
+            # Round-6 FIX: log the raw error server-side, keep the client-facing
+            # message fixed and friendly.
             logger.error("Agent run failed: %s", e)
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)[:200]})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Agent execution failed. Please try again.'})}\n\n"
     
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -87,16 +104,25 @@ async def run_agent_sync(payload: dict, db: AsyncSession = Depends(get_db)):
         logger.warning("Agent run-sync rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, run_worker_with_tools
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AGENT_RUN_QUEUE_TIMEOUT, run_worker_with_tools
     logger.info(
         "Agent run-sync started: worker_type=%s model_tier=%s", worker_type, model_tier,
     )
     # QA-R5 FIX: same global concurrency cap as /agent/run and /chat/execute.
-    async with AGENT_RUN_SEMAPHORE:
+    # Round-6 FIX: bound the wait so a full queue degrades to a clean 503
+    # instead of hanging the request forever.
+    try:
+        await asyncio.wait_for(AGENT_RUN_SEMAPHORE.acquire(), timeout=AGENT_RUN_QUEUE_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("Agent run-sync rejected: queue full for > %ss", AGENT_RUN_QUEUE_TIMEOUT)
+        raise HTTPException(status_code=503, detail="Agent queue is full. Try again in a moment.")
+    try:
         result = await run_worker_with_tools(
             worker_type, prompt, system_prompt, workspace, model_tier,
             db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
         )
+    finally:
+        AGENT_RUN_SEMAPHORE.release()
     logger.info(
         "Agent run-sync finished: worker_type=%s success=%s", worker_type, result.get("success"),
     )

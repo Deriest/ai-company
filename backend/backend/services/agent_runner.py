@@ -36,6 +36,12 @@ MAX_SHELL_TIMEOUT = 120
 # the non-agent chat paths never touch it.
 AGENT_RUN_SEMAPHORE = asyncio.Semaphore(4)
 
+# Round-6 FIX: while waiting on the semaphore above, routes emit a "queued"
+# status event so the UI shows the run is waiting instead of hanging silently.
+# After this many seconds stuck in the queue, they emit a clean "queue is full"
+# error instead of waiting forever.
+AGENT_RUN_QUEUE_TIMEOUT = 300
+
 
 def _truncate_output(text: str, limit: int = TOOL_OUTPUT_LIMIT) -> str:
     """Truncate output with a marker so the agent knows how to page further."""
@@ -448,7 +454,13 @@ class AgentRunner:
                     continue  # try next tier in chain
 
             if result is None:
-                yield {"type": "error", "error": f"LLM error: {last_error}"}
+                # Round-6 FIX: the raw exception is already logged per-attempt
+                # above; keep the client-facing error fixed and friendly.
+                logger.error(
+                    f"Agent execution failed for worker '{worker_type}': all LLM "
+                    f"tiers in chain failed. Last error: {last_error}"
+                )
+                yield {"type": "error", "error": "Agent execution failed: LLM call failed. Check the provider configuration and try again."}
                 return
             
             content = result.get("content", "")

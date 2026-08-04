@@ -10,7 +10,11 @@ class Provider(Base):
     __tablename__ = "providers"
     
     id = Column(String, primary_key=True, default=generate_uuid)
-    name = Column(String, nullable=False)
+    # Round-6 FIX: unique names — POST /providers/config upserts by name while
+    # POST /providers was creating duplicate rows. The unique constraint is
+    # enforced for fresh DBs here and backfilled for existing DBs by migration
+    # 018 (which dedupes first).
+    name = Column(String, nullable=False, unique=True)
     base_url = Column(String, nullable=False)
     api_key = Column(String, nullable=False) # Encrypted
     enabled = Column(Boolean, default=True)

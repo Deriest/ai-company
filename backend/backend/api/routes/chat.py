@@ -100,7 +100,7 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     Use this for 'build' mode — user sees everything the AI company does.
     """
     from shared.intent_patterns import classify_intent
-    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AgentRunner
+    from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AGENT_RUN_QUEUE_TIMEOUT, AgentRunner
     from storage.models import Conversation
 
     user_content = payload.messages[-1].content if payload.messages else ""
@@ -205,7 +205,21 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 # resource-exhaustion risk. The shared semaphore (also used by
                 # /agent/run) is awaited — excess runs queue instead of
                 # overloading the box. The non-agent chat paths never touch it.
-                async with AGENT_RUN_SEMAPHORE:
+                # Round-6 FIX: emit a "queued" status before waiting so the UI
+                # shows the run is queued instead of silently hanging, and bound
+                # the wait with a generous timeout (clean error on timeout).
+                semaphore_acquired = False
+                try:
+                    yield f"data: {json.dumps({'type': 'status', 'status': 'queued', 'worker': worker_type})}\n\n"
+                    await asyncio.wait_for(AGENT_RUN_SEMAPHORE.acquire(), timeout=AGENT_RUN_QUEUE_TIMEOUT)
+                    semaphore_acquired = True
+                except asyncio.TimeoutError:
+                    assistant_msg.status = "error"
+                    assistant_msg.updated_at = datetime.now(timezone.utc)
+                    await persist_session.commit()
+                    yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': 'Agent queue is full. Try again in a moment.'})}\n\n"
+                    return
+                try:
                     async for event in runner.run_agent(
                         worker_type=worker_type,
                         prompt=user_content,
@@ -255,6 +269,9 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                             await persist_session.commit()
                             yield f"data: {json.dumps({'type': 'cancelled', 'reason': event.get('reason', 'User cancelled')})}\n\n"
                             return
+                finally:
+                    if semaphore_acquired:
+                        AGENT_RUN_SEMAPHORE.release()
             except LLMUnavailableError:
                 assistant_msg.status = "error"
                 assistant_msg.updated_at = datetime.now(timezone.utc)
@@ -454,7 +471,10 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
                 ):
                     yield sse_event
             except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                # Round-6 FIX: log the raw error server-side, return a fixed
+                # friendly message to the client.
+                logger.error(f"Tool chat stream failed: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'error': 'Chat failed. Please try again.'})}\n\n"
 
         return StreamingResponse(tool_event_generator(), media_type="text/event-stream")
 
@@ -485,7 +505,10 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
                     pass
                 yield chunk
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            # Round-6 FIX: log the raw error server-side, return a fixed
+            # friendly message to the client.
+            logger.error(f"Chat stream failed: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Chat failed. Please try again.'})}\n\n"
 
         # BUG-11 FIX: If chat_service.chat_stream didn't persist (e.g. session
         # lifecycle issue), ensure messages are saved with a dedicated session.

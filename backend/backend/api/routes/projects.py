@@ -193,6 +193,12 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     # Project's conversations: clear discovery_sessions, their messages'
     # attachments, and messages (FK → conversations, no ondelete) BEFORE the
     # raw-SQL delete — raw SQL bypasses the ORM cascade on Message.messages.
+    # Round-6 FIX: also purge the project's FTS5 rows (search_fts) before the
+    # conversations are gone — deleted project content must not stay searchable
+    # via /conversations/search.
+    await db.execute(text(
+        "DELETE FROM search_fts WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
+    ), {"pid": project_id})
     await db.execute(text(
         "DELETE FROM discovery_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
     ), {"pid": project_id})

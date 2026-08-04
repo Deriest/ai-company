@@ -18,6 +18,14 @@ _ADD_COLUMN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Round-6: parse the source table of an "INSERT INTO <to> ... SELECT ... FROM
+# <from>" copy statement so a fk_off rebuild can skip the copy when the source
+# table is missing (a prior run crashed mid-rebuild and already copied the data).
+_INSERT_FROM_RE = re.compile(
+    r"INSERT\s+INTO\s+[^\s;]+[\s\S]*?\bFROM\s+([^\s;,]+)",
+    re.IGNORECASE,
+)
+
 MIGRATIONS = [
     {
         "version": "001",
@@ -184,9 +192,16 @@ MIGRATIONS = [
         # drop impossible). The runner applies fk_off migrations on a connection
         # with PRAGMA foreign_keys=OFF, then re-enables it.
         "fk_off": True,
+        # Round-6 FIX (crash-safety): the rebuild is resumable. If the process
+        # dies mid-rebuild (e.g. between DROP TABLE and ALTER RENAME), the next
+        # start must recover instead of failing permanently with "no such table".
+        #   - CREATE TABLE IF NOT EXISTS: a leftover _new table from a crashed
+        #     run is reused instead of being dropped/recreated.
+        #   - the INSERT is guarded so it only copies when the source table
+        #     exists AND the _new table is empty (SQLite commits each statement
+        #     atomically, so a crash mid-INSERT cannot leave a partial copy).
         "up": """
-            DROP TABLE IF EXISTS discovery_sessions_new;
-            CREATE TABLE discovery_sessions_new (
+            CREATE TABLE IF NOT EXISTS discovery_sessions_new (
                 id VARCHAR PRIMARY KEY,
                 conversation_id VARCHAR NOT NULL,
                 user_id VARCHAR,
@@ -199,12 +214,34 @@ MIGRATIONS = [
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             INSERT INTO discovery_sessions_new (id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
-                SELECT id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions;
-            DROP TABLE discovery_sessions;
+                SELECT id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions
+                WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='discovery_sessions')
+                  AND NOT EXISTS (SELECT 1 FROM discovery_sessions_new);
+            DROP TABLE IF EXISTS discovery_sessions;
             ALTER TABLE discovery_sessions_new RENAME TO discovery_sessions;
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_user ON discovery_sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_status ON discovery_sessions(status);
+        """,
+        "down": "SELECT 1",
+    },
+    {
+        "version": "018",
+        "name": "dedupe_providers_and_unique_name",
+        "description": "Dedupe existing providers by name (keep the first-inserted row per name), then add a unique index on providers.name so POST /providers and POST /providers/config both enforce name uniqueness",
+        "up": """
+            DELETE FROM providers
+            WHERE id IN (
+                SELECT p.id
+                FROM providers p
+                JOIN (
+                    SELECT name, MIN(rowid) AS keep_rowid
+                    FROM providers
+                    GROUP BY name
+                ) k ON k.name = p.name
+                WHERE p.rowid != k.keep_rowid
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_name ON providers(name);
         """,
         "down": "SELECT 1",
     },
@@ -274,6 +311,27 @@ async def _apply_migration(migration: dict) -> None:
         ), {"v": migration["version"], "n": migration["name"]})
 
 
+async def _src_table_missing(conn, stmt: str) -> bool:
+    """Return True when an INSERT...SELECT statement's source table is missing.
+
+    Round-6: a fk_off rebuild (migration 017) can crash between DROP TABLE and
+    ALTER RENAME. On the next start the source table no longer exists, so the
+    plain statement would fail permanently with "no such table" — even though
+    the data was already copied into the _new table before the crash. SQLite
+    refuses to even parse a statement referencing a missing table, so this
+    guard must live in Python rather than in a SQL WHERE clause.
+    """
+    match = _INSERT_FROM_RE.search(stmt)
+    if not match:
+        return False
+    src_table = match.group(1)
+    result = await conn.execute(text(
+        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+    ))
+    existing = {row[0] for row in result.fetchall()}
+    return src_table not in existing
+
+
 async def _apply_migration_fk_off(migration: dict) -> None:
     """Apply a table-rebuild migration with FK enforcement relaxed.
 
@@ -281,18 +339,45 @@ async def _apply_migration_fk_off(migration: dict) -> None:
     referenced-table chain makes an FK-ordered drop impossible. PRAGMA
     foreign_keys is a no-op inside a transaction, so it is set on the connection
     before the DDL statements run, then re-enabled before the connection returns
-    to the pool.
+    to the pool. The pragma is restored in a finally block so a failed migration
+    can never leak a pooled connection with FK enforcement still OFF.
+
+    Round-6: the whole rebuild now runs inside one explicit transaction
+    (``conn.begin()``) so it is atomic — a crash mid-rebuild rolls back instead
+    of leaving a half-rebuilt state (old table dropped, _new table orphaned)
+    that the next start would trip over. The migration marker is committed
+    together with the DDL, so migration 017 is no longer re-run on every start.
     """
-    async with engine.connect() as conn:
+    conn = await engine.connect()
+    try:
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
-        for stmt in migration["up"].strip().split(";"):
-            stmt = stmt.strip()
-            if stmt and stmt != "SELECT 1":
-                await conn.execute(text(stmt))
-        await conn.execute(text(
-            "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (:v, :n)"
-        ), {"v": migration["version"], "n": migration["name"]})
-        await conn.execute(text("PRAGMA foreign_keys=ON"))
+        # Close SQLAlchemy's autobegin bookkeeping so the explicit transaction
+        # below can start cleanly (the pragma itself is already live at the
+        # SQLite driver level).
+        await conn.commit()
+        async with conn.begin():
+            for stmt in migration["up"].strip().split(";"):
+                stmt = stmt.strip()
+                if stmt and stmt != "SELECT 1":
+                    # Round-6: skip a copy statement whose source table was
+                    # dropped by a crashed earlier run — the data is already in
+                    # the _new table, so the rebuild can resume.
+                    if await _src_table_missing(conn, stmt):
+                        logger.warning(
+                            f"Migration {migration['version']}: skipping statement — "
+                            f"source table missing (resuming from a partial rebuild): "
+                            f"{stmt[:80]}"
+                        )
+                        continue
+                    await conn.execute(text(stmt))
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (:v, :n)"
+            ), {"v": migration["version"], "n": migration["name"]})
+    finally:
+        try:
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
+        finally:
+            await conn.close()
 
 
 async def run_migrations():

@@ -1,5 +1,6 @@
 """Provider management API — update provider config, test connection, health check."""
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from backend.services.crypto import encrypt, decrypt
 from backend.services.provider_client import ProviderClient, ProviderAPIError, ProviderConnectionError, ProviderTimeoutError
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/providers/test-connection")
@@ -310,7 +313,10 @@ async def update_env_config(payload: dict):
         return {"success": True}
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Round-6 FIX: log the raw error server-side, return a fixed friendly
+        # message to the client (no raw exception text in the API response).
+        logger.error(f"Provider config update failed: {e}")
+        raise HTTPException(status_code=500, detail="Provider configuration failed")
 
     return {"success": True}
 
