@@ -5,7 +5,7 @@ Desktop-first: no email, no password, no authentication.
 Single user stored locally in SQLite.
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Boolean, DateTime, JSON
 from sqlalchemy.sql import func
 from backend.database.session import Base
 import uuid

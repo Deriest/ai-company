@@ -1,6 +1,7 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
 from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
+import asyncio
 import re
 import shutil
 import subprocess
@@ -37,7 +38,7 @@ async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)
     skill_path = path_hint or (match.group(3) or "")
     temp_dir = Path(tempfile.mkdtemp(prefix="aic-skill-"))
     try:
-        result = subprocess.run(["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
+        result = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise HTTPException(status_code=400, detail=f"GitHub clone failed: {result.stderr[-300:]}")
         root = (temp_dir / "repo" / skill_path).resolve()

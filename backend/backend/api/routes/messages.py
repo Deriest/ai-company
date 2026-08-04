@@ -11,7 +11,7 @@ from backend.schemas.conversation_schemas import (
     MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
 )
 from backend.services.search_service import index_message_fts, remove_fts
-from backend.api.routes.conversations import _build_msg_response
+from backend.api.routes.conversations import _build_msg_responses, _build_msg_response
 
 router = APIRouter()
 
@@ -23,8 +23,16 @@ async def list_messages(
     limit: int = Query(500, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
+    # PERF-FIX: explicit column projection + one batched attachment query.
+    # Note: pagination is intentionally NOT applied (the renderer's loadMessages
+    # replaces the full list in one fetch), so the safe default limit + explicit
+    # projection is kept.
     res = await db.execute(
-        select(Message)
+        select(
+            Message.id, Message.conversation_id, Message.role, Message.content,
+            Message.meta, Message.token_count, Message.model_id,
+            Message.provider_id, Message.status, Message.created_at, Message.updated_at,
+        )
         .where(Message.conversation_id == id)
         # created_at is the primary conversation order. id makes results
         # deterministic for legacy rows that share the same timestamp.
@@ -32,8 +40,20 @@ async def list_messages(
         .offset(skip)
         .limit(limit)
     )
-    msgs = res.scalars().all()
-    return [await _build_msg_response(db, m) for m in msgs]
+    msgs = res.all()
+    if not msgs:
+        return []
+    # Rehydrate Message objects from the projected rows for the shared builder.
+    projected = [
+        Message(
+            id=m.id, conversation_id=m.conversation_id, role=m.role, content=m.content,
+            meta=m.meta, token_count=m.token_count,
+            model_id=m.model_id, provider_id=m.provider_id, status=m.status,
+            created_at=m.created_at, updated_at=m.updated_at,
+        )
+        for m in msgs
+    ]
+    return await _build_msg_responses(db, projected)
 
 
 @router.post("/conversations/{id}/messages", response_model=MessageResponse)
@@ -69,6 +89,12 @@ async def create_message(id: str, payload: MessageCreate, db: AsyncSession = Dep
         await db.commit()
 
     await index_message_fts(db, msg.id, id, msg.content)
+    # New message → cached context assembly for this conversation is stale.
+    try:
+        from context.cache import get_context_cache
+        get_context_cache().invalidate_conversation(id)
+    except Exception:
+        pass
     return await _build_msg_response(db, msg)
 
 

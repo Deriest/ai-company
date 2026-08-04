@@ -244,14 +244,22 @@ class WorkerContext:
         # until estimated_tokens <= max_tokens_limit
         dropped_count = 0
         if max_tokens_limit > 0 and estimated_tokens > max_tokens_limit:
-            # Keep system prompt (index 0), drop oldest non-system messages first
-            for i in range(len(messages) - 1, 0, -1):
-                if estimated_tokens <= max_tokens_limit:
-                    break
+            # Keep system prompt (index 0) and the tail (current turn + recent
+            # tool results). FIX: drop the OLDEST non-system messages first —
+            # the previous loop iterated backwards (newest first), which evicted
+            # the most recent turn and orphaned tool results.
+            i = 1
+            while i < len(messages) and estimated_tokens > max_tokens_limit:
                 removed = messages.pop(i)
                 dropped_count += 1
                 total_chars = sum(len(m.get("content", "")) for m in messages)
                 estimated_tokens = int(total_chars // 4 * 1.3)
+            # FIX: mark the truncation so the model knows history was cut.
+            if dropped_count > 0:
+                messages.insert(
+                    1,
+                    {"role": "system", "content": "…(earlier conversation truncated to fit the context budget)"},
+                )
 
         metadata = {
             "estimated_tokens": estimated_tokens,

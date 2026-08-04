@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Play, XCircle, RefreshCw, CheckCircle, X } from 'lucide-react'
-import { Card, PageHeader, Badge, ProgressBar } from './kit'
+import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'
 import {
   orchestrationApi,
   type OrchestrationSessionRecord,
   type OrchestrationSessionDetail,
-  type OrchestrationApprovalRecord,
 } from '../lib/api/orchestration'
 
 const statusTone: Record<string, 'muted' | 'success' | 'warning' | 'destructive' | 'primary'> = {

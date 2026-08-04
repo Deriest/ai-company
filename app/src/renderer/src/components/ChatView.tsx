@@ -463,17 +463,28 @@ function MessageRow({ message, state }: { message: MessageRecord; state?: Assist
           <Bot className="size-2.5 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
-          {state?.isStreaming && !message.content ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />
-              <span>thinking…</span>
-            </div>
-          ) : (
-            <MarkdownContent content={message.content} />
-          )}
-          {state?.isStreaming && message.content && (
-            <span className="inline-block h-3.5 w-1 animate-pulse bg-primary/60 ml-0.5 align-middle" />
-          )}
+          {/* PERF-FIX: single source of truth — streaming content lives in
+              assistantStates; the messages array is finalized on done. */}
+          {(() => {
+            const contentText = state?.content ?? message.content
+            const isStreaming = state?.isStreaming
+            if (isStreaming && !contentText) {
+              return (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" />
+                  <span>thinking…</span>
+                </div>
+              )
+            }
+            return (
+              <>
+                <MarkdownContent content={contentText} />
+                {isStreaming && contentText && (
+                  <span className="inline-block h-3.5 w-1 animate-pulse bg-primary/60 ml-0.5 align-middle" />
+                )}
+              </>
+            )
+          })()}
         </div>
       </div>
     </div>
@@ -482,10 +493,10 @@ function MessageRow({ message, state }: { message: MessageRecord; state?: Assist
 
 // ── Sidebar (compact) ────────────────────────────────────
 
-function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArchive, onDuplicate, onSearch }: {
+function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDuplicate, onSearch }: {
   conversations: ConversationRecord[]; activeId: string | null;
   onSelect: (id: string) => void; onCreate: () => void;
-  onDelete: (id: string, e: React.MouseEvent) => void; onArchive: (id: string, e: React.MouseEvent) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void; onSearch: (q: string) => void;
 }) {
   const [query, setQuery] = useState('')
@@ -579,6 +590,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const streamMsgIdRef = useRef<string | null>(null)
+  // PERF-FIX: mutable buffer for the streaming assistant content — avoids a
+  // full messages-array map + string rebuild on every chunk. Written to the
+  // messages array once on done (single source of truth = assistantStates).
+  const streamContentRef = useRef('')
   const activeIdRef = useRef(activeId)
   const sendingRef = useRef(false)
   const stopRequestedRef = useRef(false)
@@ -819,7 +834,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       const current = await providersApi.list()
       const updated: ProviderRecord[] = []
       for (const p of current) {
-        try { updated.push(await providersApi.fetchModelsAndUpdate(p.id, p.endpoint)) }
+        try { updated.push(await providersApi.fetchModelsAndUpdate(p.id)) }
         catch (e) { console.error('Fetch models failed for', p.name, e); updated.push(p) }
       }
       setProviders(updated)
@@ -884,15 +899,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     e.stopPropagation()
     try {
       await conversationsApi.delete(id)
-      setConversations(prev => prev.filter(c => c.id !== id))
-      if (activeId === id) setActiveId(conversations.find(c => c.id !== id)?.id || null)
-    } catch (e) { console.error(e) }
-  }
-
-  const handleArchive = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      await conversationsApi.update(id, { is_archived: true })
       setConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(conversations.find(c => c.id !== id)?.id || null)
     } catch (e) { console.error(e) }
@@ -975,6 +981,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       return next
     })
     streamMsgIdRef.current = tempAsstId
+    streamContentRef.current = ''
 
     try {
       // Use executeAgent — goes through ConversationEngine → Dispatcher → Orchestrator → Workers
@@ -989,8 +996,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
         },
         {
           onChunk: (chunk) => {
-            updateAssistantState(tempAsstId, s => ({ ...s, content: s.content + chunk }))
-            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + chunk } : m))
+            // PERF-FIX: single source of truth = assistantStates; the messages
+            // array is only finalized once on done (no per-chunk O(n) map).
+            streamContentRef.current += chunk
+            updateAssistantState(tempAsstId, s => ({ ...s, content: streamContentRef.current }))
           },
           onToolStart: (tool, args, callId) => {
             const tc: ToolCallData = {
@@ -1016,13 +1025,15 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           onDone: () => {
             abortRef.current = null
             streamMsgIdRef.current = null
+            const finalContent = streamContentRef.current
+            streamContentRef.current = ''
             // Clean up the temp streaming state entry (BUG-10)
             setAssistantStates(prev => {
               const next = new Map(prev)
               next.delete(tempAsstId)
               return next
             })
-            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, status: 'completed' } : m))
+            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: finalContent, status: 'completed' } : m))
             setSending(false)
             sendingRef.current = false
             // QA-2445: Don't reload immediately — give API time to commit the response.
@@ -1031,12 +1042,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           onError: (err) => {
             abortRef.current = null
             streamMsgIdRef.current = null
+            const finalContent = streamContentRef.current
+            streamContentRef.current = ''
             setAssistantStates(prev => {
               const next = new Map(prev)
               next.delete(tempAsstId)
               return next
             })
-            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + `\n\nError: ${err}`, status: 'completed' } : m))
+            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (finalContent || '') + `\n\nError: ${err}`, status: 'completed' } : m))
             setSending(false)
             sendingRef.current = false
           },
@@ -1054,8 +1067,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           next.delete(tempAsstId)
           return next
         })
+        const stoppedContent = streamContentRef.current
+        streamContentRef.current = ''
         setMessages(prev => prev.map(m => m.id === tempAsstId
-          ? { ...m, content: (m.content || '') + '\n\n*[stopped]*', status: 'completed' }
+          ? { ...m, content: (stoppedContent || '') + '\n\n*[stopped]*', status: 'completed' }
           : m))
         setSending(false)
         sendingRef.current = false
@@ -1120,7 +1135,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     <div className="flex flex-col absolute inset-0">
       <div className="flex min-h-0 flex-1">
         <Sidebar conversations={conversations} activeId={activeId} onSelect={setActiveId}
-          onCreate={handleCreate} onDelete={handleDelete} onArchive={handleArchive}
+          onCreate={handleCreate} onDelete={handleDelete}
           onDuplicate={handleDuplicate} onSearch={q => void loadConversations(q)} />
 
         <div className="flex min-w-0 min-h-0 flex-1 flex-col">

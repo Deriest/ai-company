@@ -1,8 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from typing import Optional, List
-import json
+from typing import Optional
 
 from backend.database.session import get_db
 

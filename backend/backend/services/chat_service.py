@@ -2,18 +2,91 @@ import time
 import json
 import logging
 import httpx
-from typing import AsyncGenerator, Dict, Any, List, Optional
+from typing import AsyncGenerator, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.models.schema import Provider, ProviderModel
 from storage.models import Message
-from backend.models.ai_runtime import GenerationLog, ToolCall, ToolResult
+from backend.models.ai_runtime import GenerationLog
 from backend.services.crypto import decrypt as decrypt_api_key
 from backend.services.tool_dispatcher import tool_dispatcher
-from backend.services.content_utils import content_to_text, truncate_content
+from backend.services.content_utils import content_to_text
 from backend.services.artifact_service import artifact_service
 
 logger = logging.getLogger(__name__)
+
+
+# PERF-FIX: fully static tool schema — built once at module import instead of
+# re-constructing the dict chain on every chat_completion call.
+_TOOLS_SCHEMA: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read contents of a file inside the workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Relative path in workspace"}},
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write text content to a file inside the workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path in workspace"},
+                    "content": {"type": "string", "description": "Text content to write"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List files and folders in a workspace directory",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Relative path in workspace", "default": "."}}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_workspace",
+            "description": "Search for a keyword across all files in the workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Text to search for"}},
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "current_time",
+            "description": "Get current UTC date and time",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    }
+]
+
+
+def _invalidate_context_cache(conversation_id: str) -> None:
+    """Drop cached context assembly for a conversation (new message = stale context)."""
+    try:
+        from context.cache import get_context_cache
+        get_context_cache().invalidate_conversation(conversation_id)
+    except Exception:
+        pass
 
 
 async def build_chat_context(
@@ -117,66 +190,8 @@ class ChatService:
 
     @staticmethod
     def _build_tools_schema() -> list[dict]:
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_file",
-                    "description": "Read contents of a file inside the workspace",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"path": {"type": "string", "description": "Relative path in workspace"}},
-                        "required": ["path"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "write_file",
-                    "description": "Write text content to a file inside the workspace",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string", "description": "Relative path in workspace"},
-                            "content": {"type": "string", "description": "Text content to write"}
-                        },
-                        "required": ["path", "content"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_directory",
-                    "description": "List files and folders in a workspace directory",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"path": {"type": "string", "description": "Relative path in workspace", "default": "."}}
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_workspace",
-                    "description": "Search for a keyword across all files in the workspace",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"query": {"type": "string", "description": "Text to search for"}},
-                        "required": ["query"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "current_time",
-                    "description": "Get current UTC date and time",
-                    "parameters": {"type": "object", "properties": {}}
-                }
-            }
-        ]
+        """Return the static tool schema (module-level constant — no per-call rebuild)."""
+        return _TOOLS_SCHEMA
 
     @classmethod
     async def chat_completion(
@@ -205,6 +220,8 @@ class ChatService:
             )
             db.add(user_msg)
             await db.commit()
+            # New message → cached context assembly for this conversation is stale.
+            _invalidate_context_cache(conversation_id)
 
         # BUG-FIX: model auto-selection — same chain as chat_stream()
         # (env → provider_models → worker_runtime). chat_completion() is called
@@ -330,15 +347,34 @@ class ChatService:
 
         # BUG-02 FIX: Use provider.chat() instead of direct httpx to handle SSE
         from llm.provider import provider_manager, LLMProvider, ProviderConfig, ModelTier
-        
-        # Build provider from config
-        provider_config = ProviderConfig(
-            name="chat_service_provider",
-            base_url=base_url,
-            api_key=api_key,
-            models={"crafter": model_id, "thinker": model_id, "sprinter": model_id}
-        )
-        provider = LLMProvider(provider_config)
+
+        # PERF-FIX: reuse the cached provider_manager instance (one httpx client
+        # per provider) instead of building a new LLMProvider per request. Fall
+        # back to a per-request provider only when the requested model_id or
+        # endpoint isn't served by the active provider (explicit worker override).
+        def _urls_match(a: str, b: str) -> bool:
+            def _norm(u: str) -> str:
+                u = (u or "").strip().rstrip("/")
+                if u.endswith("/v1"):
+                    u = u[:-3]
+                return u
+            return _norm(a) == _norm(b)
+
+        provider = provider_manager.get_active_with_key()
+        _owns_provider = False
+        if (
+            provider is None
+            or not _urls_match(provider.config.base_url, base_url)
+            or provider.config.get_model(ModelTier.CRAFTER) != model_id
+        ):
+            provider_config = ProviderConfig(
+                name="chat_service_provider",
+                base_url=base_url,
+                api_key=api_key,
+                models={"crafter": model_id, "thinker": model_id, "sprinter": model_id}
+            )
+            provider = LLMProvider(provider_config)
+            _owns_provider = True
         
         try:
             # Inject system prompt from worker if not already present
@@ -412,25 +448,24 @@ class ChatService:
                     exec_res = await tool_dispatcher.execute(t_name, t_args)
                     content += f"\n\n[Tool Executed: {t_name}] -> {json.dumps(exec_res.get('result') or exec_res.get('error'))}"
 
+            usage = data.get("usage", {})
+            # PERF-FIX: set token_count up front and combine the assistant
+            # message + generation log into a single commit (fewer round-trips).
             msg = Message(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=content,
                 model_id=model_id,
                 provider_id=provider_id,
-                status="completed"
+                status="completed",
+                token_count=usage.get("total_tokens", 0),
             )
             db.add(msg)
             await db.commit()
             await db.refresh(msg)
-            
+
             await artifact_service.extract_and_store(db, conversation_id, msg.id, content)
-            
-            usage = data.get("usage", {})
-            # Store token_count on the message itself
-            msg.token_count = usage.get("total_tokens", 0)
-            db.add(msg)
-            await db.commit()
+
             log = GenerationLog(
                 conversation_id=conversation_id,
                 message_id=msg.id,
@@ -483,12 +518,13 @@ class ChatService:
             await db.commit()
             raise e
         finally:
-            # QA-FIX: close the per-request LLMProvider so its httpx client is
-            # not leaked on every chat_completion call (see register() leak).
-            try:
-                await provider.close()
-            except Exception:
-                pass
+            # Only close a per-request provider we created; the manager's
+            # cached provider must stay alive for other requests.
+            if _owns_provider:
+                try:
+                    await provider.close()
+                except Exception:
+                    pass
 
     @classmethod
     async def chat_stream(
@@ -517,6 +553,8 @@ class ChatService:
             )
             db.add(user_msg)
             await db.commit()
+            # New message → cached context assembly for this conversation is stale.
+            _invalidate_context_cache(conversation_id)
         
         # create initial streaming message in DB
         msg = Message(
@@ -737,7 +775,12 @@ class ChatService:
             payload["max_tokens"] = max_tokens
 
         try:
-            
+            # PERF-FIX: stream chunks live to the frontend as they arrive
+            # (no full-response buffering). Content is accumulated in a list
+            # and joined once (avoids O(n²) string concat).
+            content_parts: list[str] = []
+            stream_usage = None
+
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as res:
                     # QA-249-R5: Handle upstream 400 CONTENT_LENGTH_EXCEEDS_THRESHOLD
@@ -747,7 +790,7 @@ class ChatService:
                             error_json = json.loads(error_body)
                             error_reason = error_json.get("reason", "")
                             error_message = error_json.get("message", "")
-                            
+
                             # Check if it's a content length threshold error from upstream
                             if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in error_reason or \
                                "exceeds threshold" in error_message.lower() or \
@@ -762,13 +805,9 @@ class ChatService:
                                 return
                         except Exception:
                             pass  # Fall through to generic error handling
-                    
+
                     res.raise_for_status()
 
-                    # POLISH-1 FIX: Buffer all LLM chunks BEFORE streaming to frontend.
-                    # This prevents slop text from flashing in the UI before taste rewrite.
-                    buffered_content = ""
-                    stream_usage = None
                     async for line in res.aiter_lines():
                         if line.startswith("data: "):
                             data_str = line[6:].strip()
@@ -782,17 +821,22 @@ class ChatService:
                                 delta = chunk_json.get("choices", [{}])[0].get("delta", {})
                                 chunk_content = delta.get("content", "")
                                 if chunk_content:
-                                    buffered_content += chunk_content
+                                    content_parts.append(chunk_content)
+                                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content})}\n\n"
                             except Exception:
                                 pass
 
-            msg.content = buffered_content
+            raw_content = "".join(content_parts)
+            msg.content = raw_content
 
-            # POLISH-1: Taste check + rewrite BEFORE streaming to frontend
+            # Taste check + rewrite AFTER streaming. The already-streamed chunks
+            # stay visible; when a cleaner rewrite is produced, emit a `rewrite`
+            # SSE event (renderer dispatches it to onRewrite) and persist the
+            # rewritten text so the next reload shows the clean version.
             try:
                 from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
-                if msg.content and has_ai_slop(msg.content, threshold=1):
-                    taste_meta = scan_summary(msg.content)
+                if raw_content and has_ai_slop(raw_content, threshold=1):
+                    taste_meta = scan_summary(raw_content)
                     logger.info(f"Stream taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
                     if taste_meta["high"] > 0:
                         try:
@@ -800,31 +844,28 @@ class ChatService:
                             rewrite_result = await provider_manager.chat(
                                 messages=[
                                     {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
-                                    {"role": "user", "content": REWRITE_PROMPT + msg.content},
+                                    {"role": "user", "content": REWRITE_PROMPT + raw_content},
                                 ],
                                 tier=ModelTier.SPRINTER,
                                 temperature=0.3,
-                                max_tokens=len(msg.content) + 200,
+                                max_tokens=len(raw_content) + 200,
                                 purpose="taste_rewrite",
                             )
-                            rewritten = rewrite_result.get("content", "").strip()
+                            rewritten = (rewrite_result.get("content", "") or "").strip()
                             if rewritten and len(rewritten) > 10:
                                 from backend.services.taste_checker import has_ai_slop as check_again
                                 if not check_again(rewritten, threshold=1):
                                     logger.info("Stream taste rewrite successful — cleaner output")
                                     msg.content = rewritten
+                                    yield f"data: {json.dumps({'type': 'rewrite', 'content': rewritten})}\n\n"
                                 else:
                                     logger.info("Stream taste rewrite still has AI-isms — using original")
+                            else:
+                                logger.debug("Stream taste rewrite returned empty — using original")
                         except Exception as rewrite_err:
                             logger.debug(f"Stream taste rewrite failed (non-critical): {rewrite_err}")
             except Exception as taste_err:
                 logger.debug(f"Stream taste checker exception (non-critical): {taste_err}")
-
-            # POLISH-1: Now stream the CLEAN content to frontend (no slop flash)
-            _stream_chunk_size = 20
-            for _i in range(0, len(msg.content), _stream_chunk_size):
-                _chunk = msg.content[_i:_i + _stream_chunk_size]
-                yield f"data: {json.dumps({'type': 'chunk', 'content': _chunk})}\n\n"
 
             msg.status = "completed"
             # Store token_count from upstream usage if available, otherwise estimate
@@ -835,7 +876,7 @@ class ChatService:
                 msg.token_count = len(msg.content) // 4 + sum(len(m.get("content", "")) // 4 for m in messages)
             await db.commit()
             await artifact_service.extract_and_store(db, conversation_id, msg.id, msg.content)
-            
+
             # C7: Estimate cost for streaming (based on content length)
             estimated_completion_tokens = len(msg.content) // 4
             estimated_prompt_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
@@ -860,7 +901,7 @@ class ChatService:
                 )
             except Exception as mem_err:
                 logger.warning(f"Memory store failed (non-critical): {mem_err}")
-            
+
             yield f"data: {json.dumps({'type': 'cost', 'cost': round(cost, 6), 'estimated_tokens': estimated_completion_tokens})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'message_id': msg.id})}\n\n"
 

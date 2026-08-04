@@ -22,48 +22,62 @@ class TestAutoDetectContextWindow:
             assert caps["context_window"] == 200000, f"{model_id} should have 200k context"
     
     def test_gpt_4_1_models_1m(self):
-        """GPT-4.1 models should get 1M context."""
+        """GPT-4.1 models should get 1M context (catalog value 1047576)."""
         models = ["gpt-4.1-turbo", "gpt-4.1-preview"]
         for model_id in models:
             caps = infer_capabilities(model_id, {})
-            assert caps["context_window"] == 1000000, f"{model_id} should have 1M context"
+            assert caps["context_window"] == 1047576, f"{model_id} should have ~1M context"
     
     def test_gpt_models_128k(self):
-        """Standard GPT models should get 128k context."""
-        models = ["gpt-4-turbo", "gpt-4o", "gpt-4", "gpt-3.5-turbo"]
+        """Standard GPT-4 models should get 128k context."""
+        models = ["gpt-4-turbo", "gpt-4o", "gpt-4"]
         for model_id in models:
             caps = infer_capabilities(model_id, {})
             assert caps["context_window"] == 128000, f"{model_id} should have 128k context"
     
+    def test_gpt_3_5_turbo_16k(self):
+        """gpt-3.5-turbo is a 16k model, not 128k."""
+        caps = infer_capabilities("gpt-3.5-turbo", {})
+        assert caps["context_window"] == 16385, "gpt-3.5-turbo should have 16k context"
+    
     def test_gemini_models_1m(self):
-        """Gemini models should get 1M context."""
+        """Gemini models should get 1M context (catalog value 1048576)."""
         models = ["gemini-1.5-pro", "gemini-2.0-flash"]
         for model_id in models:
             caps = infer_capabilities(model_id, {})
-            assert caps["context_window"] == 1000000, f"{model_id} should have 1M context"
+            assert caps["context_window"] == 1048576, f"{model_id} should have ~1M context"
     
-    def test_deepseek_models_64k(self):
-        """DeepSeek models should get 64k context."""
-        models = ["deepseek-chat", "deepseek-v3", "deepseek-coder"]
-        for model_id in models:
+    def test_deepseek_models_context(self):
+        """DeepSeek models: deepseek-chat is 1M (catalog), other deepseek models 128k."""
+        models = {
+            "deepseek-chat": 1000000,
+            "deepseek-v3": 128000,
+            "deepseek-coder": 128000,
+        }
+        for model_id, expected in models.items():
             caps = infer_capabilities(model_id, {})
-            assert caps["context_window"] == 64000, f"{model_id} should have 64k context"
+            assert caps["context_window"] == expected, f"{model_id} should have {expected} context"
     
     def test_small_models_32k(self):
-        """Small models (mini, 3b) should get 32k context if not matched by other rules."""
-        # Note: gpt-4o-mini matches is_gpt first (128k), claude-haiku matches is_claude (200k), 
-        # gemini-flash matches is_gemini (1M). Only truly unknown small models get 32k.
-        models = ["qwen-3b", "llama-3b", "phi-3-mini"]
-        for model_id in models:
+        """Small models (mini, 3b) get catalog window if matched by a family, 32k only when unmatched."""
+        # Note: gpt-4o-mini matches is_gpt first (128k), claude-haiku matches is_claude (200k),
+        # gemini-flash matches is_gemini (1M). qwen-3b/llama-3b match their family catalog
+        # entries (131072); only truly unknown small models (phi-3-mini) get 32k.
+        models = {
+            "qwen-3b": 131072,
+            "llama-3b": 131072,
+            "phi-3-mini": 32000,
+        }
+        for model_id, expected in models.items():
             caps = infer_capabilities(model_id, {})
-            assert caps["context_window"] == 32000, f"{model_id} should have 32k context"
+            assert caps["context_window"] == expected, f"{model_id} should have {expected} context"
     
-    def test_unknown_models_8k(self):
-        """Unknown models should get conservative 8k context."""
+    def test_unknown_models_fallback(self):
+        """Unknown models should get the 256k fallback (changed from 8192 to match Hermes)."""
         models = ["unknown-model", "custom-llm-v1"]
         for model_id in models:
             caps = infer_capabilities(model_id, {})
-            assert caps["context_window"] == 8192, f"{model_id} should have 8k fallback context"
+            assert caps["context_window"] == 256000, f"{model_id} should have 256k fallback context"
     
     def test_raw_metadata_override(self):
         """If raw_metadata provides context_window, use it."""

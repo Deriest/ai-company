@@ -92,6 +92,17 @@ for _p in BANNED_PHRASES:
     _end = r'\b' if _p[-1].isalnum() else r'(?=\W|$)'
     _BANNED_RE.append(re.compile(_start + _escaped + _end, re.IGNORECASE))
 
+# Single-word AI-isms — demoted to "medium" severity. FIX: a lone word-level
+# AI-ism (e.g. "crucial", "leverage", "comprehensive") must NOT trigger a full
+# rewrite; only phrase-level patterns or 2+ distinct AI-isms are "high".
+_WORD_LEVEL: set[str] = {
+    "delve", "delving",
+    "crucial", "pivotal", "comprehensive",
+    "testament", "underscore", "underscoring",
+    "vibrant", "seamless", "groundbreaking",
+    "tapestry", "multifaceted", "leverage", "utilize",
+}
+
 
 # ── Structural Heuristics ────────────────────────────────
 
@@ -124,16 +135,30 @@ def scan_text(text: str) -> list[Finding]:
     lower = text.lower()
 
     # 1. Banned phrases
+    word_level_findings: list[Finding] = []
     for i, phrase in enumerate(BANNED_PHRASES):
         pattern = _BANNED_RE[i]
         matches = pattern.findall(text)
         if matches:
-            findings.append(Finding(
+            # FIX: demote word-level instant bans to "medium" — a single word
+            # like "crucial" must not trigger a full rewrite. Phrase-level
+            # patterns (greetings/hedges) stay "high".
+            severity = "medium" if phrase in _WORD_LEVEL else "high"
+            finding = Finding(
                 pattern=f"banned:{phrase}",
-                severity="high",
+                severity=severity,
                 count=len(matches),
                 examples=[m[:80] for m in matches[:3]],
-            ))
+            )
+            findings.append(finding)
+            if severity == "medium":
+                word_level_findings.append(finding)
+
+    # FIX: require 2+ distinct word-level AI-isms (or a phrase-level pattern)
+    # before word-level findings are treated as "high".
+    if len(word_level_findings) >= 2:
+        for f in word_level_findings:
+            f.severity = "high"
 
     # 2. Em-dash density (— or --)
     em_dashes = len(re.findall(r'[—–]', text)) + len(re.findall(r'(?<!-)--(?!-)', text))

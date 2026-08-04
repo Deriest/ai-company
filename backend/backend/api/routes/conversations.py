@@ -71,21 +71,45 @@ async def _build_conv_response(db: AsyncSession, conv: Conversation) -> Conversa
     )
 
 
-async def _build_msg_response(db: AsyncSession, msg: Message) -> MessageResponse:
-    att_res = await db.execute(select(Attachment).where(Attachment.message_id == msg.id))
-    attachments = [
-        AttachmentResponse(
-            id=a.id,
-            message_id=a.message_id,
-            file_name=a.file_name,
-            file_type=a.file_type,
-            mime_type=a.mime_type,
-            file_size=a.file_size,
-            attachment_metadata=a.attachment_metadata,
-            created_at=a.created_at
+async def _build_conv_responses(db: AsyncSession, convs: list[Conversation]) -> list[ConversationResponse]:
+    """Build ConversationResponse for a batch of conversations with 2 batched
+    queries (pins + tags) instead of 2 queries per conversation (N+1 fix)."""
+    if not convs:
+        return []
+    conv_ids = [c.id for c in convs]
+
+    pin_res = await db.execute(
+        select(ConversationPin.conversation_id).where(ConversationPin.conversation_id.in_(conv_ids))
+    )
+    pinned_ids = set(pin_res.scalars().all())
+
+    tag_res = await db.execute(
+        select(ConversationTag.conversation_id, ConversationTag.tag).where(
+            ConversationTag.conversation_id.in_(conv_ids)
         )
-        for a in att_res.scalars().all()
+    )
+    tags_map: dict[str, list[str]] = {}
+    for conv_id, tag in tag_res.all():
+        tags_map.setdefault(conv_id, []).append(tag)
+
+    return [
+        ConversationResponse(
+            id=c.id,
+            title=c.title,
+            folder_id=c.folder_id,
+            project_id=c.project_id,
+            is_archived=c.is_archived,
+            is_favorite=c.is_favorite,
+            is_pinned=c.id in pinned_ids,
+            tags=tags_map.get(c.id, []),
+            created_at=c.created_at,
+            updated_at=c.updated_at
+        )
+        for c in convs
     ]
+
+
+def _build_msg_response_from_attachments(msg: Message, attachments: list[Attachment]) -> MessageResponse:
     return MessageResponse(
         id=msg.id,
         conversation_id=msg.conversation_id,
@@ -98,8 +122,40 @@ async def _build_msg_response(db: AsyncSession, msg: Message) -> MessageResponse
         status=msg.status,
         created_at=msg.created_at,
         updated_at=msg.updated_at,
-        attachments=attachments
+        attachments=[
+            AttachmentResponse(
+                id=a.id,
+                message_id=a.message_id,
+                file_name=a.file_name,
+                file_type=a.file_type,
+                mime_type=a.mime_type,
+                file_size=a.file_size,
+                attachment_metadata=a.attachment_metadata,
+                created_at=a.created_at
+            )
+            for a in attachments
+        ]
     )
+
+
+async def _build_msg_response(db: AsyncSession, msg: Message) -> MessageResponse:
+    att_res = await db.execute(select(Attachment).where(Attachment.message_id == msg.id))
+    attachments = att_res.scalars().all()
+    return _build_msg_response_from_attachments(msg, attachments)
+
+
+async def _build_msg_responses(db: AsyncSession, msgs: list[Message]) -> list[MessageResponse]:
+    """Build MessageResponse for a batch of messages with ONE attachment query
+    (N+1 fix) instead of one query per message."""
+    if not msgs:
+        return []
+    att_res = await db.execute(
+        select(Attachment).where(Attachment.message_id.in_([m.id for m in msgs]))
+    )
+    att_map: dict[str, list[Attachment]] = {}
+    for a in att_res.scalars().all():
+        att_map.setdefault(a.message_id, []).append(a)
+    return [_build_msg_response_from_attachments(m, att_map.get(m.id, [])) for m in msgs]
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +184,10 @@ async def list_conversations(
     result = await db.execute(query)
     convs = result.scalars().all()
 
+    # PERF-FIX: batched pins/tags queries (N+1 fix) instead of 2 queries per conv.
+    conv_responses = await _build_conv_responses(db, convs)
     res = []
-    for c in convs:
-        c_res = await _build_conv_response(db, c)
+    for c_res in conv_responses:
         if tag is not None and tag not in c_res.tags:
             continue
         res.append(c_res)
@@ -331,9 +388,10 @@ async def export_conversation(id: str, format: str = Query("json"), db: AsyncSes
     msg_res = await db.execute(select(Message).where(Message.conversation_id == id).order_by(Message.created_at))
     msgs = msg_res.scalars().all()
 
+    # PERF-FIX: batch-load attachments (one query) instead of one per message.
+    msg_responses = await _build_msg_responses(db, msgs)
     msg_payloads = []
-    for m in msgs:
-        m_res = await _build_msg_response(db, m)
+    for m, m_res in zip(msgs, msg_responses):
         msg_payloads.append(MessageCreate(
             role=m.role,
             content=m.content,

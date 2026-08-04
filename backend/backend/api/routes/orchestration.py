@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from typing import Optional, List
-import json
+from typing import Optional
 
 from backend.database.session import get_db
 
@@ -12,7 +10,6 @@ from backend.schemas.orchestration_schemas import (
     OrchestrationSessionCreate, OrchestrationTaskCreate, ApprovalResolve
 )
 from backend.services.orchestrator_service import orchestrator_service
-from backend.models.orchestration import OrchestrationSession, OrchestrationTask, OrchestrationApproval
 
 
 # ── Orchestration Endpoints ──────────────────────────────────

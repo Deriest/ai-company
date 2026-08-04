@@ -112,6 +112,10 @@ def decrypt(text: str) -> str:
     """
     Decrypt ciphertext. Tries installation-specific key first,
     falls back to legacy key for backward compatibility.
+
+    M5 FIX: never echo the input back as-is. Undecryptable values raise
+    ValueError instead of silently returning the ciphertext, which would
+    let corrupt/plaintext secrets masquerade as valid API keys.
     """
     if not text:
         return ""
@@ -125,13 +129,12 @@ def decrypt(text: str) -> str:
     # Try legacy key (migration path)
     try:
         decrypted = _get_legacy_fernet().decrypt(text.encode()).decode()
-        logger.info("Decrypted with legacy key — consider re-encrypting")
+        logger.warning("Decrypted with legacy key — consider re-encrypting")
         return decrypted
     except (InvalidToken, Exception):
         pass
 
-    # Return as-is if not encrypted (plain text fallback)
-    return text
+    raise ValueError("Unable to decrypt value (not encrypted with current or legacy key)")
 
 
 def re_encrypt(text: str) -> str:

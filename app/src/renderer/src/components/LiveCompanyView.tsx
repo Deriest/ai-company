@@ -83,7 +83,6 @@ interface LiveCompanyViewProps {
 export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   const [selectedWorker, setSelectedWorker] = useState<WorkerDef | null>(null)
   const [workerStats, setWorkerStats] = useState<Record<string, any>>({})
-  const [loading, setLoading] = useState(true)
 
   // BUG-10 FIX: Compute total worker count dynamically from DEPARTMENTS
   const totalWorkers = DEPARTMENTS.reduce((sum, dept) => sum + dept.workers.length, 0);
@@ -104,7 +103,6 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
         setWorkerStats(stats)
       })
       .catch(() => { /* graceful */ })
-      .finally(() => setLoading(false))
 
   }, [])
 

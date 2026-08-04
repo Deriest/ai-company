@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.4.64",
+  "version": "2.4.65",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -39,7 +39,6 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.27.0",
     "node-pty": "^1.0.0",
-    "playwright": "^1.62.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0"
@@ -54,6 +53,7 @@
     "concurrently": "^9.2.4",
     "electron": "^34.5.8",
     "electron-builder": "^25.1.8",
+    "playwright": "^1.62.0",
     "postcss": "^8.5.23",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",

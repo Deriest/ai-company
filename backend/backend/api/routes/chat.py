@@ -268,6 +268,18 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 assistant_msg.updated_at = datetime.now(timezone.utc)
                 await persist_session.commit()
             yield f"data: {json.dumps({'type': 'error', 'stage': 'pipeline', 'error': f'Execution failed: {str(e)[:200]}'})}\n\n"
+        except GeneratorExit:
+            # H4: client disconnected mid-stream. Persist a cancelled status so
+            # the assistant row is never left stuck in "streaming" forever, then
+            # let the generator close cleanly.
+            try:
+                if assistant_msg is not None:
+                    assistant_msg.status = "cancelled"
+                    assistant_msg.updated_at = datetime.now(timezone.utc)
+                    await persist_session.commit()
+            except Exception as log_err:
+                logger.warning(f"Failed to persist cancelled status on disconnect: {log_err}")
+            raise
         finally:
             await persist_session.close()
 
@@ -405,6 +417,7 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
         # it to ModelTier.VISION (agent_runner.py). This legacy ChatService
         # path stays provider_id/model_id based and does not support vision.
         collected_content = ""
+        stream_message_id = None
         try:
             async for chunk in chat_service.chat_stream(
                 db, payload.conversation_id, messages_list, prov_id, mod_id, temp, top_p, max_t, system_prompt
@@ -413,7 +426,9 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
                 try:
                     if chunk.startswith("data: "):
                         data = json.loads(chunk[6:].strip())
-                        if data.get("type") == "chunk" and data.get("content"):
+                        if data.get("type") == "start" and data.get("message_id"):
+                            stream_message_id = data["message_id"]
+                        elif data.get("type") == "chunk" and data.get("content"):
                             collected_content += data["content"]
                 except (json.JSONDecodeError, AttributeError):
                     pass
@@ -423,7 +438,10 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
 
         # BUG-11 FIX: If chat_service.chat_stream didn't persist (e.g. session
         # lifecycle issue), ensure messages are saved with a dedicated session.
-        if collected_content:
+        # Gate on the `start` event: chat_stream persists the user + assistant
+        # messages itself once it reaches `start` (a rewrite pass may change the
+        # persisted content, so a content-based dedup check would double-persist).
+        if collected_content and not stream_message_id:
             try:
                 from backend.database.session import AsyncSessionLocal
                 from datetime import datetime, timezone

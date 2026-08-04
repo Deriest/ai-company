@@ -194,5 +194,10 @@ async def websocket_endpoint(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
     except WebSocketDisconnect:
-        manager.disconnect(websocket, channel, user_id)
         logger.info(f"WebSocket disconnected: channel={channel}")
+    except Exception as e:
+        # M14: json.loads / connect / send can raise non-WebSocketDisconnect
+        # errors — the socket must still be removed from the manager.
+        logger.warning(f"WebSocket error on channel={channel}: {e}")
+    finally:
+        manager.disconnect(websocket, channel, user_id)

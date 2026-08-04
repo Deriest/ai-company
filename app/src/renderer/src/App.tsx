@@ -38,7 +38,6 @@ export function App() {
   const [projectName, setProjectName] = useState<string | null>(null);
   const [showFileTree, setShowFileTree] = useState(true);
   const [newSessionSignal, setNewSessionSignal] = useState(0);
-  const paletteRef = useRef<React.Dispatch<React.SetStateAction<boolean>>>(undefined);
 
   // Load profile on mount
   useEffect(() => {
@@ -71,12 +70,10 @@ export function App() {
     }
   };
 
-  const boot = useBoot({
-    onViewChange: setView,
-    onOpenPalette: useCallback(() => paletteRef.current?.(true), []),
+const boot = useBoot({
+    onViewChange: useCallback((v: View) => setView(v), []),
     restoreRef,
   });
-  paletteRef.current = setPaletteOpen;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -198,9 +195,6 @@ export function App() {
         onViewChange={(v: string) => setView(v as View)}
         setSettingsTab={setSettingsTab as unknown as (tab: string) => void}
         profile={profile}
-        health={boot.health === "ok" ? "ok" : "bad"}
-        modelLabel={boot.modelLabel || "No model configured"}
-        alertCount={0}
         projectRoot={projectRoot}
         onFileSelect={handleFileSelect}
         onProjectChange={handleProjectChange}

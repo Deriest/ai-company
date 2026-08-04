@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey, Float, JSON
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, JSON
 from sqlalchemy.sql import func
 from backend.database.session import Base
 import uuid

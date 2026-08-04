@@ -7,7 +7,6 @@ import type { UpdateStateDto, View, BootPhase, RestoredState } from "../types";
 
 export interface UseBootOptions {
   onViewChange: (view: View) => void;
-  onOpenPalette: () => void;
   restoreRef: React.MutableRefObject<((stored: RestoredState) => void) | undefined>;
 }
 
@@ -45,7 +44,7 @@ export interface BootState {
 }
 
 export function useBoot(opts: UseBootOptions): BootState {
-  const { onViewChange, onOpenPalette, restoreRef } = opts;
+  const { onViewChange, restoreRef } = opts;
 
   const [bootPhase, setBootPhase] = useState<BootPhase>("launching");
   const [bootDetail, setBootDetail] = useState("Starting local engine…");
@@ -201,10 +200,8 @@ export function useBoot(opts: UseBootOptions): BootState {
 
       setBootPhase("loading_workspace");
       setBootDetail(root ? `Workspace: ${root}` : "No project folder yet");
-      await new Promise((r) => setTimeout(r, 120));
       setBootPhase("loading_skills");
       setBootDetail("Preparing skills and workforce…");
-      await new Promise((r) => setTimeout(r, 80));
       bootDone.current = true;
       setBootPhase("ready");
       setBootDetail("Ready");
@@ -214,23 +211,15 @@ export function useBoot(opts: UseBootOptions): BootState {
     });
   }, [engineUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Update / navigation / palette listeners ────────────────────
+  // ── Update listeners ───────────────────────────────────────────
   useEffect(() => {
     if (!window.aic?.onUpdateStateChanged) return;
     const off = window.aic.onUpdateStateChanged((s) => setUpdateState(s));
     void window.aic.updateGetState?.().then((s) => s && setUpdateState(s));
-    const offNav = window.aic.onNavigate?.((v) => {
-      if (v) onViewChange(v as View);
-    });
-    const offPalette = window.aic.onCommandPalette?.(() => onOpenPalette());
-    const offUpdateOpen = window.aic.onUpdateOpen?.(() => setUpdateDialogOpen(true));
     return () => {
       off?.();
-      offNav?.();
-      offPalette?.();
-      offUpdateOpen?.();
     };
-  }, [onViewChange, onOpenPalette]);
+  }, []);
 
   // ── Health interval ────────────────────────────────────────────
   useEffect(() => {

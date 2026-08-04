@@ -5,15 +5,27 @@ Document loading, chunking, embedding, retrieval, and context building.
 Uses in-memory cosine similarity for vector search (no external vector DB dependency).
 """
 
+import asyncio
 import math
 import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from storage.models import Document, DocumentChunk
-from backend.services.embedding_provider import embed_texts, embed_single
+from backend.services.embedding_provider import embed_single, embed_texts
 
 logger = logging.getLogger(__name__)
+
+# PERF-FIX: numpy vectorized scoring when available (venv has numpy 2.x).
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:  # pragma: no cover — packaged Python may omit numpy
+    np = None
+    _HAS_NUMPY = False
+
+# Cap the number of chunks scanned per retrieval (full-table scan guard).
+_SCAN_LIMIT = 2000
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -23,6 +35,21 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def _cosine_similarities_vectorized(query: list[float], embeddings: list[list[float]]) -> list[float]:
+    """Vectorized cosine similarity (numpy) — one pass instead of a Python loop."""
+    q = np.asarray(query, dtype=np.float64)
+    m = np.asarray(embeddings, dtype=np.float64)
+    if m.shape[0] == 0:
+        return []
+    q_norm = np.linalg.norm(q)
+    if q_norm == 0:
+        return [0.0] * m.shape[0]
+    m_norm = np.linalg.norm(m, axis=1)
+    denom = m_norm * q_norm
+    denom[denom == 0] = 1.0  # avoid division by zero
+    return (m @ q / denom).tolist()
 
 
 class RAGService:
@@ -55,9 +82,12 @@ class RAGService:
         doc.status = "embedding"
         await db.commit()
 
-        # Embed each chunk
-        for i, chunk_text in enumerate(chunks):
-            embedding = embed_single(chunk_text)
+        # Embed each chunk — batch in a single thread offload (P1 #10: embed_*
+        # is sync and may load a model / run a blocking probe). One to_thread
+        # dispatch avoids N interleaved await points against the DB session.
+        for i, (chunk_text, embedding) in enumerate(
+            zip(chunks, await asyncio.to_thread(embed_texts, chunks))
+        ):
             chunk = DocumentChunk(
                 document_id=doc.id,
                 chunk_index=i,
@@ -111,16 +141,26 @@ class RAGService:
         db: AsyncSession, query: str, top_k: int = 5
     ) -> list[dict]:
         """Retrieve top-k most similar chunks to the query."""
-        query_embedding = embed_single(query)
+        # P1 #10: embed_single is sync — run in a thread to avoid blocking the loop.
+        query_embedding = await asyncio.to_thread(embed_single, query)
 
-        res = await db.execute(select(DocumentChunk))
+        # PERF-FIX: cap the scan (full-table guard) and use numpy vectorized
+        # scoring instead of a pure-Python cosine loop over every chunk.
+        res = await db.execute(
+            select(DocumentChunk).order_by(DocumentChunk.created_at.desc()).limit(_SCAN_LIMIT)
+        )
         all_chunks = res.scalars().all()
 
         scored = []
-        for chunk in all_chunks:
-            if chunk.embedding:
-                sim = _cosine_similarity(query_embedding, chunk.embedding)
-                scored.append((sim, chunk))
+        if all_chunks:
+            embedded_chunks = [c for c in all_chunks if c.embedding]
+            if embedded_chunks:
+                embeddings = [c.embedding for c in embedded_chunks]
+                if _HAS_NUMPY:
+                    sims = _cosine_similarities_vectorized(query_embedding, embeddings)
+                else:  # pragma: no cover — pure-Python fallback
+                    sims = [_cosine_similarity(query_embedding, e) for e in embeddings]
+                scored = list(zip(sims, embedded_chunks))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 

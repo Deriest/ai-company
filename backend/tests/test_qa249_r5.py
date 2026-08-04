@@ -28,7 +28,7 @@ class TestTruncateLogic:
         """240k conversation SHOULD be truncated if max_tokens is 183k."""
         messages = [
             {"role": "system", "content": "system prompt"},
-            *[{"role": "user", "content": "x" * 4000} for _ in range(60)],  # ~240k tokens
+            *[{"role": "user", "content": "x" * 13000} for _ in range(60)],  # ~195k tokens (780k chars / 4)
         ]
         estimated = estimate_tokens(messages)
         max_tokens = 183000
@@ -67,6 +67,9 @@ class TestUpstream400Handling:
                 mock_stream_ctx = AsyncMock()
                 mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
                 mock_stream_ctx.__aexit__ = AsyncMock()
+                # Default async-mock child would turn client.stream into a coroutine;
+                # make the client a plain MagicMock so stream() returns the context mock.
+                mock_client.return_value.__aenter__.return_value = MagicMock()
                 mock_client.return_value.__aenter__.return_value.stream.return_value = mock_stream_ctx
                 
                 # Execute
@@ -118,6 +121,9 @@ class TestUpstream400Handling:
                 mock_stream_ctx = AsyncMock()
                 mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
                 mock_stream_ctx.__aexit__ = AsyncMock()
+                # Default async-mock child would turn client.stream into a coroutine;
+                # make the client a plain MagicMock so stream() returns the context mock.
+                mock_client.return_value.__aenter__.return_value = MagicMock()
                 mock_client.return_value.__aenter__.return_value.stream.return_value = mock_stream_ctx
                 
                 result_chunks = []

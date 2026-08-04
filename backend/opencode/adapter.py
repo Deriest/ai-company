@@ -74,6 +74,7 @@ class OpenCodeAdapter(BaseWorker):
 
         logger.info(f"OpenCode exec: {' '.join(cmd)}")
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -109,6 +110,13 @@ class OpenCodeAdapter(BaseWorker):
                 )
 
         except asyncio.TimeoutError:
+            # FIX: kill the orphaned OpenCode subprocess so it does not keep running.
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
             logger.error(f"OpenCode timed out after {self.timeout}s")
             return WorkerResult(
                 success=False,
@@ -123,6 +131,7 @@ class OpenCodeAdapter(BaseWorker):
 
     async def _collect_changes(self, repo_path: str) -> list[str]:
         """Collect list of changed files via git diff."""
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git", "diff", "--name-only", "HEAD",
@@ -132,6 +141,15 @@ class OpenCodeAdapter(BaseWorker):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
             return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
+        except asyncio.TimeoutError:
+            # FIX: kill the orphaned git subprocess.
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            return []
         except Exception:
             return []
 

@@ -25,19 +25,20 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
     - Query parameter types
     """
     
-    # 2. Check request body size (max 10MB)
+    # 2. Check request body size (max 70MB — must accommodate 50MB attachments
+    #    × 4/3 base64 expansion + JSON overhead; UI allows 20MB/file, 50MB total)
     if request.method in ("POST", "PUT", "PATCH"):
         content_length = request.headers.get("content-length")
         if content_length:
             try:
                 size = int(content_length)
-                if size > 10 * 1024 * 1024:  # 10MB
+                if size > 70 * 1024 * 1024:  # 70MB
                     return JSONResponse(
                         status_code=413,
                         content={
                             "detail": "Request body too large",
                             "type": "ValidationError",
-                            "max_size": "10MB"
+                            "max_size": "70MB"
                         }
                     )
             except ValueError:

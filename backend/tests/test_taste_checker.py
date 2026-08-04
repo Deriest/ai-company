@@ -158,9 +158,15 @@ class TestHasAiSlop:
         assert has_ai_slop(text) is False
 
     def test_threshold(self):
+        # Single word-level AI-isms ("crucial", "leverage", "comprehensive") are
+        # demoted to medium — they must NOT trigger high-slop at threshold=1.
         text = "This is crucial for the system."
-        assert has_ai_slop(text, threshold=1) is True
+        assert has_ai_slop(text, threshold=1) is False
         assert has_ai_slop(text, threshold=5) is False
+
+        # 2+ distinct word-level AI-isms ARE promoted to high and do trigger.
+        heavy = "This is crucial and comprehensive for the system."
+        assert has_ai_slop(heavy, threshold=1) is True
 
 
 class TestBUG20GreetingAIisms:

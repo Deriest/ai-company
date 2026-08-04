@@ -748,7 +748,14 @@ class TestingWorker(BaseWorker):
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "-m", "pytest", "--tb=short", "-q",
                     cwd=repo_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                try:
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                except asyncio.TimeoutError:
+                    # H2: kill the timed-out subprocess so it doesn't leak as an orphan.
+                    proc.kill()
+                    stdout, _ = await proc.communicate()
+                    tests_passed = False
+                    output_lines.append(f"\n**FAILED** — pytest timed out after 120s (process killed)")
                 output_lines.append(f"```\n{stdout.decode()}\n```")
                 if proc.returncode != 0:
                     tests_passed = False
@@ -761,7 +768,14 @@ class TestingWorker(BaseWorker):
                     proc = await asyncio.create_subprocess_exec(
                         npm_path, "test", "--", "--watchAll=false",
                         cwd=repo_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                    try:
+                        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+                    except asyncio.TimeoutError:
+                        # H2: kill the timed-out subprocess so it doesn't leak as an orphan.
+                        proc.kill()
+                        stdout, _ = await proc.communicate()
+                        tests_passed = False
+                        output_lines.append(f"\n**FAILED** — npm test timed out after 120s (process killed)")
                     output_lines.append(f"```\n{stdout.decode()}\n```")
                     if proc.returncode != 0:
                         tests_passed = False

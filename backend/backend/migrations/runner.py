@@ -4,10 +4,19 @@ Tracks applied migrations in a schema_migrations table.
 """
 
 import logging
+import re
 from sqlalchemy import text
 from backend.database.session import engine
 
 logger = logging.getLogger(__name__)
+
+# H10: parse "ALTER TABLE <table> ADD COLUMN <column>" statements so a
+# duplicate-column error can be verified against the real schema before the
+# migration is marked applied.
+_ADD_COLUMN_RE = re.compile(
+    r"ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+COLUMN\s+([^\s]+)",
+    re.IGNORECASE,
+)
 
 MIGRATIONS = [
     {
@@ -188,6 +197,37 @@ async def get_applied_versions() -> set:
         return {row[0] for row in result.fetchall()}
 
 
+async def _columns_exist(conn, table: str, columns: list[str]) -> bool:
+    """Verify every column actually exists on the table (H10)."""
+    try:
+        result = await conn.execute(text(f"PRAGMA table_info({table})"))
+        rows = result.fetchall()
+    except Exception:
+        return False
+    existing = {row[1] for row in rows}
+    return all(col in existing for col in columns)
+
+
+async def _verify_alter_columns(up_sql: str) -> bool:
+    """Check that every ALTER TABLE ADD COLUMN in the migration is present.
+
+    H10: on a "duplicate column" error the transaction may have rolled back,
+    so a sibling statement in the same migration could have failed while the
+    reported error was unrelated. Only mark applied once the columns are real.
+    """
+    alters = _ADD_COLUMN_RE.findall(up_sql)
+    if not alters:
+        return True  # no ADD COLUMN statements to verify
+    async with engine.begin() as conn:
+        for table, column in alters:
+            if not await _columns_exist(conn, table, [column]):
+                logger.warning(
+                    f"Migration verification failed: column {column} missing from {table}"
+                )
+                return False
+    return True
+
+
 async def run_migrations():
     """Run all pending migrations."""
     applied = await get_applied_versions()
@@ -211,11 +251,18 @@ async def run_migrations():
             logger.info(f"  Applied: {migration['description']}")
         except Exception as e:
             if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
-                logger.info(f"  Skipped (already applied): {migration['name']}")
-                async with engine.begin() as conn:
-                    await conn.execute(text(
-                        "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (:v, :n)"
-                    ), {"v": migration["version"], "n": migration["name"]})
+                # H10: only mark applied after verifying the columns actually
+                # exist — the reported error may mask a different failure in
+                # the same transaction (which was rolled back).
+                if await _verify_alter_columns(migration["up"]):
+                    logger.info(f"  Skipped (already applied): {migration['name']}")
+                    async with engine.begin() as conn:
+                        await conn.execute(text(
+                            "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (:v, :n)"
+                        ), {"v": migration["version"], "n": migration["name"]})
+                else:
+                    logger.error(f"  Failed: {e}")
+                    raise
             else:
                 logger.error(f"  Failed: {e}")
                 raise

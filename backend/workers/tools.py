@@ -207,8 +207,12 @@ class ToolExecutor:
         try:
             full_path = self._resolve_path(path)
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                # FIX: seek by BYTES previously — the schema documents offset as
+                # a LINE offset. Skip lines like tool_executor.run_shell does so
+                # both executors agree (offset=0 → from the top).
                 if offset > 0:
-                    f.seek(offset)
+                    for _ in range(offset):
+                        f.readline()
                 content = f.read(limit * 80)  # ~80 chars per line avg
                 lines = content.split("\n")
                 total_lines = len(lines)

@@ -1,6 +1,17 @@
 import { apiClient } from "./client";
 import { MessageRecord } from "./conversations";
 
+// PERF-FIX: cache the backend port after the first IPC round-trip so every
+// stream call doesn't pay a getBackendStatus IPC hop.
+let cachedBackendPort: number | null = null;
+
+async function getBackendPort(): Promise<number> {
+  if (cachedBackendPort !== null) return cachedBackendPort;
+  const port = await (window as any).aic?.getBackendStatus()?.then((s: any) => s.port).catch(() => 8000) || 8000;
+  cachedBackendPort = port;
+  return port;
+}
+
 /** Structured tool call from backend SSE events */
 export interface ToolCallData {
   id: string;
@@ -120,7 +131,7 @@ export const chatApi = {
     },
     callbacks: StreamCallbacks,
   ): Promise<() => void> {
-    const port = await (window as any).aic?.getBackendStatus()?.then((s: any) => s.port).catch(() => 8000) || 8000;
+    const port = await getBackendPort();
     const url = `http://127.0.0.1:${port}/chat/stream`;
     const ac = new AbortController();
 
@@ -248,7 +259,7 @@ export const chatApi = {
     onDone: (intent: string) => void;
     onError: (error: string) => void;
   }): Promise<() => void> {
-    const port = await (window as any).aic?.getBackendStatus()?.then((s: any) => s.port).catch(() => 8000) || 8000;
+    const port = await getBackendPort();
     const url = `http://127.0.0.1:${port}/chat/execute`;
     const ac = new AbortController();
 
@@ -258,6 +269,18 @@ export const chatApi = {
       body: JSON.stringify(payload),
       signal: ac.signal,
     }).then(async (res) => {
+      // QA-HARDENING: surface non-2xx responses (e.g. 413 body too large)
+      // via onError instead of silently parsing the JSON error body as SSE
+      // and firing an empty onDone.
+      if (!res.ok) {
+        let detail = `Request failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.detail) detail = String(body.detail);
+        } catch { /* non-JSON error body */ }
+        callbacks.onError(detail);
+        return;
+      }
       if (!res.body) throw new Error("No body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

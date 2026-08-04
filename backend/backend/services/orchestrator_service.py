@@ -486,7 +486,9 @@ class OrchestratorService:
             model_id=worker.model_id,
             temperature=worker.temperature,
             top_p=worker.top_p,
-            max_output_tokens=worker.max_output_tokens,
+            # FIX: chat_completion's signature is max_tokens=, not max_output_tokens=.
+            # Passing max_output_tokens raised TypeError and killed every batch task.
+            max_tokens=worker.max_output_tokens,
             system_prompt=worker.system_prompt,
         )
 

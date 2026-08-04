@@ -28,8 +28,3 @@ def truncate_content(content, limit: int) -> str:
     """Normalize then truncate content to a character limit."""
     text = content_to_text(content)
     return text[:limit]
-
-
-def content_length(content) -> int:
-    """Estimate text length of content (string or multimodal list)."""
-    return len(content_to_text(content))

@@ -51,7 +51,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   let res: Response;
   try {
     res = await fetch(url, options);
-  } catch (err) {
+  } catch {
     // Try to get backend status for better error message
     let backendInfo = "";
     try {

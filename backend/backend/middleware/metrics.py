@@ -6,6 +6,7 @@ average response times.  Exposes a GET /metrics JSON endpoint.
 """
 
 import time
+import re
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -35,19 +36,33 @@ _start_time: float = time.time()
 _global = EndpointStats()
 _endpoints: dict[str, EndpointStats] = defaultdict(EndpointStats)
 
+# M1: normalize dynamic path segments (UUIDs / long hex ids) to a route
+# pattern so every distinct resource id doesn't add a permanent entry.
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+_HEX_ID_RE = re.compile(r"\b[0-9a-f]{12,}\b", re.IGNORECASE)
+# Hard cap so a long-tail of distinct routes can never grow unbounded.
+_MAX_ENDPOINTS = 500
+
+
+def _normalize_path(path: str) -> str:
+    return _HEX_ID_RE.sub("{id}", _UUID_RE.sub("{id}", path))
+
 
 # ── Public API ─────────────────────────────────────────────────
 
 
 def record(method: str, path: str, status_code: int, duration_ms: float):
     """Record a completed request into the in-memory store."""
-    key = f"{method} {path}"
+    key = f"{method} {_normalize_path(path)}"
     with _lock:
         _global.request_count += 1
         _global.total_latency_ms += duration_ms
         if status_code >= 400:
             _global.error_count += 1
 
+        # M1: cap the per-endpoint map so it never grows unbounded.
+        if key not in _endpoints and len(_endpoints) >= _MAX_ENDPOINTS:
+            return
         ep = _endpoints[key]
         ep.request_count += 1
         ep.total_latency_ms += duration_ms

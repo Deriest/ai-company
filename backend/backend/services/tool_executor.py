@@ -126,6 +126,7 @@ class WorkerToolExecutor:
     
     async def run_shell(self, command: str, timeout: int = 30) -> ToolResult:
         """Execute shell command."""
+        proc = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -144,6 +145,13 @@ class WorkerToolExecutor:
                 metadata={"command": command, "exit_code": proc.returncode}
             )
         except asyncio.TimeoutError:
+            # FIX: kill the orphaned subprocess so it does not keep running.
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
             return ToolResult(tool="run_shell", success=False, output="", error=f"Command timed out after {timeout}s")
         except Exception as e:
             return ToolResult(tool="run_shell", success=False, output="", error=str(e))

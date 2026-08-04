@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Upload, Search, Trash2, RefreshCw, FileText, BookOpen, X } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
-import { cn } from '../lib/utils'
 import {
   ragApi,
   type RagDocumentRecord,

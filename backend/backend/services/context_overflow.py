@@ -106,6 +106,20 @@ async def handle_overflow(
         recent = messages[-5:]
         old_messages = messages[1:-5]
 
+        # FIX: OpenAI 400 — `tool` messages must be preceded by an assistant
+        # message carrying tool_calls. If the kept window contains tool results,
+        # drag the nearest preceding assistant(tool_calls) message into the
+        # window (and out of the summarized block) so the pairing is preserved.
+        if any(m.get("role") == "tool" for m in recent):
+            idx = len(messages) - 6  # index just before the kept window
+            while idx >= 1:
+                prev = messages[idx]
+                if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                    recent = [prev] + recent
+                    old_messages = [m for m in old_messages if m is not prev]
+                    break
+                idx -= 1
+
         summary = await summarize_messages(old_messages, provider)
         condensed = [
             system,
@@ -151,54 +165,17 @@ async def handle_overflow(
     # Reserve ~100 tokens per message as a rough heuristic.
     keep = max(3, max_tokens // 100)
     truncated = messages[-keep:]
+    # FIX: keep tool messages paired with their assistant(tool_calls) message.
+    if any(m.get("role") == "tool" for m in truncated):
+        idx = len(messages) - keep - 1
+        while idx >= 1:
+            prev = messages[idx]
+            if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                truncated = [prev] + truncated
+                break
+            idx -= 1
     logger.warning(
         f"Strategy 'keep_recent' applied: keeping last {len(truncated)} of "
         f"{len(messages)} messages ({total_tokens} -> {estimate_tokens(truncated)} tokens)"
     )
     return truncated, "keep_recent"
-
-
-async def auto_split_task(
-    task_description: str,
-    provider: "LLMProvider",
-) -> list[str]:
-    """Split a large task into smaller subtasks using the LLM.
-
-    Returns a list of 3-5 subtask descriptions.  Falls back to a
-    single-element list containing the original task on failure.
-    """
-    try:
-        result = await provider.chat(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a task decomposition assistant. "
-                        "Break the given task into 3-5 smaller, independent subtasks "
-                        "that can be executed sequentially. "
-                        "Return ONLY a JSON array of strings, e.g. "
-                        '["subtask 1", "subtask 2", "subtask 3"].'
-                    ),
-                },
-                {"role": "user", "content": task_description},
-            ],
-            tier="sprinter",
-            temperature=0.3,
-            max_tokens=1024,
-            purpose="task_split",
-        )
-        content = result.get("content", "").strip()
-
-        # Try to parse JSON array from the response
-        import json
-        # Find the first '[' and last ']'
-        start = content.find("[")
-        end = content.rfind("]")
-        if start != -1 and end != -1:
-            subtasks = json.loads(content[start : end + 1])
-            if isinstance(subtasks, list) and len(subtasks) >= 2:
-                return [str(s) for s in subtasks]
-    except Exception as e:
-        logger.warning(f"Task splitting failed: {e}")
-
-    return [task_description]

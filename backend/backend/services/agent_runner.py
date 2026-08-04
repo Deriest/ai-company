@@ -3,7 +3,6 @@
 This is the key innovation: workers actually READ files, WRITE code,
 RUN tests, SEARCH codebases — not just chat.
 """
-import asyncio
 import json
 import base64
 import shlex
@@ -12,7 +11,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 import logging
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_tools_for_worker, check_permission
 from backend.services.context_builder import ContextBuilder, get_context_policy
 from backend.services.context_overflow import estimate_tokens, handle_overflow
@@ -23,6 +22,43 @@ logger = logging.getLogger("aic.agent_runner")
 
 # Maximum allowed size for an image attachment (data_url string length).
 IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+# Maximum tool-output length fed back to the LLM, and the ceiling for any
+# shell timeout the model may request (prevents timeout: 999999).
+TOOL_OUTPUT_LIMIT = 5000
+MAX_SHELL_TIMEOUT = 120
+
+
+def _truncate_output(text: str, limit: int = TOOL_OUTPUT_LIMIT) -> str:
+    """Truncate output with a marker so the agent knows how to page further."""
+    if text is None:
+        return ""
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n…(truncated, {len(text)} chars — use offset/limit to page)"
+
+
+def _format_tool_result(tool_result) -> str:
+    """Format a tool result for LLM feedback, always including output + exit code + error.
+
+    FIX: a failing command that writes diagnostics to stdout (with empty stderr)
+    previously surfaced as "Error: None" — the agent saw no signal. Now the output
+    is always included alongside the exit code and error.
+    """
+    output = (tool_result.output or "") if tool_result.output else ""
+    error = (tool_result.error or "").strip() if tool_result.error else ""
+    exit_code = (tool_result.metadata or {}).get("exit_code")
+    if tool_result.success:
+        return _truncate_output(output)
+    parts = []
+    if output:
+        parts.append(output)
+    if exit_code is not None:
+        parts.append(f"[exit {exit_code}]")
+    if error:
+        parts.append(f"Error: {error}")
+    return _truncate_output("\n".join(parts))
 
 
 async def _get_mcp_tools_for_agent(db) -> list[dict]:
@@ -162,6 +198,26 @@ class AgentRunner:
 
         policy = get_context_policy(model_tier)
 
+        # FIX: inject durable project memories so the agent does not start from
+        # zero every run (mirrors conversation/engine.py memory retrieval).
+        if db:
+            try:
+                from backend.memory_engine import retrieve_project_memories
+                memories = await retrieve_project_memories(db, query=prompt, limit=5)
+                if memories:
+                    memory_lines = []
+                    for m in memories:
+                        key = m.get("key", "")
+                        val = m.get("value")
+                        if isinstance(val, dict):
+                            val = val.get("content", json.dumps(val, default=str))
+                        memory_lines.append(f"- {key}: {val}")
+                    memory_context = "\n\n## Relevant project memories\n" + "\n".join(memory_lines)
+                    system_prompt = f"{system_prompt}{memory_context}"
+                    logger.info(f"Injected {len(memories)} project memories for worker '{worker_type}'")
+            except Exception as e:
+                logger.debug(f"Memory retrieval failed: {e}")
+
         # Build context using context builder with policy and plugin skills
         ctx, policy = await self.context_builder.build_context(
             worker_type=worker_type,
@@ -236,7 +292,9 @@ class AgentRunner:
             "write_file": lambda a: self.executor.write_file(a.get("path", ""), a.get("content", "")),
             "list_directory": lambda a: self.executor.list_directory(a.get("path", ".")),
             "search_files": lambda a: self.executor.search_files(a.get("pattern", ""), a.get("path", "."), a.get("file_pattern", "*")),
-            "run_shell": lambda a: self.executor.run_shell(a.get("command", ""), a.get("timeout", 30)),
+            # FIX: clamp the model-supplied timeout so a runaway `timeout: 999999`
+            # cannot pin a subprocess forever.
+            "run_shell": lambda a: self.executor.run_shell(a.get("command", ""), min(int(a.get("timeout", 30) or 30), MAX_SHELL_TIMEOUT)),
             "mcp_call": lambda a: self.executor.mcp_call(a.get("tool_name", ""), a.get("arguments", {})),
         }
 
@@ -314,7 +372,13 @@ class AgentRunner:
                 logger.warning(f"Plugin runtime injection failed: {e}")
         
         all_tool_results = []
-        
+
+        # FIX: stuck-loop detection — track identical (tool, args) signatures.
+        call_signatures: dict[str, int] = {}
+        loop_warned = False
+        # FIX: self-check — ask the model to verify before finishing exactly once.
+        verify_prompted = False
+
         for iteration in range(max_iterations):
             # ── Overflow guard ──────────────────────────────────────
             # Check estimated tokens against the policy budget and
@@ -370,8 +434,22 @@ class AgentRunner:
             if content:
                 yield {"type": "content", "content": content}
             
-            # If no tool calls, we're done
+            # If no tool calls, we're done — unless we haven't asked for a final
+            # self-check verification yet (FIX: verify step before finishing).
             if not tool_calls:
+                if not verify_prompted:
+                    verify_prompted = True
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "Before finishing, verify your work: run any relevant tests or "
+                            "syntax checks (e.g. `pytest`, `tsc --noEmit`, `python -m py_compile`) "
+                            "using the available tools. If checks pass or you confirm the changes "
+                            "are correct, provide your final answer."
+                        ),
+                    })
+                    yield {"type": "status", "message": "Requesting self-check verification before final answer"}
+                    continue
                 yield {"type": "done", "iterations": iteration + 1, "tool_results": all_tool_results, "deliverables": collector.get_summary().to_dict()}
                 return
             
@@ -410,7 +488,7 @@ class AgentRunner:
                 all_tool_results.append({
                     "tool": fn_name,
                     "success": tool_result.success,
-                    "output": tool_result.output[:5000],
+                    "output": _truncate_output(tool_result.output),
                     "error": tool_result.error,
                     "metadata": tool_result.metadata,
                 })
@@ -419,7 +497,7 @@ class AgentRunner:
                 collector.record_tool_result(
                     tool=fn_name,
                     success=tool_result.success,
-                    output=tool_result.output[:5000],
+                    output=_truncate_output(tool_result.output),
                     error=tool_result.error or "",
                     args=args,
                 )
@@ -429,19 +507,39 @@ class AgentRunner:
                     "type": "tool_result",
                     "tool": fn_name,
                     "success": tool_result.success,
-                    "output": tool_result.output[:5000],
+                    "output": _truncate_output(tool_result.output),
                     "error": tool_result.error,
                     "metadata": tool_result.metadata,
                     "call_id": call_id,
                 }
                 
-                # Add tool result to messages
-                tool_content = tool_result.output[:5000] if tool_result.success else f"Error: {tool_result.error}"
+                # Add tool result to messages (always include output + exit code + error)
+                tool_content = _format_tool_result(tool_result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call_id,
                     "content": tool_content,
                 })
+
+                # Stuck-loop detection (FIX): after 3 identical (tool, args)
+                # repeats, inject a "stop and summarize" nudge once.
+                try:
+                    sig = f"{fn_name}:{json.dumps(args, sort_keys=True, default=str)}"
+                except Exception:
+                    sig = f"{fn_name}:unserializable"
+                call_signatures[sig] = call_signatures.get(sig, 0) + 1
+                if call_signatures[sig] >= 3 and not loop_warned:
+                    loop_warned = True
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "You appear to be looping: you have repeated the same tool call "
+                            "3 times with identical arguments. Stop repeating the same action — "
+                            "analyze the previous result, change your approach, and summarize "
+                            "your findings."
+                        ),
+                    })
+                    yield {"type": "warning", "message": "Detected repeated identical tool calls — prompting the agent to stop looping"}
         
         yield {"type": "done", "iterations": max_iterations, "note": "Max iterations reached", "tool_results": all_tool_results, "deliverables": collector.get_summary().to_dict()}
 

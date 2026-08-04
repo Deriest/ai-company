@@ -11,7 +11,6 @@ import {
   FolderTree,
   ChevronDown,
   ChevronRight,
-  Command,
   GitBranch,
 } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -36,9 +35,6 @@ export function AppShell({
   children,
   view = "home",
   onViewChange,
-  health = "ok",
-  modelLabel = "OC/MIMO-V2.5-FREE",
-  alertCount = 4,
   profile,
   setSettingsTab,
   projectRoot,
@@ -48,16 +44,12 @@ export function AppShell({
   children: React.ReactNode;
   view?: string;
   onViewChange?: (v: string) => void;
-  health?: string;
-  modelLabel?: string;
-  alertCount?: number;
   profile?: LocalProfile | null;
   setSettingsTab?: (tab: string) => void;
   projectRoot?: string | null;
   onFileSelect?: (path: string) => void;
   onProjectChange?: (project: ProjectRecord | null) => void;
 }) {
-  const connected = health === "ok";
   const [menuOpen, setMenuOpen] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useState(true);

@@ -27,30 +27,6 @@ export type WorkerRuntimeConfig = {
   metrics?: WorkerMetrics;
 };
 
-// Backend DTO
-interface WorkerRuntimeResponse {
-  id: string;
-  role: string;
-  label: string;
-  description: string;
-  systemPrompt: string;
-  provider_id: string | null;
-  model_id: string | null;
-  temperature: number;
-  top_p: number;
-  max_output_tokens: number | null;
-  isEnabled: boolean;
-  metrics?: {
-    role: string;
-    totalExecutions: number;
-    completed: number;
-    errors: number;
-    avgLatencyMs: number;
-    lastExecutedAt?: string;
-    currentlyRunning: boolean;
-  };
-}
-
 export const DEFAULT_WORKER_ROLES = [
   { role: "thinker", label: "Thinker", description: "Planning · Reasoning · Long context" },
   { role: "crafter", label: "Crafter", description: "Implementation · Coding" },

@@ -113,7 +113,7 @@ export function MCPView() {
   const handleConnect = async (serverId: string) => {
     setError(null)
     try {
-      const result = await mcpApi.connectServer(serverId)
+      await mcpApi.connectServer(serverId)
       await loadServers()
       await loadTools(serverId)
     } catch (e: unknown) {

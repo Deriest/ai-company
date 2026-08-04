@@ -154,7 +154,7 @@ export const providersApi = {
     return p.models || [];
   },
 
-  async fetchModelsAndUpdate(id: string, endpoint: string): Promise<ProviderRecord> {
+  async fetchModelsAndUpdate(id: string): Promise<ProviderRecord> {
     const data = await apiClient.post<ProviderWithModelsResponse>(`/providers/${id}/fetch-models`);
     return mapProvider(data);
   },

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Cpu, Download, FolderOpen,
-  Bug, Save, Trash2,
 } from 'lucide-react'
 import { Card, PageHeader } from './kit'
 import { cn } from '../lib/utils'
@@ -13,7 +12,7 @@ import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/pr
 
 const tabs = [
   'General', 'Workspace', 'Providers',
-  'Updates', 'Developer', 'Auto Save',
+  'Updates',
 ] as const
 export type SettingsTab = (typeof tabs)[number]
 type Tab = SettingsTab
@@ -232,7 +231,7 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
       for (const p of currentProviders) {
         try {
           // fetchModelsAndUpdate returns the updated provider record directly
-          const updated = await providersApi.fetchModelsAndUpdate(p.id, p.endpoint)
+          const updated = await providersApi.fetchModelsAndUpdate(p.id)
           pList.push(updated)
         } catch (e) {
           console.error('Fetch models failed for', p.name, e)
@@ -274,7 +273,7 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
       }))
 
       const p = providers.find(x => x.name === thinkerProvider) || providers[0]
-      const res = await providerManageApi.updateEnvConfig({
+      await providerManageApi.updateEnvConfig({
         provider_name: p?.name || '',
         base_url: p?.endpoint || '',
         api_key: p?.apiKey || '',
@@ -488,143 +487,6 @@ function UpdatesTab() {
   )
 }
 
-/* ─── Developer Tab ─── */
-
-function DeveloperTab() {
-  const [debugMode, setDebugMode] = useState(false)
-  const [logLevel, setLogLevel] = useState('info')
-  const [showDevTools, setShowDevTools] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    const saved = localStorage.getItem('aic-ade-developer')
-    if (saved) {
-      const s = JSON.parse(saved)
-      if (s.debugMode !== undefined) setDebugMode(s.debugMode)
-      if (s.logLevel) setLogLevel(s.logLevel)
-      if (s.showDevTools !== undefined) setShowDevTools(s.showDevTools)
-    }
-  }, [])
-
-  const save = () => {
-    localStorage.setItem('aic-ade-developer', JSON.stringify({ debugMode, logLevel, showDevTools }))
-    setSaved(true); setTimeout(() => setSaved(false), 2000)
-  }
-
-  const clearCache = () => {
-    localStorage.removeItem('aic-ade-settings')
-    localStorage.removeItem('aic-ade-memory')
-    localStorage.removeItem('aic-ade-developer')
-    localStorage.removeItem('aic-ade-settings-tab')
-  }
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Bug className="size-5" /> Developer
-        </h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">Debug Mode</label>
-              <p className="text-xs text-muted-foreground">Enable verbose logging and diagnostics</p>
-            </div>
-            <button onClick={() => setDebugMode(!debugMode)}
-              className={cn('relative h-5 w-9 rounded-full transition-colors', debugMode ? 'bg-primary' : 'bg-muted')}>
-              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', debugMode ? 'left-4' : 'left-0.5')} />
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">Show Developer Tools</label>
-              <p className="text-xs text-muted-foreground">Open Electron DevTools on startup</p>
-            </div>
-            <button onClick={() => setShowDevTools(!showDevTools)}
-              className={cn('relative h-5 w-9 rounded-full transition-colors', showDevTools ? 'bg-primary' : 'bg-muted')}>
-              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', showDevTools ? 'left-4' : 'left-0.5')} />
-            </button>
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground">Log Level</label>
-            <div className="flex gap-2 mt-1">
-              {['error', 'warn', 'info', 'debug', 'trace'].map(l => (
-                <button key={l} onClick={() => setLogLevel(l)}
-                  className={cn('rounded-md border px-3 py-1 text-xs font-mono uppercase transition-colors',
-                    logLevel === l ? 'border-primary bg-primary/10 text-primary' : 'border-border')}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-3 pt-2 border-t border-border">
-            <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              {saved ? 'Saved' : 'Save'}
-            </button>
-            <button onClick={clearCache}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted flex items-center gap-2">
-              <Trash2 className="size-3.5" /> Clear Cache
-            </button>
-          </div>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-/* ─── Auto Save Tab ─── */
-
-function AutoSaveTab() {
-  const [enabled, setEnabled] = useState(true)
-  const [interval, setInterval] = useState(30)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    const s = localStorage.getItem('aic-ade-autosave')
-    if (s) {
-      const cfg = JSON.parse(s)
-      if (cfg.enabled !== undefined) setEnabled(cfg.enabled)
-      if (cfg.interval) setInterval(cfg.interval)
-    }
-  }, [])
-
-  const save = () => {
-    localStorage.setItem('aic-ade-autosave', JSON.stringify({ enabled, interval }))
-    setSaved(true); setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Save className="size-5" /> Auto Save
-        </h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">Enable Auto Save</label>
-              <p className="text-xs text-muted-foreground">Automatically save conversations and project state to SQLite</p>
-            </div>
-            <button onClick={() => setEnabled(!enabled)}
-              className={cn('relative h-5 w-9 rounded-full transition-colors', enabled ? 'bg-primary' : 'bg-muted')}>
-              <span className={cn('absolute top-0.5 size-4 rounded-full bg-background transition-all', enabled ? 'left-4' : 'left-0.5')} />
-            </button>
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground">Save Interval (seconds)</label>
-            <input type="number" value={interval} onChange={(e) => setInterval(Number(e.target.value))} disabled={!enabled}
-              placeholder="30"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary disabled:opacity-50" />
-          </div>
-          <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            {saved ? 'Saved' : 'Save'}
-          </button>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
 /* ─── Main Settings View ─── */
 
 export function SettingsView({
@@ -669,8 +531,6 @@ export function SettingsView({
         {tab === 'Workspace' && <WorkspaceTab onProjectRootChange={onProjectRootChange} />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
-        {tab === 'Developer' && <DeveloperTab />}
-        {tab === 'Auto Save' && <AutoSaveTab />}
       </div>
     </div>
   )

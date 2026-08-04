@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2, RefreshCw, Plus, Zap, Cpu, Eye, EyeOff } from "lucide-react";
-import { Card, Badge } from "../kit";
+import { Card } from "../kit";
 import { apiClient } from "../../lib/api/client";
 import { providersApi, type ProviderRecord, type ModelInfo } from "../../lib/api/providers";
 import { providerManageApi, type TestConnectionResult } from "../../lib/api/provider_manage";
@@ -281,7 +281,7 @@ function FREProviderSetup() {
       // Auto-fetch models
       setFetchingModels(true);
       try {
-        await providersApi.fetchModelsAndUpdate(p.id, p.endpoint);
+        await providersApi.fetchModelsAndUpdate(p.id);
         const updated = await providersApi.list();
         const fresh = updated.find(r => r.id === p.id);
         if (fresh) setModels(fresh.models || []);

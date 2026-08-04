@@ -9,6 +9,7 @@ Provides structured context assembly with:
 """
 
 import logging
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -67,6 +68,10 @@ class ContextAssembly:
 
         return "\n\n---\n\n".join(parts)
 
+    def copy(self) -> "ContextAssembly":
+        """Return a deep copy so cached assemblies can never be mutated by callers."""
+        return copy.deepcopy(self)
+
 
 class ContextPipeline:
     """Orchestrates context assembly from multiple sources."""
@@ -75,9 +80,13 @@ class ContextPipeline:
         self,
         sources: list[ContextSource] | None = None,
         token_budget: int = 4000,
+        conversation_id: str | None = None,
+        cache: Any = None,
     ):
         self.sources = sources or []
         self.token_budget = token_budget
+        self.conversation_id = conversation_id
+        self.cache = cache  # optional ContextCache; None disables caching
 
     async def assemble(
         self,
@@ -99,6 +108,17 @@ class ContextPipeline:
         start = time.time()
 
         budget = max_tokens or self.token_budget
+
+        # PERF-FIX: serve repeat assemblies from the TTL/LRU context cache,
+        # keyed by (conversation_id, query, budget). A deep copy is returned so
+        # callers can freely mutate the assembly.
+        cache = self.cache
+        if cache is not None and self.conversation_id:
+            cached = cache.get(query, conversation_id=self.conversation_id, budget=budget)
+            if cached is not None:
+                logger.debug(f"Context cache hit for conversation {self.conversation_id}")
+                return cached.copy()
+
         all_chunks: list[ContextChunk] = []
         sources_used: list[str] = []
         total_tokens = 0
@@ -171,6 +191,9 @@ class ContextPipeline:
             f"{elapsed:.1f}ms, "
             f"sources: {sources_used}"
         )
+
+        if cache is not None and self.conversation_id:
+            cache.set(query, assembly, conversation_id=self.conversation_id, budget=budget)
 
         return assembly
 
@@ -251,4 +274,11 @@ def create_default_pipeline(
         Configured ContextPipeline
     """
     sources = create_default_sources(db, conversation_id, project_id)
-    return ContextPipeline(sources=sources, token_budget=token_budget)
+    # PERF-FIX: wire the global TTL/LRU context cache keyed by conversation.
+    from context.cache import get_context_cache
+    return ContextPipeline(
+        sources=sources,
+        token_budget=token_budget,
+        conversation_id=conversation_id,
+        cache=get_context_cache() if conversation_id else None,
+    )

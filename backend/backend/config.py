@@ -4,6 +4,9 @@ from pydantic_settings import BaseSettings
 import os
 import secrets
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_data_dir(base_dir: Path) -> Path:
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     # Core
     APP_NAME: str = "AIC Platform"
     VERSION: str = _read_version_from_package_json()
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Database — absolute path is set after ensure_dirs when AIC_DATA_DIR is present
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/aic.db"
@@ -60,14 +63,13 @@ class Settings(BaseSettings):
     IDENTITY_USERNAME: str = ""
     IDENTITY_PASSWORD: str = ""
 
-    # Server
-    HOST: str = "0.0.0.0"
+    # Server — desktop-only: bind to localhost; never expose on the LAN.
+    HOST: str = "127.0.0.1"
     PORT: int = 8000
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173",
-        "http://192.168.2.10:8000", "http://localhost:8000",
+        "http://localhost:8000",
         "http://127.0.0.1:5174", "http://localhost:5174",
-        "*",  # ponytail: wildcard for LAN/dev; lock down if exposing public
     ]
 
     # OpenCode
@@ -113,6 +115,11 @@ class Settings(BaseSettings):
             else:
                 self.SECRET_KEY = secrets.token_hex(32)
                 key_file.write_text(self.SECRET_KEY)
+                # M4: restrict the secret file to the owner only.
+                try:
+                    os.chmod(key_file, 0o600)
+                except OSError:
+                    pass
         # Load per-install identity written by the Electron main process.
         # Falls back to defaults so standalone/dev/tests keep working.
         if self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
@@ -124,9 +131,38 @@ class Settings(BaseSettings):
             except (OSError, json.JSONDecodeError):
                 self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
                 self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+        elif self.AIC_IDENTITY_FILE:
+            # H8: AIC_IDENTITY_FILE is set but the file does not exist (e.g. the
+            # Electron main process wrote it after we spawned). Mirror the
+            # Electron loadOrCreateIdentity approach: generate a random password
+            # on first run and persist it so restarts use the same identity.
+            try:
+                identity_path = Path(self.AIC_IDENTITY_FILE)
+                identity_path.parent.mkdir(parents=True, exist_ok=True)
+                self.IDENTITY_USERNAME = "admin"
+                self.IDENTITY_PASSWORD = secrets.token_hex(16)
+                identity_path.write_text(
+                    json.dumps({"username": self.IDENTITY_USERNAME, "password": self.IDENTITY_PASSWORD}),
+                    encoding="utf-8",
+                )
+                try:
+                    os.chmod(identity_path, 0o600)
+                except OSError:
+                    pass
+            except OSError as e:
+                logger.warning(f"Could not persist generated identity file {self.AIC_IDENTITY_FILE}: {e}")
+                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
+                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
         else:
+            # No AIC_IDENTITY_FILE configured (standalone/dev/tests). The
+            # default credentials are a known fallback — warn loudly so it is
+            # never silently carried into a production deployment.
             self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
             self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+            logger.warning(
+                "AIC_IDENTITY_FILE is not set — using default admin credentials. "
+                "Set AIC_IDENTITY_FILE (or run via the Electron app) before production use."
+            )
 
 
 settings = Settings()

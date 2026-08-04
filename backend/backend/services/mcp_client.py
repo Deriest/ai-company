@@ -15,8 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
-from typing import Optional, Any
 
 logger = logging.getLogger("aic.mcp.client")
 
@@ -99,7 +97,7 @@ class MCPClient:
                 env=env,
             )
             # Send initialize handshake
-            init_result = await self._send_stdio({
+            await self._send_stdio({
                 "method": "initialize",
                 "params": {
                     "protocolVersion": "2024-11-05",

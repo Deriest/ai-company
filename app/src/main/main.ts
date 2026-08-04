@@ -8,7 +8,6 @@ import {
 } from "electron";
 import path from "node:path";
 import fs from "node:fs";
-import os from "node:os";
 import crypto from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import net from "node:net";
@@ -175,7 +174,11 @@ function readStore(): Record<string, unknown> {
 
 function writeStore(data: Record<string, unknown>): void {
   ensureAppData();
-  fs.writeFileSync(storePath(), JSON.stringify(data, null, 2), "utf8");
+  // M7: atomic write — write to a temp file then rename over the target so a
+  // crash mid-write never leaves a truncated state.json.
+  const tmpPath = storePath() + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+  fs.renameSync(tmpPath, storePath());
 }
 
 let projectRoot: string | null = null;
@@ -338,7 +341,9 @@ async function ensureBackendRunning(): Promise<void> {
     logLine(`AIC_DATA_DIR: ${appDataDir()}`);
     logLine(`PYTHONPATH: ${[platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter)}`);
 
-    const backendPort = await findFreePort();
+    // H9: assign to the module-level backendPort so writeRuntimeState and the
+    // health-check handlers see the same port (no local shadowing).
+    backendPort = await findFreePort();
     logLine(`Backend port: ${backendPort}`);
 
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
@@ -406,11 +411,25 @@ async function ensureBackendRunning(): Promise<void> {
     });
 
     // Poll health for up to 15 seconds
+    let becameHealthy = false;
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (await checkBackendHealth()) {
         restartAttempts = 0;
+        becameHealthy = true;
         break;
+      }
+    }
+
+    // M12: if the backend never became healthy within the poll window, surface
+    // an error instead of hanging in "starting" forever. Kill the hung process
+    // so it releases the port; the exit handler schedules the restart.
+    if (!becameHealthy) {
+      backendStatus = "error";
+      backendError = "Backend did not become healthy within 15 seconds";
+      logLine(`[ERROR] Backend health poll timed out (status=${backendStatus})`);
+      if (backendProc) {
+        backendProc.kill("SIGTERM");
       }
     }
   } catch (err: any) {
@@ -419,11 +438,25 @@ async function ensureBackendRunning(): Promise<void> {
   }
 }
 
-/** Navigation allowlist — only the app's own file:// pages and (in dev) the Vite server. */
+/** Navigation allowlist — only the app's own dist bundle file:// pages and
+ *  (in dev) the Vite server. M8: arbitrary file:// URLs are rejected; only
+ *  paths under app.getAppPath()/dist are allowed. */
 function isAllowedNavigation(url: string): boolean {
   try {
     const u = new URL(url);
-    if (u.protocol === "file:") return true;
+    if (u.protocol === "file:") {
+      const distDir = path.resolve(app.getAppPath(), "dist");
+      let filePath: string;
+      try {
+        filePath = path.resolve(decodeURIComponent(u.pathname));
+      } catch {
+        return false;
+      }
+      // On Windows, file:///C:/... parses pathname as /C:/... — strip the
+      // leading slash before comparing against the resolved dist dir.
+      if (/^\/[A-Za-z]:/.test(filePath)) filePath = filePath.slice(1);
+      return filePath === distDir || filePath.startsWith(distDir + path.sep);
+    }
     if (isDev && u.protocol === "http:" && u.hostname === "127.0.0.1" && u.port === "5174") return true;
     return false;
   } catch {
@@ -508,17 +541,6 @@ function registerIpc(): void {
     };
   });
 
-  ipcMain.handle("aic:get-paths", () => ({
-    home: app.getPath("home"),
-    userData: appDataDir(),
-    documents: app.getPath("documents"),
-    temp: app.getPath("temp"),
-    downloads: path.join(appDataDir(), "downloads"),
-    platform: process.platform,
-    arch: process.arch,
-    hostname: os.hostname(),
-  }));
-
   ipcMain.handle("aic:store-get", (_e, key?: string) => {
     const store = readStore();
     if (!key) return store;
@@ -566,13 +588,6 @@ function registerIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle("aic:show-item", (_e, target: string) => {
-    if (!target || typeof target !== "string") return false;
-    const safe = resolveSafe(target, projectRoot ? [projectRoot] : []);
-    shell.showItemInFolder(safe);
-    return true;
-  });
-
   ipcMain.handle("aic:select-directory", async () => {
     const res = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
@@ -580,28 +595,6 @@ function registerIpc(): void {
     if (res.canceled || !res.filePaths[0]) return null;
     projectRoot = res.filePaths[0];
     return projectRoot;
-  });
-
-  ipcMain.handle("aic:select-file", async () => {
-    const res = await dialog.showOpenDialog({
-      properties: ["openFile"],
-      defaultPath: projectRoot || undefined,
-    });
-    if (res.canceled || !res.filePaths[0]) return null;
-    return res.filePaths[0];
-  });
-
-  ipcMain.handle("aic:read-dir", async (_e, dir: string) => {
-    if (!dir || typeof dir !== "string") throw new Error("invalid dir");
-    const safe = resolveSafe(dir, projectRoot ? [projectRoot] : []);
-    const entries = await fs.promises.readdir(safe, { withFileTypes: true });
-    return entries
-      .filter((e) => !e.name.startsWith(".") || e.name === ".env.example")
-      .map((e) => ({
-        name: e.name,
-        isDirectory: e.isDirectory(),
-        path: path.join(safe, e.name),
-      }));
   });
 
   ipcMain.handle("aic:read-dir-tree", async (_e, dir: string, maxDepth = 4) => {
@@ -639,58 +632,6 @@ function registerIpc(): void {
     }
 
     return build(safe, maxDepth);
-  });
-
-  ipcMain.handle("aic:read-file", async (_e, filePath: string) => {
-    if (!filePath || typeof filePath !== "string") throw new Error("invalid path");
-    const safe = resolveSafe(filePath, projectRoot ? [projectRoot] : []);
-    const stat = await fs.promises.stat(safe);
-    if (stat.size > 2_000_000) throw new Error("file too large (>2MB)");
-    const buf = await fs.promises.readFile(safe);
-    return buf.toString("utf8");
-  });
-
-  ipcMain.handle("aic:write-file", async (_e, filePath: string, content: string) => {
-    if (!filePath || typeof filePath !== "string") throw new Error("invalid path");
-    const safe = resolveSafe(filePath, projectRoot ? [projectRoot] : []);
-    await fs.promises.writeFile(safe, content, "utf8");
-    return true;
-  });
-
-  ipcMain.handle("aic:create-file", async (_e, filePath: string) => {
-    if (!filePath || typeof filePath !== "string") throw new Error("invalid path");
-    const safe = resolveSafe(filePath, projectRoot ? [projectRoot] : []);
-    if (fs.existsSync(safe)) throw new Error("file already exists");
-    await fs.promises.writeFile(safe, "", "utf8");
-    return true;
-  });
-
-  ipcMain.handle("aic:delete-file", async (_e, filePath: string) => {
-    if (!filePath || typeof filePath !== "string") throw new Error("invalid path");
-    const safe = resolveSafe(filePath, projectRoot ? [projectRoot] : []);
-    const stat = await fs.promises.lstat(safe);
-    if (stat.isDirectory()) await fs.promises.rmdir(safe, { recursive: true });
-    else await fs.promises.unlink(safe);
-    return true;
-  });
-
-  ipcMain.handle("aic:rename-file", async (_e, oldPath: string, newName: string) => {
-    if (!oldPath || !newName) throw new Error("invalid args");
-    const safeOld = resolveSafe(oldPath, projectRoot ? [projectRoot] : []);
-    const dir = path.dirname(safeOld);
-    const safeNew = resolveSafe(path.join(dir, newName), projectRoot ? [projectRoot] : []);
-    await fs.promises.rename(safeOld, safeNew);
-    return safeNew;
-  });
-
-  ipcMain.handle("aic:save-blob", async (_e, filename: string, data: ArrayBuffer) => {
-    ensureAppData();
-    const safeName = path.basename(filename).replace(/[^\w.\-]+/g, "_");
-    const dest = path.join(appDataDir(), "downloads", safeName);
-    const buf = Buffer.from(data);
-    if (buf.length > 100_000_000) throw new Error("blob too large (>100MB)");
-    await fs.promises.writeFile(dest, buf);
-    return dest;
   });
 
   ipcMain.handle("aic:platform-mod", () =>
@@ -765,14 +706,6 @@ function registerIpc(): void {
     return false;
   });
 
-  ipcMain.handle("aic:term-resize", (_e, cols: number, rows: number) => {
-    if (termPty) {
-      termPty.resize(cols, rows);
-      return true;
-    }
-    return false;
-  });
-
   ipcMain.handle("aic:term-kill", () => {
     if (termPty) {
       termPty.kill();
@@ -787,23 +720,6 @@ function registerIpc(): void {
 
   // ── Auto Update ──────────────────────────────────────
   ipcMain.handle("aic:update-get-state", () => updateManager?.getState() ?? null);
-  ipcMain.handle("aic:update-get-config", () => updateManager?.getConfig() ?? null);
-  ipcMain.handle("aic:update-set-config", (_e, partial: Partial<UpdateConfig>) => {
-    if (!updateManager) return null;
-    const cfg = updateManager.getConfig();
-    const next = { ...cfg, ...(partial || {}) };
-    if (typeof next.baseUrl === "string") {
-      // Validate via resolveUpdateBaseUrl (requires https:// or http://127.0.0.1); throws on invalid.
-      const resolved = resolveUpdateBaseUrl(next.baseUrl, process.env as Record<string, string | undefined>);
-      next.baseUrl = resolved;
-    }
-    updateManager.setConfig(next);
-    const store = readStore();
-    const saved = updateManager.getConfig();
-    store.updateConfig = saved;
-    writeStore(store);
-    return saved;
-  });
   ipcMain.handle("aic:update-check", async () => {
     if (!updateManager) return null;
     return updateManager.checkForUpdates();

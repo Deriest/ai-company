@@ -8,6 +8,7 @@ localhost requests. No authentication required for single-user desktop use.
 import os
 import asyncio
 import logging
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ────────────────────────────────────────────────
+    # H5: enable structured JSON logging (aic.* loggers) once at startup.
+    try:
+        from observability.logger import setup_logger
+        setup_logger("backend")
+    except Exception as e:
+        logger.warning(f"Observability logger setup failed: {e}")
+
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
@@ -162,10 +170,45 @@ async def lifespan(app: FastAPI):
     from backend.services.heartbeat import start_heartbeat
     start_heartbeat()
 
+    # H7: start the background job worker so queued jobs actually execute.
+    try:
+        from backend.services.job_scheduler import job_scheduler
+        await job_scheduler.start_background_worker(AsyncSessionLocal)
+        logger.info("Background job worker started")
+    except Exception as e:
+        logger.warning(f"Failed to start background job worker: {e}")
+
+    # H7: run startup self-heal (repairs stale leases / stuck tasks).
+    try:
+        from backend.self_healing import run_startup_self_heal
+        await run_startup_self_heal()
+    except Exception as e:
+        logger.warning(f"Startup self-heal failed: {e}")
+
+    # H5: wire the event recorder to the bus (persists events to DB).
+    try:
+        from events.recorder import subscribe_recorder
+        await subscribe_recorder()
+        logger.info("Event recorder subscribed")
+    except Exception as e:
+        logger.warning(f"Failed to subscribe event recorder: {e}")
+
     yield
     # ── Shutdown ───────────────────────────────────────────────
     from backend.services.heartbeat import stop_heartbeat
     stop_heartbeat()
+    # H7: stop the background job worker.
+    try:
+        from backend.services.job_scheduler import job_scheduler
+        await job_scheduler.stop_background_worker()
+    except Exception as e:
+        logger.warning(f"Failed to stop background job worker: {e}")
+    # H3: disconnect all MCP clients so stdio subprocesses are terminated.
+    try:
+        from backend.services.mcp_client import mcp_pool
+        await mcp_pool.disconnect_all()
+    except Exception as e:
+        logger.warning(f"Failed to disconnect MCP clients on shutdown: {e}")
     # Close all LLM provider httpx clients (leak fix).
     try:
         await provider_manager.close_all()
@@ -212,6 +255,11 @@ app.add_middleware(
 
 
 from backend.middleware.rate_limiter import rate_limit_middleware as _rate_limit_mw
+from backend.middleware.validation import validation_middleware as _validation_mw
+
+@app.middleware("http")
+async def validation_wrapper(request: Request, call_next):
+    return await _validation_mw(request, call_next)
 
 @app.middleware("http")
 async def rate_limit_wrapper(request: Request, call_next):
@@ -226,7 +274,15 @@ async def security_headers_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def logging_wrapper(request: Request, call_next):
-    return await logging_middleware(request, call_next)
+    # H5: propagate a trace_id through the aic.* loggers so the structured
+    # JSON formatter emits one trace per request (set before the middleware
+    # logs, reset after so the contextvar never leaks to the next request).
+    from observability.logger import set_trace_id, reset_trace_id
+    token = set_trace_id(request.headers.get("x-request-id") or str(uuid4()))
+    try:
+        return await logging_middleware(request, call_next)
+    finally:
+        reset_trace_id(token)
 
 @app.middleware("http")
 async def metrics_wrapper(request: Request, call_next):
@@ -307,7 +363,6 @@ app.include_router(profile_router, prefix="")
 app.include_router(automation_router, prefix="")
 from backend.api.routes.pipeline import router as pipeline_router
 app.include_router(pipeline_router, prefix="/api")
-app.include_router(pipeline_router, prefix="")
 from backend.api.routes.dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="")
 from backend.api.routes.skills import router as skills_router

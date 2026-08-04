@@ -20,6 +20,7 @@ class CacheEntry:
     """A cached context assembly."""
     key: str
     value: Any
+    conversation_id: str = ""
     created_at: float = field(default_factory=time.time)
     ttl: float = 300.0  # 5 minutes default
     hits: int = 0
@@ -101,11 +102,31 @@ class ContextCache:
             self._evict()
 
         key = self._make_key(query, **kwargs)
+        conversation_id = kwargs.pop("conversation_id", "")
         self._cache[key] = CacheEntry(
             key=key,
             value=value,
+            conversation_id=conversation_id,
             ttl=ttl or self.default_ttl,
         )
+
+    def invalidate_conversation(self, conversation_id: str) -> int:
+        """Remove every cached entry for a conversation.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Number of entries removed
+        """
+        if not conversation_id:
+            return 0
+        keys = [k for k, e in self._cache.items() if e.conversation_id == conversation_id]
+        for k in keys:
+            del self._cache[k]
+        if keys:
+            logger.debug(f"Invalidated {len(keys)} context cache entries for conversation {conversation_id}")
+        return len(keys)
 
     def invalidate(self, query: str, **kwargs: Any) -> bool:
         """Invalidate a cached entry.

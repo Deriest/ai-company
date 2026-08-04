@@ -40,7 +40,7 @@ function TreeNode({ node, depth, onSelect }: { node: DirTreeNode; depth: number;
 export function FileTree({ rootPath, onFileSelect }: { rootPath: string; onFileSelect: (path: string) => void }) {
   const [tree, setTree] = useState<DirTreeNode[]>([])
   const [loading, setLoading] = useState(true)
-  const [paused, setPaused] = useState(false)
+  const [paused] = useState(false)
 
   const loadTree = useCallback(async () => {
     try {
