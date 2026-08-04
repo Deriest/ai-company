@@ -359,7 +359,10 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
         # worker's real permission set (write_file/shell for dev roles) instead
         # of falling back to the read-only default. Permission gating is still
         # enforced via check_permission inside ToolExecutor.
-        tool_service = ToolAwareChatService(workspace_root=workspace_root, worker_type=worker_type)
+        tool_service = ToolAwareChatService(
+            workspace_root=workspace_root,
+            worker_type=payload.worker_role,
+        )
 
         async def tool_event_generator():
             try:
