@@ -45,7 +45,7 @@ docker-compose logs -f backend
 
 - **Application:** http://localhost:8000
 - **Health Check:** http://localhost:8000/api/health
-- **Default Login:** admin / admin123
+- **Login:** per-install random credential from `userData/aic-ade/identity.json` (mode 0600); fallback `admin` / `admin123` only for standalone/dev/tests
 
 ---
 

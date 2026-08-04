@@ -19,7 +19,7 @@ python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 - Backend API: http://localhost:8000/api/docs
-- No authentication required (single-user desktop architecture)
+- Optional auth: `POST /auth/login` + `GET /auth/me` (per-install credential from `AIC_IDENTITY_FILE`; falls back to `admin`/`admin123` for standalone/dev/tests)
 
 ## LLM Configuration
 
