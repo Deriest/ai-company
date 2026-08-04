@@ -52,4 +52,7 @@ d31d55b7f6e5f763265c90770abf0fcf658a496c4336fb74b46e97dc29bbca3d  app/release/AI
 46c002201bab2fd8f328bc3af28f8035adf955f3b1da22f127d8f25c1fdf22d0  app/release/AIC-ADE-2.4.58-linux-x86_64.AppImage
 3d2afe6576b01a1d00210ea6338e485bea7e7809a1107afb6c6b6602b3c9f738  app/release/AIC-ADE-2.4.58-linux-amd64.deb
 8fe16264ec9372de0ecd4ee58287fa86ef4c6a54785da649966efbe5297f00f3  app/release/AIC-ADE-Setup-2.4.58.exe
-5394ba51766cc896886061d3d3df519bd6c4193f20beacf9451ebf2ebc8ac518  latest.json
+99be535a616580ee7bb64c347be860df1d843f5de23eda43d534b9b2df7ba372  app/release/AIC-ADE-2.4.59-linux-x86_64.AppImage
+90ec230299939403653dce3a84b07ca2acf063005a11846a7b8f87d2b38eb479  app/release/AIC-ADE-2.4.59-linux-amd64.deb
+fbe045809cb8e653afc63f0411a947f07fc330c64b3931405bbdac86107a9426  app/release/AIC-ADE-Setup-2.4.59.exe
+6cbaa87866b53e266fac5369c4061fe5bfd4ff6c97495561493185ed2c360baa  latest.json
