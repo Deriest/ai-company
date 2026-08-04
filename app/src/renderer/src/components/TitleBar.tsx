@@ -4,21 +4,24 @@ export default function TitleBar() {
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
+    // BUG-15: The old code toggled the maximize icon on *every* resize event,
+    // so dragging a window edge flipped the icon incorrectly. There is no
+    // maximize/unmaximize IPC event exposed by the main process, so we compute
+    // the real state from window vs. screen dimensions (toggling is gone).
     const check = () => {
-      // Poll for maximize state — Electron doesn't fire events for this in renderer without IPC
-      setMaximized(document.body.classList.contains("window-maximized"))
+      setMaximized(
+        window.screen.width === window.outerWidth &&
+        window.screen.height === window.outerHeight
+      )
     }
     // Try to get initial state via IPC
     ;(window as any).aic?.storeGet("window-maximized").then((v: any) => {
       if (v !== null) setMaximized(v)
     }).catch(() => {})
 
-    // Listen for maximize/unmaximize events
-    const handler = () => {
-      setMaximized(prev => !prev)
-    }
-    window.addEventListener("resize", handler)
-    return () => window.removeEventListener("resize", handler)
+    // Re-evaluate on resize — sets the actual state, never toggles blindly.
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
   }, [])
 
   const handleMinimize = () => (window as any).aic?.minimize()

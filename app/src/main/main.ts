@@ -5,7 +5,6 @@ import {
   dialog,
   shell,
   nativeTheme,
-  Menu,
 } from "electron";
 import path from "node:path";
 import fs from "node:fs";
@@ -17,6 +16,7 @@ import { UpdateManager } from "./updateManager";
 import {
   defaultUpdateConfig,
   resolveUpdateBaseUrl,
+  DEFAULT_UPDATE_BASE_URL,
   type UpdateConfig,
 } from "./updateConfig";
 
@@ -29,9 +29,44 @@ type DirTreeNode = {
   children?: DirTreeNode[];
 };
 
-/** Allowed roots for read/write — project + userData only. */
+/** Allowed roots for read/write — app data dir only (covers store, downloads, logs, staged updates).
+ *  Project folders are attached per-call via `resolveSafe(..., [projectRoot])`.
+ *  Home / Documents / Temp are intentionally NOT included (world-writable or sensitive). */
 function allowedRoots(): string[] {
-  return [app.getPath("userData"), app.getPath("home"), app.getPath("documents"), app.getPath("temp")];
+  return [appDataDir()];
+}
+
+/** Reject project-root values that would expand the renderer's file access to the whole machine. */
+const SENSITIVE_FS_ROOTS = new Set([
+  "/", "/home", "/root", "/etc", "/usr", "/var", "/tmp", "/bin", "/sbin",
+  "/lib", "/lib64", "/proc", "/sys", "/dev", "/boot", "/opt", "/mnt",
+  "/media", "/run", "/srv", "/snap", "/nix", "/Volumes", "/System",
+  "/Library", "/Private", "/Users", "/Applications", "/Windows",
+  "/Program Files", "/Program Files (x86)", "C:\\", "C:\\Windows",
+  "C:\\Program Files", "C:\\Program Files (x86)", "C:\\Users",
+]);
+
+function sanitizeProjectRoot(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") return null;
+  let resolved: string;
+  try {
+    resolved = path.resolve(value);
+  } catch {
+    return null;
+  }
+  const lower = resolved.toLowerCase();
+  if (SENSITIVE_FS_ROOTS.has(resolved) || SENSITIVE_FS_ROOTS.has(lower)) return null;
+  const home = path.resolve(app.getPath("home"));
+  if (resolved === home || resolved === path.resolve(app.getPath("temp"))) return null;
+  // Must be an existing directory.
+  try {
+    const st = fs.statSync(resolved);
+    if (!st.isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return resolved;
 }
 
 function resolveSafe(target: string, extraRoots: string[] = []): string {
@@ -123,6 +158,7 @@ let backendError: string | null = null;
 let backendPort: number | null = null;
 let restartAttempts = 0;
 let updateManager: UpdateManager | null = null;
+let isQuitting = false;
 
 export function resolvePlatformDir(): string {
   if (process.env.AIC_PLATFORM_DIR && fs.existsSync(process.env.AIC_PLATFORM_DIR)) {
@@ -315,6 +351,7 @@ async function ensureBackendRunning(): Promise<void> {
 
     backendProc.on("exit", (code: number | null) => {
       backendProc = null;
+      if (isQuitting) return;
       if (backendStatus !== "stopped") {
         backendStatus = "error";
         backendError = `Backend process exited with code ${code}`;
@@ -324,6 +361,7 @@ async function ensureBackendRunning(): Promise<void> {
         if (restartAttempts < 3) {
           restartAttempts++;
           setTimeout(() => {
+            if (isQuitting) return;
             void ensureBackendRunning();
           }, 2000);
         }
@@ -341,6 +379,18 @@ async function ensureBackendRunning(): Promise<void> {
   } catch (err: any) {
     backendStatus = "error";
     backendError = err?.message || String(err);
+  }
+}
+
+/** Navigation allowlist — only the app's own file:// pages and (in dev) the Vite server. */
+function isAllowedNavigation(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "file:") return true;
+    if (isDev && u.protocol === "http:" && u.hostname === "127.0.0.1" && u.port === "5174") return true;
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -363,18 +413,28 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  // CSP: restrict resource loading to self + data: for CodeMirror
+  // CSP: restrict resource loading to self + local engine only
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
           isDev
-            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5174 ws://127.0.0.1:5174"
-            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: http:",
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; base-uri 'none'"
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; base-uri 'none'",
         ],
       },
     });
+  });
+
+  // Navigation guard — the preload bridge reaches host filesystem/terminal,
+  // so remote pages must never be allowed to load inside this window.
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (e, url) => {
+    if (!isAllowedNavigation(url)) e.preventDefault();
+  });
+  win.webContents.on("will-redirect", (e, url) => {
+    if (!isAllowedNavigation(url)) e.preventDefault();
   });
 
   mainWindow = win;
@@ -428,9 +488,27 @@ function registerIpc(): void {
 
   ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
     const store = readStore();
+    if (key === "projectRoot") {
+      // projectRoot is the trust boundary for file access — never let the
+      // renderer set an arbitrary path. Only validated non-sensitive paths
+      // are accepted (native dialog / backend-selected projects).
+      const safe = sanitizeProjectRoot(value);
+      if (value === null || value === undefined || value === "") {
+        store.projectRoot = null;
+        projectRoot = null;
+        writeStore(store);
+        return true;
+      }
+      if (safe === null) {
+        throw new Error("projectRoot: invalid or unsafe path (must be an existing directory outside system roots)");
+      }
+      store.projectRoot = safe;
+      projectRoot = safe;
+      writeStore(store);
+      return true;
+    }
     store[key] = value;
     writeStore(store);
-    if (key === "projectRoot" && typeof value === "string") projectRoot = value;
     return true;
   });
 
@@ -527,8 +605,9 @@ function registerIpc(): void {
   ipcMain.handle("aic:read-file", async (_e, filePath: string) => {
     if (!filePath || typeof filePath !== "string") throw new Error("invalid path");
     const safe = resolveSafe(filePath, projectRoot ? [projectRoot] : []);
+    const stat = await fs.promises.stat(safe);
+    if (stat.size > 2_000_000) throw new Error("file too large (>2MB)");
     const buf = await fs.promises.readFile(safe);
-    if (buf.length > 2_000_000) throw new Error("file too large (>2MB)");
     return buf.toString("utf8");
   });
 
@@ -569,7 +648,9 @@ function registerIpc(): void {
     ensureAppData();
     const safeName = path.basename(filename).replace(/[^\w.\-]+/g, "_");
     const dest = path.join(appDataDir(), "downloads", safeName);
-    await fs.promises.writeFile(dest, Buffer.from(data));
+    const buf = Buffer.from(data);
+    if (buf.length > 100_000_000) throw new Error("blob too large (>100MB)");
+    await fs.promises.writeFile(dest, buf);
     return dest;
   });
 
@@ -670,12 +751,19 @@ function registerIpc(): void {
   ipcMain.handle("aic:update-get-config", () => updateManager?.getConfig() ?? null);
   ipcMain.handle("aic:update-set-config", (_e, partial: Partial<UpdateConfig>) => {
     if (!updateManager) return null;
-    updateManager.setConfig(partial || {});
-    const store = readStore();
     const cfg = updateManager.getConfig();
-    store.updateConfig = cfg;
+    const next = { ...cfg, ...(partial || {}) };
+    if (typeof next.baseUrl === "string") {
+      // Validate via resolveUpdateBaseUrl (requires https:// or http://127.0.0.1); throws on invalid.
+      const resolved = resolveUpdateBaseUrl(next.baseUrl, process.env as Record<string, string | undefined>);
+      next.baseUrl = resolved;
+    }
+    updateManager.setConfig(next);
+    const store = readStore();
+    const saved = updateManager.getConfig();
+    store.updateConfig = saved;
     writeStore(store);
-    return cfg;
+    return saved;
   });
   ipcMain.handle("aic:update-check", async () => {
     if (!updateManager) return null;
@@ -718,145 +806,21 @@ function registerIpc(): void {
   });
 }
 
-function buildAppMenu(): void {
-  const isMac = process.platform === "darwin";
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [{
-          label: app.name,
-          submenu: [
-            { role: "about" as const },
-            { type: "separator" as const },
-            { role: "services" as const },
-            { type: "separator" as const },
-            { role: "hide" as const },
-            { role: "hideOthers" as const },
-            { role: "unhide" as const },
-            { type: "separator" as const },
-            { role: "quit" as const },
-          ],
-        }]
-      : []),
-    {
-      label: "File",
-      submenu: [
-        {
-          label: "Open Project…",
-          accelerator: "CmdOrCtrl+O",
-          click: async () => {
-            const res = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
-            if (!res.canceled && res.filePaths[0]) {
-              projectRoot = res.filePaths[0];
-              const store = readStore();
-              store.projectRoot = projectRoot;
-              writeStore(store);
-              mainWindow?.webContents.send("aic:project-opened", projectRoot);
-            }
-          },
-        },
-        {
-          label: "Settings",
-          accelerator: "CmdOrCtrl+,",
-          click: () => mainWindow?.webContents.send("aic:navigate", "settings"),
-        },
-        { type: "separator" },
-        isMac ? { role: "close" } : { role: "quit" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        {
-          label: "Command Palette",
-          accelerator: "CmdOrCtrl+K",
-          click: () => mainWindow?.webContents.send("aic:command-palette"),
-        },
-        {
-          label: "Talk to Hermes",
-          accelerator: "CmdOrCtrl+L",
-          click: () => mainWindow?.webContents.send("aic:navigate", "chat"),
-        },
-        { type: "separator" },
-        { role: "reload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    {
-      label: "Window",
-      submenu: [{ role: "minimize" }, { role: "close" }],
-    },
-    {
-      label: "Help",
-      submenu: [
-        {
-          label: "Check for Updates…",
-          click: () => {
-            mainWindow?.webContents.send("aic:navigate", "settings");
-            mainWindow?.webContents.send("aic:update-open");
-            void updateManager?.checkForUpdates().then((s) => {
-              mainWindow?.webContents.send("aic:update-state-changed", s);
-            });
-          },
-        },
-        {
-          label: "Release Notes",
-          click: () => {
-            const base = updateManager?.getConfig().baseUrl || "https://download.aicompany.biz.id";
-            void shell.openExternal(base.replace(/\/$/, "") + "/");
-          },
-        },
-        { type: "separator" },
-        {
-          label: "About AIC ADE",
-          click: () => {
-            dialog.showMessageBox({
-              type: "info",
-              title: "About AIC ADE",
-              message: "AIC ADE",
-              detail: `Agentic Development Environment — autonomous AI software company on the desktop.\nVersion ${app.getVersion()}`,
-            });
-          },
-        },
-        {
-          label: "Download / Releases",
-          click: () => {
-            const base = updateManager?.getConfig().baseUrl || "https://download.aicompany.biz.id";
-            void shell.openExternal(base.replace(/\/$/, "") + "/");
-          },
-        },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
 function initUpdateManager(): void {
   const store = readStore();
   const saved = (store.updateConfig && typeof store.updateConfig === "object"
     ? store.updateConfig
     : {}) as Partial<UpdateConfig>;
-  const baseUrl = resolveUpdateBaseUrl(
-    typeof saved.baseUrl === "string" ? saved.baseUrl : null,
-    process.env as Record<string, string | undefined>
-  );
+  let baseUrl: string;
+  try {
+    baseUrl = resolveUpdateBaseUrl(
+      typeof saved.baseUrl === "string" ? saved.baseUrl : null,
+      process.env as Record<string, string | undefined>
+    );
+  } catch {
+    // Invalid persisted base URL — fall back to the default rather than crash.
+    baseUrl = DEFAULT_UPDATE_BASE_URL;
+  }
   updateManager = new UpdateManager(
     defaultUpdateConfig({
       ...saved,
@@ -874,23 +838,58 @@ function initUpdateManager(): void {
   }
 }
 
-app.whenReady().then(async () => {
-  nativeTheme.themeSource = "dark";
-  ensureAppData();
-  const store = readStore();
-  if (typeof store.projectRoot === "string") projectRoot = store.projectRoot;
-  initUpdateManager();
-  registerIpc();
-  // buildAppMenu(); // Removed — frameless custom title bar replaces native menu
-  await ensureBackendRunning();
-  updateManager?.setBackendProc(backendProc);
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+// ── Global crash handling ──────────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err);
+  try {
+    dialog.showErrorBox("AIC ADE — Unexpected Error", (err?.stack as string) || String(err));
+  } catch { /* ignore */ }
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
+});
+app.on("render-process-gone", (_e, _wc, details) => {
+  console.error("[render-process-gone]", details);
+  try {
+    dialog.showErrorBox("AIC ADE — Renderer crashed", `Reason: ${details.reason}`);
+  } catch { /* ignore */ }
 });
 
+// ── Single instance lock ───────────────────────────────────────
+// Two instances would both spawn sidecars and fight over runtime.json /
+// SQLite. Second instance focuses the existing window instead.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    nativeTheme.themeSource = "dark";
+    ensureAppData();
+    const store = readStore();
+    if (typeof store.projectRoot === "string") projectRoot = store.projectRoot;
+    initUpdateManager();
+    registerIpc();
+    // Show the window immediately — never block startup on the backend.
+    createWindow();
+    // Start the backend sidecar in the background.
+    void ensureBackendRunning().then(() => {
+      updateManager?.setBackendProc(backendProc);
+    });
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
+
 app.on("will-quit", () => {
+  isQuitting = true;
   backendStatus = "stopped";
   if (backendProc) {
     backendProc.kill("SIGTERM");
@@ -901,6 +900,9 @@ app.on("will-quit", () => {
 app.on("window-all-closed", () => {
   if (termPty) termPty.kill();
   if (termProc) termProc.kill();
+  // Mark the backend as stopped BEFORE killing so the exit handler never
+  // schedules a restart while we are tearing down.
+  backendStatus = "stopped";
   if (backendProc) {
     backendProc.kill("SIGTERM");
     backendProc = null;

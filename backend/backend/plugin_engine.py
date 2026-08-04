@@ -79,7 +79,13 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
 
         root = (temp_dir / "repo" / sub_path).resolve()
         repo_root = (temp_dir / "repo").resolve()
-        if repo_root not in root.parents and root != repo_root:
+        # QA-E2E FIX: verify root is a strict descendant (or the repo root
+        # itself) of repo_root. relative_to() raises ValueError for any path
+        # that escapes the repo — including a plugin_path of ".." resolving
+        # to temp_dir, which the prior parents-based check had to special-case.
+        try:
+            root.relative_to(repo_root)
+        except ValueError:
             raise ValueError("Invalid path")
 
         # Read manifest
@@ -133,8 +139,25 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
         # Resolve actual source from manifest
         if plugin_source:
             resolved_source = str((root / plugin_source).resolve())
-            if resolved_source.startswith(str(root)):
-                installed_dir = _plugin_root() / plugin_id / plugin_source.strip("./")
+            # QA-E2E FIX: path-boundary check — startswith(str(root)) was
+            # bypassable via a sibling dir prefix (e.g. <root>2/...). Use
+            # commonpath so only true descendants of the plugin root pass.
+            try:
+                is_inside = os.path.commonpath([str(root), resolved_source]) == str(root)
+            except ValueError:
+                is_inside = False
+            if is_inside:
+                # QA-E2E FIX: the destination was built from
+                # plugin_source.strip("./") with no validation, so a mid-string
+                # '..' (e.g. "a/../../x") wrote outside the plugin dir. Resolve
+                # the destination and require it to stay inside _plugin_root()/plugin_id.
+                dest_base = (_plugin_root() / plugin_id).resolve()
+                dest_candidate = (dest_base / plugin_source.strip("./")).resolve()
+                try:
+                    dest_candidate.relative_to(dest_base)
+                except ValueError:
+                    raise ValueError("Invalid plugin source path")
+                installed_dir = dest_candidate
                 installed_dir.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(root / plugin_source, installed_dir, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns(".git", "__pycache__", "node_modules"))

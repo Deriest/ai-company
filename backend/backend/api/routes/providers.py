@@ -51,7 +51,16 @@ async def _register_provider_live(provider: Provider, db: AsyncSession) -> None:
         provider_models = model_result.scalars().all()
 
         models = {}
-        if provider_models:
+        # QA-E2E FIX: user's explicit engine config (AIC_MODEL_* env) takes
+        # priority over auto-picking from provider_models — but only when this
+        # provider's endpoint matches AIC_LLM_BASE_URL. Stamping env models
+        # onto every provider would send the wrong model (404).
+        from llm.provider import _env_models_for_base_url
+        env_models = _env_models_for_base_url(base_url)
+        for tier, model in env_models.items():
+            if model:
+                models[tier] = model
+        if not models and provider_models:
             # BUG-16 FIX: Filter out known-bad models before picking fallback
             excluded_prefixes = ("combo/", "IAMHC/")
             excluded_substrings = ("free", "big-pickle", "deepseek", "r1")

@@ -22,8 +22,8 @@ function ConnectionStatus({ status }: { status: "idle" | "testing" | "connected"
   return <span className={`flex items-center gap-1 text-xs ${s.color}`}>{s.icon} {s.text}</span>;
 }
 
-export function ProviderSetup({ mode }: { mode: "settings" | "fre" }) {
-  if (mode === "settings") return <ProviderRegistry />;
+export function ProviderSetup({ mode, onProviderSaved }: { mode: "settings" | "fre"; onProviderSaved?: () => void }) {
+  if (mode === "settings") return <ProviderRegistry onProviderSaved={onProviderSaved} />;
   return <FREProviderSetup />;
 }
 
@@ -43,7 +43,7 @@ export function WorkerRuntimeAssignment() {
   );
 }
 
-function ProviderRegistry() {
+function ProviderRegistry({ onProviderSaved }: { onProviderSaved?: () => void }) {
   const [providers, setProviders] = useState<ProviderRecord[]>([]);
   const [editing, setEditing] = useState<Partial<ProviderRecord> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,8 +57,13 @@ function ProviderRegistry() {
   const handleTest = async (p: ProviderRecord) => {
     setTestingId(p.id);
     try {
-      const maskedKey = p.apiKey === "***" ? "***" : p.apiKey;
-      const result = await providerManageApi.testConnection(p.endpoint, maskedKey, p.id);
+      // BUG-16: The backend returns a masked key ("***") for stored providers.
+      // Sending "***" as the API key would fail the test — skip it instead.
+      if (p.apiKey === "***") {
+        setTestResults(prev => ({ ...prev, [p.id]: { success: false, error: "Masked key stored — reopen the provider to test with a fresh key" } }));
+        return;
+      }
+      const result = await providerManageApi.testConnection(p.endpoint, p.apiKey, p.id);
       setTestResults(prev => ({ ...prev, [p.id]: result }));
     } catch {
       setTestResults(prev => ({ ...prev, [p.id]: { success: false, error: "Request failed" } }));
@@ -107,7 +112,7 @@ function ProviderRegistry() {
           </div>
         </Card>
       ))}
-      {editing && <ProviderForm provider={editing} onSaved={(p) => { setProviders(prev => prev.some(x => x.id === p.id) ? prev.map(x => x.id === p.id ? p : x) : [...prev, p]); setEditing(null); }} onCancel={() => setEditing(null)} />}
+      {editing && <ProviderForm provider={editing} onSaved={(p) => { setProviders(prev => prev.some(x => x.id === p.id) ? prev.map(x => x.id === p.id ? p : x) : [...prev, p]); onProviderSaved?.(); setEditing(null); }} onCancel={() => setEditing(null)} />}
     </div>
   );
 }
@@ -129,7 +134,14 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
     setError("");
     try {
       const { providerManageApi } = await import('../../lib/api/provider_manage');
-      const testKey = apiKey || (provider.apiKey === "***" ? "***" : provider.apiKey) || "";
+      // BUG-16: never send the masked "***" placeholder as a real API key.
+      const storedKey = provider.apiKey === "***" ? "" : provider.apiKey;
+      const testKey = apiKey || storedKey || "";
+      if (!testKey) {
+        setStatus("failed");
+        setError("No API key available — enter a fresh key to test, then save.");
+        return;
+      }
       const res = await providerManageApi.testConnection(endpoint, testKey, provider.id);
       
       if (res.success) {
@@ -231,11 +243,13 @@ function FREProviderSetup() {
   const [applyingEngine, setApplyingEngine] = useState(false);
   const [engineMsg, setEngineMsg] = useState("");
 
-  // BUG-16 FIX: Filter out known-bad models from dropdown
+  // BUG-16 FIX: Filter out known-bad models from dropdown — only clearly
+  // internal prefixes (combo/, iamhc/, big-pickle). DeepSeek/r1 models are
+  // legitimate and must NOT be dropped.
   const validModels = models.filter(m => {
     const id = m.id.toLowerCase();
     if (id.startsWith("combo/") || id.startsWith("iamhc/")) return false;
-    if (id.includes("free") || id.includes("big-pickle") || id.includes("deepseek") || id.includes("r1")) return false;
+    if (id.includes("big-pickle")) return false;
     return true;
   });
 

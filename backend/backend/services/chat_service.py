@@ -205,7 +205,72 @@ class ChatService:
             )
             db.add(user_msg)
             await db.commit()
-        
+
+        # BUG-FIX: model auto-selection — same chain as chat_stream()
+        # (env → provider_models → worker_runtime). chat_completion() is called
+        # with (None, None) by POST /chat/regenerate, which previously
+        # short-circuited to "No AI provider configured" even when an enabled
+        # provider existed.
+        if not model_id:
+            from backend.config import settings
+            env_model = (
+                settings.AIC_MODEL_CRAFTER
+                or settings.AIC_MODEL_THINKER
+                or settings.AIC_MODEL_SPRINTER
+            )
+            if env_model:
+                model_id = env_model
+                # Prefer the env provider's base_url/api_key — an env model
+                # must not be sent to an auto-detected DB provider's endpoint.
+                env_base_url = settings.AIC_LLM_BASE_URL or ""
+                env_api_key = settings.AIC_LLM_API_KEY or ""
+                if env_base_url and env_api_key:
+                    env_base_url = env_base_url.rstrip("/")
+                    if not env_base_url.endswith("/v1"):
+                        env_base_url += "/v1"
+                    config = (env_base_url, env_api_key)
+            else:
+                # Auto-detect provider if none given
+                if not provider_id:
+                    prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+                    auto_prov = prov_res.scalars().first()
+                    if auto_prov:
+                        provider_id = auto_prov.id
+
+                if provider_id:
+                    # Try to find a valid model from the provider's model list
+                    res = await db.execute(
+                        select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
+                    )
+                    all_models = res.scalars().all()
+                    if all_models:
+                        excluded_prefixes = ("combo/", "IAMHC/")
+                        excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+                        valid_models = [
+                            m for m in all_models
+                            if not m.startswith(excluded_prefixes)
+                            and not any(s in m.lower() for s in excluded_substrings)
+                        ]
+                        if not valid_models:
+                            valid_models = [m for m in all_models if not m.startswith("combo/")]
+                        if valid_models:
+                            model_id = valid_models[0]
+
+            if not model_id:
+                from backend.models.schema import WorkerRuntime
+                wr_result = await db.execute(
+                    select(WorkerRuntime).where(WorkerRuntime.is_enabled == True).limit(1)
+                )
+                worker_runtime = wr_result.scalars().first()
+                if worker_runtime and worker_runtime.model_id:
+                    model_id = worker_runtime.model_id
+                    if not provider_id and worker_runtime.provider_id:
+                        provider_id = worker_runtime.provider_id
+
+            # Re-fetch config with the (possibly auto-detected) provider.
+            if provider_id:
+                config = await cls._get_provider_config(db, provider_id)
+
         # Graceful fallback when no provider is connected (desktop-first behavior)
         if not config or not model_id:
             content = "No AI provider configured. Please add a provider in Settings > Providers to start chatting."
@@ -417,6 +482,13 @@ class ChatService:
             db.add(log)
             await db.commit()
             raise e
+        finally:
+            # QA-FIX: close the per-request LLMProvider so its httpx client is
+            # not leaked on every chat_completion call (see register() leak).
+            try:
+                await provider.close()
+            except Exception:
+                pass
 
     @classmethod
     async def chat_stream(
@@ -474,33 +546,56 @@ class ChatService:
 
         # BUG-03 FIX: Use configured model from WorkerRuntime, not hardcoded fallback
         if not model_id:
-            # BUG-14 FIX: Resolve provider_id first so we can look up ProviderModel
-            if not provider_id:
-                # Auto-detect: find first enabled provider's ID
-                prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
-                auto_prov = prov_res.scalars().first()
-                if auto_prov:
-                    provider_id = auto_prov.id
+            # QA-E2E FIX: The user's explicit engine config (set in Settings >
+            # Providers → written to AIC_MODEL_* env) must take priority over
+            # auto-picking from provider_models — the first "valid" model in the
+            # list may have no active credentials on the endpoint (404).
+            from backend.config import settings
+            env_model = (
+                settings.AIC_MODEL_CRAFTER
+                or settings.AIC_MODEL_THINKER
+                or settings.AIC_MODEL_SPRINTER
+            )
+            if env_model:
+                model_id = env_model
+                # QA-FIX: the env model must be paired with the env provider's
+                # base_url/api_key — otherwise an env model gets sent to an
+                # auto-detected DB provider's endpoint (404).
+                env_base_url = settings.AIC_LLM_BASE_URL or ""
+                env_api_key = settings.AIC_LLM_API_KEY or ""
+                if env_base_url and env_api_key:
+                    env_base_url = env_base_url.rstrip("/")
+                    if not env_base_url.endswith("/v1"):
+                        env_base_url += "/v1"
+                    config = (env_base_url, env_api_key)
+            else:
+                # BUG-14 FIX: Resolve provider_id first so we can look up ProviderModel
+                if not provider_id:
+                    # Auto-detect: find first enabled provider's ID
+                    prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+                    auto_prov = prov_res.scalars().first()
+                    if auto_prov:
+                        provider_id = auto_prov.id
 
-            if provider_id:
-                # Try to find a valid model from the provider's model list
-                res = await db.execute(
-                    select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
-                )
-                all_models = res.scalars().all()
-                if all_models:
-                    # Filter out combo/bad models, pick first valid one
-                    excluded_prefixes = ("combo/", "IAMHC/")
-                    excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
-                    valid_models = [
-                        m for m in all_models
-                        if not m.startswith(excluded_prefixes)
-                        and not any(s in m.lower() for s in excluded_substrings)
-                    ]
-                    if not valid_models:
-                        valid_models = [m for m in all_models if not m.startswith("combo/")]
-                    if valid_models:
-                        model_id = valid_models[0]
+                if provider_id:
+                    # Try to find a valid model from the provider's model list
+                    res = await db.execute(
+                        select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
+                    )
+                    all_models = res.scalars().all()
+                    if all_models:
+                        # Filter out combo/bad models, pick first valid one
+                        excluded_prefixes = ("combo/", "IAMHC/")
+                        excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+                        valid_models = [
+                            m for m in all_models
+                            if not m.startswith(excluded_prefixes)
+                            and not any(s in m.lower() for s in excluded_substrings)
+                        ]
+                        if not valid_models:
+                            valid_models = [m for m in all_models if not m.startswith("combo/")]
+                        if valid_models:
+                            model_id = valid_models[0]
             
             # If still no model, try to get from worker_runtime configuration
             if not model_id:
@@ -521,7 +616,17 @@ class ChatService:
                             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             
             # Only use env fallback if absolutely no configuration exists
+            # AND no DB provider is active — mixing an env model (e.g.
+            # AIC_MODEL_CRAFTER) with a DB provider's base_url would send a
+            # model that does not exist on that provider → confusing 404/400.
             if not model_id:
+                if provider_id:
+                    error_msg = "No model configured for this provider. Select a model in Settings > Providers."
+                    msg.content = error_msg
+                    yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+                    msg.status = "error"
+                    await db.commit()
+                    return
                 from backend.config import settings
                 model_id = settings.AIC_MODEL_CRAFTER or settings.AIC_MODEL_SPRINTER
                 if not model_id:

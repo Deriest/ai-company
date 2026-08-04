@@ -123,16 +123,6 @@ export function friendlyError(err: unknown): FriendlyError {
     };
   }
 
-  if (lower.includes("502") || lower.includes("failed to fetch models")) {
-    return {
-      title: "Provider unreachable",
-      message: "AIC could not list models from this provider endpoint.",
-      action: "Verify the API endpoint, API key, and network access — then Test Connection again.",
-      retryable: true,
-      technical: raw,
-    };
-  }
-
   // Generic API shape: METHOD path → status: detail
   const m = /→\s*(\d{3}):\s*(.*)$/.exec(raw);
   if (m) {

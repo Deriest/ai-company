@@ -94,7 +94,11 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     logger.info(f"[EXECUTE] intent={intent} content={user_content[:50]}")
 
     # Only task_request goes through full pipeline
-    if intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM):
+    # QA-E2E FIX: multimodal requests (attachments present) must always go
+    # through the agent_runner path — the legacy ChatService path drops
+    # attachments, so a vision question would silently lose its image.
+    has_attachments = bool(payload.attachments)
+    if intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM) and not has_attachments:
         # Not a task — fall back to regular chat
         return await chat_stream_endpoint(payload, db)
 
@@ -165,15 +169,25 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
             try:
                 yield f"data: {json.dumps({'type': 'status', 'status': 'executing', 'worker': worker_type})}\n\n"
 
+                # QA-FIX: image attachments require the vision tier — a
+                # non-vision tier with an image silently fails upstream.
+                model_tier = payload.model_tier or "crafter"
+                if payload.attachments and any(
+                    str(a.get("mime_type", "")).lower().startswith("image/")
+                    for a in payload.attachments
+                ):
+                    model_tier = "vision"
+
                 runner = AgentRunner(workspace_root=workspace)
                 final_content = ""
 
                 async for event in runner.run_agent(
                     worker_type=worker_type,
                     prompt=user_content,
-                    model_tier=payload.model_tier or "crafter",
+                    model_tier=model_tier,
                     max_iterations=10,
                     attachments=payload.attachments,
+                    db=db,
                 ):
                     if event["type"] == "content":
                         chunk = event.get("content", "")
@@ -341,7 +355,11 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
 
         # Determine workspace root from conversation context
         workspace_root = os.getcwd()
-        tool_service = ToolAwareChatService(workspace_root=workspace_root)
+        # QA-E2E FIX: pass the worker_type so the chat tool path uses the
+        # worker's real permission set (write_file/shell for dev roles) instead
+        # of falling back to the read-only default. Permission gating is still
+        # enforced via check_permission inside ToolExecutor.
+        tool_service = ToolAwareChatService(workspace_root=workspace_root, worker_type=worker_type)
 
         async def tool_event_generator():
             try:

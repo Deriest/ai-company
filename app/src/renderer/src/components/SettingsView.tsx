@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Hand, Bot, Zap, Cpu, Download, FolderOpen,
+  Cpu, Download, FolderOpen,
   Bug, Save, Trash2,
 } from 'lucide-react'
-import { Card, PageHeader, Badge } from './kit'
+import { Card, PageHeader } from './kit'
 import { cn } from '../lib/utils'
 import { GeneralTab } from './auth/AccountSettings'
 import { ProviderSetup } from './auth/ProviderSetup'
-import { api } from '../lib/runtimeClient'
-import { apiClient } from '../lib/api/client'
 import { profileApi, type LocalProfile } from '../lib/api/profile'
 import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
 import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
@@ -22,7 +20,7 @@ type Tab = SettingsTab
 
 /* ─── Workspace Tab ─── */
 
-function WorkspaceTab() {
+function WorkspaceTab({ onProjectRootChange }: { onProjectRootChange?: (root: string | null) => void }) {
   const [root, setRoot] = useState('')
   const [saved, setSaved] = useState(false)
   const [autoOpen, setAutoOpen] = useState(true)
@@ -46,6 +44,10 @@ function WorkspaceTab() {
     try { 
       await profileApi.update({ projectRoot: root })
       localStorage.setItem('aic-ade-workspace', JSON.stringify({ autoOpen, rememberSession, sessionName }))
+      // BUG-6: Propagate the project root to the IPC store and App-level state
+      // so the workspace/file tree pick it up immediately (mirrors ProjectPicker).
+      await window.aic?.storeSet?.('projectRoot', root)
+      onProjectRootChange?.(root)
       setSaved(true); setTimeout(() => setSaved(false), 2000) 
     }
     catch { /* ignore */ }
@@ -97,7 +99,7 @@ function WorkspaceTab() {
 
 /* ─── Engine Config Section ─── */
 
-function EngineConfigSection() {
+function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
   const [cfg, setCfg] = useState<EnvConfig | null>(null)
   const [providers, setProviders] = useState<ProviderRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -118,11 +120,13 @@ function EngineConfigSection() {
   const [sprinterModel, setSprinterModel] = useState<string>('')
   const [visionModel, setVisionModel] = useState<string>('')
 
-  // BUG-16 FIX: Filter out known-bad models from dropdowns
+  // BUG-16 FIX: Filter out known-bad models from dropdowns — only clearly
+  // internal prefixes (combo/, iamhc/, big-pickle). DeepSeek/r1 models are
+  // legitimate and must NOT be dropped (DeepSeek users got an empty dropdown).
   const filterValidModels = (models: ModelInfo[]) => models.filter(m => {
     const id = m.id.toLowerCase();
     if (id.startsWith("combo/") || id.startsWith("iamhc/")) return false;
-    if (id.includes("free") || id.includes("big-pickle") || id.includes("deepseek") || id.includes("r1")) return false;
+    if (id.includes("big-pickle")) return false;
     return true;
   })
 
@@ -201,17 +205,23 @@ function EngineConfigSection() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { void loadEngineConfig() }, [loadEngineConfig])
+  // Reload when a provider is saved upstream (ProviderRegistry) so the
+  // provider dropdown includes newly added providers (BUG-4).
+  useEffect(() => { void loadEngineConfig() }, [loadEngineConfig, refreshKey])
 
   const handleTierProviderChange = useCallback((tier: 'thinker' | 'crafter' | 'sprinter' | 'vision', pName: string) => {
     const p = providers.find(x => x.name === pName)
     if (!p) return
     const pModels = p.models || []
-    if (tier === 'thinker') { setThinkerProvider(pName); setThinkerModels(pModels); setThinkerModel('') }
-    else if (tier === 'crafter') { setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel('') }
-    else if (tier === 'sprinter') { setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel('') }
-    else if (tier === 'vision') { setVisionProvider(pName); setVisionModels(pModels.filter(m => m.capabilities.vision)); setVisionModel('') }
-  }, [providers])
+    // BUG-2: The backend EnvConfig is single-provider — per-tier provider
+    // selection would send one tier's model to another tier's endpoint.
+    // Restrict every tier to the same provider when any tier changes.
+    const keep = (m: string) => pModels.some(mm => mm.id === m) ? m : ''
+    setThinkerProvider(pName); setThinkerModels(pModels); setThinkerModel(keep(thinkerModel))
+    setCrafterProvider(pName); setCrafterModels(pModels); setCrafterModel(keep(crafterModel))
+    setSprinterProvider(pName); setSprinterModels(pModels); setSprinterModel(keep(sprinterModel))
+    setVisionProvider(pName); setVisionModels(pModels.filter(m => m.capabilities.vision)); setVisionModel(keep(visionModel))
+  }, [providers, thinkerModel, crafterModel, sprinterModel, visionModel])
 
   const fetchAllModels = useCallback(async () => {
     setLoading(true)
@@ -391,10 +401,11 @@ function EngineConfigSection() {
 /* ─── Providers Tab ─── */
 
 function ProvidersTab() {
+  const [providersVersion, setProvidersVersion] = useState(0)
   return (
     <div className="space-y-6 max-w-4xl">
-      <ProviderSetup mode="settings" />
-      <EngineConfigSection />
+      <ProviderSetup mode="settings" onProviderSaved={() => setProvidersVersion(v => v + 1)} />
+      <EngineConfigSection refreshKey={providersVersion} />
     </div>
   )
 }
@@ -471,7 +482,6 @@ function DeveloperTab() {
   const [debugMode, setDebugMode] = useState(false)
   const [logLevel, setLogLevel] = useState('info')
   const [showDevTools, setShowDevTools] = useState(false)
-  const [githubToken, setGithubToken] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -481,12 +491,11 @@ function DeveloperTab() {
       if (s.debugMode !== undefined) setDebugMode(s.debugMode)
       if (s.logLevel) setLogLevel(s.logLevel)
       if (s.showDevTools !== undefined) setShowDevTools(s.showDevTools)
-      if (s.githubToken) setGithubToken(s.githubToken)
     }
   }, [])
 
   const save = () => {
-    localStorage.setItem('aic-ade-developer', JSON.stringify({ debugMode, logLevel, showDevTools, githubToken }))
+    localStorage.setItem('aic-ade-developer', JSON.stringify({ debugMode, logLevel, showDevTools }))
     setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
@@ -535,18 +544,6 @@ function DeveloperTab() {
                 </button>
               ))}
             </div>
-          </div>
-          <div className="border-t border-border pt-4">
-            <label className="text-sm font-medium">GitHub Personal Access Token</label>
-            <p className="mt-1 text-xs text-muted-foreground">Stored only in this local profile. It is never sent to the AIC backend or committed to your repository.</p>
-            <input
-              type="password"
-              value={githubToken}
-              onChange={e => setGithubToken(e.target.value)}
-              placeholder="ghp_…"
-              autoComplete="off"
-              className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono outline-none focus:border-primary"
-            />
           </div>
           <div className="flex items-center gap-3 pt-2 border-t border-border">
             <button onClick={save} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
@@ -616,96 +613,22 @@ function AutoSaveTab() {
   )
 }
 
-/* ─── Auto Approve Tab ─── */
-
-const modes = [
-  { id: 'manual', label: 'Manual', icon: Hand, desc: 'All approvals require manual review.' },
-  { id: 'semi', label: 'Semi Auto', icon: Bot, desc: 'Low-risk auto approve; high-risk requires review.', recommended: true },
-  { id: 'full', label: 'Full Auto', icon: Zap, desc: 'All approvals are automatically approved.' },
-] as const
-
-const SCOPE_KEYS = [
-  { key: 'verifications', label: 'Verifications' },
-  { key: 'lint_type_checks', label: 'Lint & Type Checks' },
-  { key: 'unit_tests', label: 'Unit Tests' },
-  { key: 'build_success', label: 'Build Success' },
-  { key: 'security_scan_low', label: 'Security Scan (Low)' },
-  { key: 'deploy_staging', label: 'Deploy to Staging' },
-  { key: 'deploy_production', label: 'Deploy to Production' },
-] as const
-
-function AutoApproveTab() {
-  const [mode, setMode] = useState<string>('semi')
-  const [scope, setScope] = useState<Record<string, boolean>>({})
-  const [riskThreshold, setRiskThreshold] = useState<string>('low')
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    api.getApprovalConfig().then((cfg) => {
-      setMode(cfg.mode)
-      setScope(cfg.scope)
-      setRiskThreshold(cfg.risk_threshold)
-    }).catch(() => {
-      const defaultScope: Record<string, boolean> = {}
-      SCOPE_KEYS.forEach((s) => { defaultScope[s.key] = s.key !== 'deploy_staging' && s.key !== 'deploy_production' })
-      setScope(defaultScope)
-    }).finally(() => setLoading(false))
-  }, [])
-
-  const saveConfig = useCallback(async (updates: { mode?: string; scope?: Record<string, boolean>; risk_threshold?: string }) => {
-    try {
-      await api.updateApprovalConfig({
-        mode: updates.mode ?? mode,
-        scope: updates.scope ?? scope,
-        risk_threshold: updates.risk_threshold ?? riskThreshold,
-      })
-    } catch { /* ignore */ }
-  }, [mode, scope, riskThreshold])
-
-  if (loading) return <div className="text-sm text-muted-foreground">Loading...</div>
-
-  return (
-    <div className="space-y-5 max-w-2xl">
-      <div>
-        <h2 className="text-sm font-semibold">Auto Approve Mode</h2>
-        <p className="text-xs text-muted-foreground">Control how much of the approval workflow runs without human input.</p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        {modes.map((m) => {
-          const Icon = m.icon
-          const active = mode === m.id
-          return (
-            <button key={m.id} onClick={() => { setMode(m.id); saveConfig({ mode: m.id }) }}
-              className={cn('flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors',
-                active ? 'border-primary bg-primary/10 ring-1 ring-primary/40' : 'border-border bg-card hover:border-primary/40')}>
-              <div className={cn('grid size-10 place-items-center rounded-lg', active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
-                <Icon className="size-5" />
-              </div>
-              <span className="text-sm font-semibold">{m.label}</span>
-              <span className="text-[11px] text-muted-foreground">{m.desc}</span>
-              {'recommended' in m && m.recommended ? <Badge tone="primary">Recommended</Badge> : null}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 /* ─── Main Settings View ─── */
 
 export function SettingsView({
-  initialTab, updateDialogOpen, onUpdateDialogOpenChange, onProfileUpdated,
+  initialTab, updateDialogOpen, onUpdateDialogOpenChange, onProfileUpdated, onProjectRootChange,
 }: {
   initialTab?: Tab
   updateDialogOpen?: boolean
   onUpdateDialogOpenChange?: (open: boolean) => void
   onProfileUpdated?: (profile: LocalProfile) => void
+  onProjectRootChange?: (root: string | null) => void
 } = {}) {
   const [tab, setTab] = useState<Tab>(() => {
+    // BUG-23: Prefer initialTab when it differs from the stored tab.
+    if (initialTab && tabs.includes(initialTab as Tab)) return initialTab as Tab
     const saved = localStorage.getItem('aic-ade-settings-tab')
     if (saved && tabs.includes(saved as Tab)) return saved as Tab
-    if (initialTab && tabs.includes(initialTab as Tab)) return initialTab as Tab
     return 'General'
   })
 
@@ -731,7 +654,7 @@ export function SettingsView({
         </div>
 
         {tab === 'General' && <GeneralTab updateDialogOpen={updateDialogOpen} onUpdateDialogOpenChange={onUpdateDialogOpenChange} onProfileUpdated={onProfileUpdated} />}
-        {tab === 'Workspace' && <WorkspaceTab />}
+        {tab === 'Workspace' && <WorkspaceTab onProjectRootChange={onProjectRootChange} />}
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
         {tab === 'Developer' && <DeveloperTab />}

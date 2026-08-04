@@ -32,8 +32,12 @@ class ToolDispatcher:
 
     def _resolve_path(self, rel_path: str) -> str:
         # safe resolve inside workspace
-        p = os.path.abspath(os.path.join(self.workspace_dir, rel_path.lstrip("/")))
-        if not p.startswith(os.path.abspath(self.workspace_dir)):
+        root = os.path.abspath(self.workspace_dir)
+        p = os.path.abspath(os.path.join(root, rel_path.lstrip("/")))
+        # QA-E2E FIX: startswith(root) without a separator allowed a sibling
+        # prefix bypass (/tmp/aic-workspace-evil/...). The boundary check must
+        # compare against root + os.sep, and the root itself is allowed.
+        if p != root and not p.startswith(root + os.sep):
             raise PermissionError("Access outside workspace is denied.")
         return p
 

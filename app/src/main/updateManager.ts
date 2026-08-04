@@ -68,12 +68,55 @@ export type UpdateState = {
 
 export type UpdateListener = (state: UpdateState) => void;
 
+const MAX_REDIRECTS = 5;
+const MAX_MANIFEST_BYTES = 1 * 1024 * 1024; // 1MB manifest cap
+const MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024 * 1024; // 8GB artifact safety cap
+
+/** https only (http://127.0.0.1 allowed for local dev mirrors). */
+function isAllowedDownloadUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || (u.protocol === "http:" && u.hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
+}
+
 function fetchJson(url: string, timeoutMs = 30000): Promise<unknown> {
+  return requestRaw(url, timeoutMs, MAX_MANIFEST_BYTES, "manifest");
+}
+
+/**
+ * Shared HTTP(S) fetch with hardened transport rules:
+ *  - https only (http://127.0.0.1 allowed for local dev mirrors)
+ *  - max 5 redirects, https→http downgrades rejected
+ *  - response body size cap
+ *  - mid-stream errors reject instead of hanging
+ */
+function requestRaw(
+  url: string,
+  timeoutMs: number,
+  maxBytes: number,
+  what: string,
+  redirects = 0
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    if (!isAllowedDownloadUrl(url)) {
+      reject(new Error(`Blocked non-HTTPS ${what} URL: ${url}`));
+      return;
+    }
+    if (redirects > MAX_REDIRECTS) {
+      reject(new Error(`Too many redirects (${redirects}) fetching ${url}`));
+      return;
+    }
     const lib = url.startsWith("https") ? https : http;
+    let total = 0;
     const req = lib.get(url, { timeout: timeoutMs }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        fetchJson(res.headers.location, timeoutMs).then(resolve, reject);
+        const location = res.headers.location;
+        res.resume();
+        requestRaw(new URL(location, url).toString(), timeoutMs, maxBytes, what, redirects + 1)
+          .then(resolve, reject);
         return;
       }
       if ((res.statusCode || 0) >= 400) {
@@ -82,10 +125,20 @@ function fetchJson(url: string, timeoutMs = 30000): Promise<unknown> {
         return;
       }
       const chunks: Buffer[] = [];
-      res.on("data", (c) => chunks.push(c));
+      res.on("data", (c: Buffer) => {
+        total += c.length;
+        if (total > maxBytes) {
+          req.destroy();
+          reject(new Error(`${what} too large (>{maxBytes} bytes): ${url}`));
+          return;
+        }
+        chunks.push(c);
+      });
+      res.on("error", (err) => reject(err));
       res.on("end", () => {
         try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          const body = Buffer.concat(chunks).toString("utf8");
+          resolve(what === "manifest" ? JSON.parse(body) : body);
         } catch (e) {
           reject(e);
         }
@@ -102,45 +155,68 @@ function fetchJson(url: string, timeoutMs = 30000): Promise<unknown> {
 function downloadFile(
   url: string,
   dest: string,
-  onProgress?: (downloaded: number, total: number, speed: number) => void
+  onProgress?: (downloaded: number, total: number, speed: number) => void,
+  redirects = 0
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (!isAllowedDownloadUrl(url)) {
+      reject(new Error(`Blocked non-HTTPS download URL: ${url}`));
+      return;
+    }
+    if (redirects > MAX_REDIRECTS) {
+      reject(new Error(`Too many redirects (${redirects}) downloading ${url}`));
+      return;
+    }
     const lib = url.startsWith("https") ? https : http;
     const file = fs.createWriteStream(dest);
     const started = Date.now();
     let downloaded = 0;
+    let settled = false;
+
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      file.destroy();
+      fs.unlink(dest, () => reject(err));
+    };
 
     const req = lib.get(url, { timeout: 120000 }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        file.close();
+        const location = res.headers.location;
+        res.resume();
+        file.destroy();
         fs.unlink(dest, () => {
-          downloadFile(res.headers.location!, dest, onProgress).then(resolve, reject);
+          downloadFile(new URL(location, url).toString(), dest, onProgress, redirects + 1)
+            .then(resolve, reject);
         });
         return;
       }
       if ((res.statusCode || 0) >= 400) {
-        file.close();
-        fs.unlink(dest, () => reject(new Error(`HTTP ${res.statusCode} downloading ${url}`)));
+        fail(new Error(`HTTP ${res.statusCode} downloading ${url}`));
         res.resume();
         return;
       }
       const total = parseInt(String(res.headers["content-length"] || "0"), 10) || 0;
       res.on("data", (chunk: Buffer) => {
         downloaded += chunk.length;
+        if (downloaded > MAX_DOWNLOAD_BYTES) {
+          fail(new Error(`Download exceeds size cap (${MAX_DOWNLOAD_BYTES} bytes): ${url}`));
+          req.destroy();
+          res.destroy();
+          return;
+        }
         const elapsed = Math.max((Date.now() - started) / 1000, 0.001);
         onProgress?.(downloaded, total, downloaded / elapsed);
       });
+      res.on("error", (err) => fail(err));
+      file.on("error", (err) => fail(err));
       res.pipe(file);
       file.on("finish", () => file.close(() => resolve()));
     });
-    req.on("error", (err) => {
-      file.close();
-      fs.unlink(dest, () => reject(err));
-    });
+    req.on("error", (err) => fail(err));
     req.on("timeout", () => {
       req.destroy();
-      file.close();
-      fs.unlink(dest, () => reject(new Error("Download timeout")));
+      fail(new Error("Download timeout"));
     });
   });
 }
@@ -186,9 +262,16 @@ export class UpdateManager {
   }
 
   setConfig(partial: Partial<UpdateConfig>): void {
+    const prevBaseUrl = this.config.baseUrl;
     this.config = { ...this.config, ...partial };
     if (partial.baseUrl !== undefined) {
-      this.config.baseUrl = resolveUpdateBaseUrl(partial.baseUrl, process.env as Record<string, string | undefined>);
+      try {
+        this.config.baseUrl = resolveUpdateBaseUrl(partial.baseUrl, process.env as Record<string, string | undefined>);
+      } catch (e) {
+        // Keep the previous base URL — an invalid value must not be applied.
+        this.config.baseUrl = prevBaseUrl;
+        throw new Error(e instanceof Error ? e.message : String(e));
+      }
     }
     this.state.baseUrl = this.config.baseUrl;
     this.state.channel = this.config.channel;
@@ -314,8 +397,10 @@ export class UpdateManager {
       this.abortDownload = false;
       const dir = path.join(app.getPath("userData"), "aic-ade", "updates", "staged");
       fs.mkdirSync(dir, { recursive: true });
-      const tempDest = path.join(dir, `${artifact.filename || `update-${this.state.availableVersion}`}.tmp`);
-      const finalDest = path.join(dir, artifact.filename || `update-${this.state.availableVersion}`);
+      // Sanitize artifact filename — path.basename() blocks "../" traversal escapes.
+      const safeFilename = path.basename(artifact.filename || `update-${this.state.availableVersion}`);
+      const tempDest = path.join(dir, `${safeFilename}.tmp`);
+      const finalDest = path.join(dir, safeFilename);
       this.setState({
         status: "downloading",
         progress: 0,
@@ -340,11 +425,14 @@ export class UpdateManager {
         this.setState({ status: "verifying", progress: 100 });
         const hash = await sha256File(tempDest);
         const expected = (artifact.sha256 || "").toLowerCase();
-        if (expected && hash.toLowerCase() !== expected) {
+        // sha256 is REQUIRED by parseManifest — never skip verification.
+        if (!expected || hash.toLowerCase() !== expected) {
           fs.unlinkSync(tempDest);
           this.setState({
             status: "error",
-            error: `SHA256 mismatch. Expected ${expected.slice(0, 16)}… got ${hash.slice(0, 16)}…`,
+            error: expected
+              ? `SHA256 mismatch. Expected ${expected.slice(0, 16)}… got ${hash.slice(0, 16)}…`
+              : "SHA256 verification failed: manifest did not provide a checksum",
             downloadPath: undefined,
           });
           return this.getState();

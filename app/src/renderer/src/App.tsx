@@ -20,7 +20,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { TerminalPanel } from "./components/Terminal";
 import { profileApi, type LocalProfile } from "./lib/api/profile";
 import type { ProjectRecord } from "./lib/api/projects";
-import type { View } from "./types";
+import type { RestoredState, View } from "./types";
 
 const navViews: View[] = ["home", "hermes", "live", "skills", "mcp", "plugins", "settings"];
 
@@ -37,6 +37,7 @@ export function App() {
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
   const [showFileTree, setShowFileTree] = useState(true);
+  const [newSessionSignal, setNewSessionSignal] = useState(0);
   const paletteRef = useRef<React.Dispatch<React.SetStateAction<boolean>>>(undefined);
 
   // Load profile on mount
@@ -57,20 +58,39 @@ export function App() {
     }).catch(() => {});
   }, []);
 
+  // BUG-24: Wire the restore callback instead of leaving dead plumbing. Called
+  // by useBoot during session restore to restore project root + conversation.
+  const restoreRef = useRef<((stored: RestoredState) => void) | undefined>(undefined);
+  restoreRef.current = (stored: RestoredState) => {
+    if (stored.projectRoot) {
+      setProjectRoot(stored.projectRoot);
+      window.aic?.storeSet?.("projectRoot", stored.projectRoot).catch(() => {});
+    }
+    if (stored.conversationId) {
+      try { sessionStorage.setItem("aic-ade-active-conversation", stored.conversationId); } catch {}
+    }
+  };
+
   const boot = useBoot({
     onViewChange: setView,
     onOpenPalette: useCallback(() => paletteRef.current?.(true), []),
-    restoreRef: { current: undefined },
+    restoreRef,
   });
   paletteRef.current = setPaletteOpen;
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // BUG-14: Don't hijack keys while typing in inputs/selects — except
+      // Ctrl/Cmd+K which is the standard palette shortcut.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setPaletteOpen(o => !o);
+        return;
       }
+      if (typing) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "`") {
         e.preventDefault();
         setShowTerminal(o => !o);
@@ -144,6 +164,12 @@ export function App() {
             updateDialogOpen={boot.updateDialogOpen}
             onUpdateDialogOpenChange={boot.setUpdateDialogOpen}
             onProfileUpdated={setProfile}
+            onProjectRootChange={(root) => {
+              // BUG-6: Workspace "Default Project Root" save must propagate to
+              // App-level state and the IPC store.
+              setProjectRoot(root);
+              window.aic?.storeSet?.("projectRoot", root).catch(() => {});
+            }}
           />
         );
       case "orchestration":
@@ -184,7 +210,7 @@ export function App() {
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
             <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-              <ChatView health={boot.health} currentProvider={boot.currentProvider} view={view} />
+              <ChatView health={boot.health} currentProvider={boot.currentProvider} view={view} newSessionSignal={newSessionSignal} />
             </div>
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {renderView()}
@@ -202,7 +228,12 @@ export function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onNavigate={(v) => setView(v as View)}
-        onNewSession={() => setShowTerminal(true)}
+        onNewSession={() => {
+          // BUG-5: "New Conversation" now creates a real conversation instead
+          // of toggling the Terminal panel.
+          setView("hermes");
+          setNewSessionSignal(n => n + 1);
+        }}
         onToggleTerminal={() => setShowTerminal(prev => !prev)}
         onToggleFileTree={() => setShowFileTree(p => !p)}
       />

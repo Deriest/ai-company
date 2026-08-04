@@ -37,7 +37,9 @@ export function parseVersion(v: string): number[] {
       preParts.push(num);
     }
   }
-  return [...core.slice(0, 3), -1, ...preParts];
+  // Keep ALL core components (no truncation to 3 parts) so 4-part
+  // versions are compared on the same padding rule as 3-part ones.
+  return [...core, -1, ...preParts];
 }
 
 /** Returns true if remote > local. */
@@ -65,6 +67,19 @@ export function parseManifest(raw: unknown): UpdateManifest {
   const o = raw as Record<string, unknown>;
   if (!o.version || typeof o.version !== "string") throw new Error("Invalid manifest: missing version");
   if (!o.platforms || typeof o.platforms !== "object") throw new Error("Invalid manifest: missing platforms");
+  const platforms = o.platforms as Record<string, unknown>;
+  for (const [key, val] of Object.entries(platforms)) {
+    if (!val || typeof val !== "object") {
+      throw new Error(`Invalid manifest: platform "${key}" is not an object`);
+    }
+    const art = val as Record<string, unknown>;
+    // sha256 is REQUIRED — checksum verification must never be skipped.
+    for (const field of ["sha256", "filename", "downloadUrl"] as const) {
+      if (typeof art[field] !== "string" || !art[field]) {
+        throw new Error(`Invalid manifest: platform "${key}" missing ${field}`);
+      }
+    }
+  }
   return o as unknown as UpdateManifest;
 }
 
@@ -85,9 +100,27 @@ export function resolveUpdateBaseUrl(
   env?: Record<string, string | undefined>
 ): string {
   const fromEnv = env?.AIC_UPDATE_BASE_URL || env?.AIC_DOWNLOAD_BASE_URL;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim().replace(/\/$/, "");
-  if (stored && stored.trim()) return stored.trim().replace(/\/$/, "");
-  return DEFAULT_UPDATE_BASE_URL;
+  const candidate = (fromEnv && fromEnv.trim()) || (stored && stored.trim()) || DEFAULT_UPDATE_BASE_URL;
+  return validateUpdateBaseUrl(candidate.trim().replace(/\/$/, ""));
+}
+
+/**
+ * Require https:// for update sources. Only http://127.0.0.1 is allowed
+ * for local development mirrors. Throws for anything else (http, file, ftp).
+ */
+export function validateUpdateBaseUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`Invalid update base URL: ${url}`);
+  }
+  const isLocal = u.protocol === "http:" && u.hostname === "127.0.0.1";
+  const isHttps = u.protocol === "https:";
+  if (!isLocal && !isHttps) {
+    throw new Error("Update base URL must use https:// (or http://127.0.0.1 for local dev)");
+  }
+  return url.replace(/\/$/, "");
 }
 
 export function manifestUrl(baseUrl: string, channel: UpdateChannel = "stable"): string {

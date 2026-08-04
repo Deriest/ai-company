@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     from llm.provider import provider_manager, init_provider_from_env, ProviderConfig
     config = init_provider_from_env()
     if config:
-        provider_manager.register(config)
+        await provider_manager.aregister(config)
         logger.info(f"LLM provider initialized: {config.name} ({config.base_url})")
     else:
         logger.warning("No LLM provider configured (AIC_LLM_BASE_URL not set) — workers will use fallback templates")
@@ -76,7 +76,17 @@ async def lifespan(app: FastAPI):
                 # R2 FIX: Build models dict from worker_runtime, not first_model
                 models = {}
                 
+                # QA-FIX: env AIC_MODEL_* must only be applied to the provider
+                # whose endpoint matches AIC_LLM_BASE_URL — stamping them onto
+                # every DB provider would send a model that doesn't exist on
+                # the wrong provider's endpoint (404).
+                from llm.provider import _env_models_for_base_url
+                for tier, model in _env_models_for_base_url(base_url).items():
+                    if model:
+                        models[tier] = model
+                
                 # Query worker_runtime to get role-specific model assignments
+                # (only fill tiers not already set by env config)
                 worker_result = await db.execute(
                     select(WorkerRuntime).where(WorkerRuntime.provider_id == p.id)
                 )
@@ -94,7 +104,7 @@ async def lifespan(app: FastAPI):
                             "manager": "thinker",
                         }
                         tier = role_to_tier.get(worker.role)
-                        if tier:
+                        if tier and tier not in models:
                             models[tier] = worker.model_id
                 
                 # Fallback: if no worker_runtime models, find a valid non-combo model
@@ -128,7 +138,7 @@ async def lifespan(app: FastAPI):
                     api_key=api_key,
                     models=models if models else None,
                 )
-                provider_manager.register(db_config)
+                await provider_manager.aregister(db_config)
                 logger.info(f"LLM provider from DB registered: {p.name} ({base_url}) with {len(provider_models)} models")
             except Exception as e:
                 logger.error(f"Failed to register provider {p.name} from DB: {e}")
@@ -153,6 +163,11 @@ async def lifespan(app: FastAPI):
     # ── Shutdown ───────────────────────────────────────────────
     from backend.services.heartbeat import stop_heartbeat
     stop_heartbeat()
+    # Close all LLM provider httpx clients (leak fix).
+    try:
+        await provider_manager.close_all()
+    except Exception as e:
+        logger.warning(f"Failed to close LLM providers on shutdown: {e}")
 
 
 app = FastAPI(

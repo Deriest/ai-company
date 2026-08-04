@@ -54,6 +54,16 @@ const TIER_LABEL_COLORS: Record<EngineTier, string> = {
   vision: 'text-info',
 }
 
+// Collision-resistant temp id generator. Date.now() alone can collide when two
+// messages are created in the same millisecond (double-send) — crypto.randomUUID
+// is preferred, with a timestamp+random fallback for non-secure contexts.
+function genId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 // ── Markdown ─────────────────────────────────────────────
 
 function MarkdownContent({ content }: { content: string }) {
@@ -105,13 +115,23 @@ function renderInline(text: string): React.ReactNode {
     if (first.index > 0) nodes.push(<span key={key++}>{remaining.slice(0, first.index)}</span>)
     if (first.type === 'bold') { nodes.push(<strong key={key++} className="font-semibold">{first.match[1]}</strong>); remaining = remaining.slice(first.index + first.match[0].length) }
     else if (first.type === 'code') { nodes.push(<code key={key++} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.82em] text-primary">{first.match[1]}</code>); remaining = remaining.slice(first.index + first.match[0].length) }
-    else if (first.type === 'link') { nodes.push(<a key={key++} href={first.match[2]} className="text-primary underline" target="_blank" rel="noreferrer">{first.match[1]}</a>); remaining = remaining.slice(first.index + first.match[0].length) }
+    else if (first.type === 'link') {
+      const href = first.match[2]
+      // Only render http(s) links as anchors — data:/file:/javascript: URLs
+      // are rendered as plain text to avoid unsafe navigation.
+      if (/^https?:\/\//i.test(href)) {
+        nodes.push(<a key={key++} href={href} className="text-primary underline" target="_blank" rel="noreferrer">{first.match[1]}</a>)
+      } else {
+        nodes.push(<span key={key++}>{first.match[0]}</span>)
+      }
+      remaining = remaining.slice(first.index + first.match[0].length)
+    }
   }
   return <>{nodes}</>
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 function highlightCode(code: string, language: string): string {
@@ -282,16 +302,20 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
         </div>
         <div className="flex items-center gap-1.5">
           <button
-            className="rounded px-2 py-0.5 text-[9px] font-medium bg-primary/15 text-primary hover:bg-primary/25"
-            onClick={() => {/* placeholder for download all */}}
+            className="rounded px-2 py-0.5 text-[9px] font-medium bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-50"
+            disabled
+            title="Download All (coming soon)"
+            onClick={() => {}}
           >
-            Download All
+            Download All (soon)
           </button>
           <button
-            className="rounded px-2 py-0.5 text-[9px] font-medium bg-success/15 text-success hover:bg-success/25"
-            onClick={() => {/* placeholder for approve */}}
+            className="rounded px-2 py-0.5 text-[9px] font-medium bg-success/15 text-success hover:bg-success/25 disabled:opacity-50"
+            disabled
+            title="Approve (coming soon)"
+            onClick={() => {}}
           >
-            Approve
+            Approve (soon)
           </button>
         </div>
       </div>
@@ -465,7 +489,11 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
   onDuplicate: (id: string, e: React.MouseEvent) => void; onSearch: (q: string) => void;
 }) {
   const [query, setQuery] = useState('')
-  useEffect(() => { onSearch(query) }, [query])
+  // Debounce sidebar search so keystrokes don't fire a search per character.
+  useEffect(() => {
+    const timer = setTimeout(() => onSearch(query), 250)
+    return () => clearTimeout(timer)
+  }, [query, onSearch])
 
   return (
     <aside className="flex w-44 lg:w-52 shrink-0 flex-col border-r border-border bg-sidebar">
@@ -520,7 +548,7 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
 
 // ── Main ChatView ────────────────────────────────────────
 
-export function ChatView({ health = 'unknown', currentProvider = null, view = '' }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null; view?: string }) {
+export function ChatView({ health = 'unknown', currentProvider = null, view = '', newSessionSignal = 0 }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null; view?: string; newSessionSignal?: number }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => {
     try { return sessionStorage.getItem('aic-ade-active-conversation') }
@@ -552,11 +580,13 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const abortRef = useRef<(() => void) | null>(null)
   const streamMsgIdRef = useRef<string | null>(null)
   const activeIdRef = useRef(activeId)
-  const sendingRef = useRef(sending)
+  const sendingRef = useRef(false)
+  const stopRequestedRef = useRef(false)
+  const envWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagesRef = useRef(messages)
   const loadRequestRef = useRef(0)
+  const prevNewSessionSignalRef = useRef(newSessionSignal)
   activeIdRef.current = activeId
-  sendingRef.current = sending
   messagesRef.current = messages
 
   const active = useMemo(() => conversations.find(c => c.id === activeId) ?? null, [conversations, activeId])
@@ -664,8 +694,16 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   }, [activeId, sending])
   // BUG-2 FIX: Abort any in-flight stream when ChatView unmounts to prevent orphaned SSE connections.
   useEffect(() => {
-    return () => { abortRef.current?.(); abortRef.current = null }
+    return () => {
+      abortRef.current?.(); abortRef.current = null
+      if (envWriteTimerRef.current) clearTimeout(envWriteTimerRef.current)
+    }
   }, [])
+  // Prune stale assistantStates when switching conversations — the map is keyed
+  // by temp message ids that no longer exist after the conversation changes.
+  useEffect(() => {
+    setAssistantStates(prev => (prev.size === 0 ? prev : new Map()))
+  }, [activeId])
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !shouldAutoScrollRef.current) return
@@ -727,7 +765,24 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   }, [view, loadEngineConfig])
 
   const handleTierChange = useCallback((tier: EngineTier, patch: Partial<TierSelection>) => {
-    const next: Record<EngineTier, TierSelection> = { ...tiers, [tier]: { ...tiers[tier], ...patch } }
+    // BUG-2: The backend EnvConfig is single-provider (one provider_name /
+    // base_url / api_key for the whole engine). Per-tier providers are not
+    // supported, so when a tier's provider changes, sync every tier to it.
+    let next: Record<EngineTier, TierSelection>
+    if (patch.provider !== undefined) {
+      const pName = patch.provider
+      const pModels = providers.find(p => p.name === pName)?.models || []
+      const syncedModel = (sel: TierSelection) =>
+        patch.model !== undefined ? patch.model : (pModels.some(m => m.id === sel.model) ? sel.model : '')
+      next = {
+        thinker: { provider: pName, model: syncedModel(tiers.thinker) },
+        crafter: { provider: pName, model: syncedModel(tiers.crafter) },
+        sprinter: { provider: pName, model: syncedModel(tiers.sprinter) },
+        vision: { provider: pName, model: syncedModel(tiers.vision) },
+      }
+    } else {
+      next = { ...tiers, [tier]: { ...tiers[tier], ...patch } }
+    }
     setTiers(next)
     const persist = {
       thinkerProvider: next.thinker.provider,
@@ -741,17 +796,20 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     }
     try { localStorage.setItem('aic-ade-engine-tiers', JSON.stringify(persist)) } catch { /* ignore */ }
     void window.aic?.storeSet?.('engineConfig', persist)
-    // Apply to engine so the agent runner picks up the new tier models
-    const p = providers.find(x => x.name === next.thinker.provider) || providers[0]
-    providerManageApi.updateEnvConfig({
-      provider_name: p?.name || '',
-      base_url: p?.endpoint || '',
-      api_key: p?.apiKey || '',
-      thinker: next.thinker.model,
-      crafter: next.crafter.model,
-      sprinter: next.sprinter.model,
-      vision: next.vision.model,
-    }).catch(e => console.error('Apply engine config failed', e))
+    // Debounce the env write so rapid dropdown changes don't spam the backend.
+    if (envWriteTimerRef.current) clearTimeout(envWriteTimerRef.current)
+    envWriteTimerRef.current = setTimeout(() => {
+      const p = providers.find(x => x.name === next.thinker.provider) || providers[0]
+      providerManageApi.updateEnvConfig({
+        provider_name: p?.name || '',
+        base_url: p?.endpoint || '',
+        api_key: p?.apiKey || '',
+        thinker: next.thinker.model,
+        crafter: next.crafter.model,
+        sprinter: next.sprinter.model,
+        vision: next.vision.model,
+      }).catch(e => console.error('Apply engine config failed', e))
+    }, 500)
   }, [tiers, providers])
 
   const handleFetchModels = useCallback(async () => {
@@ -781,6 +839,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 
   // ── Stop/cancel generation (QA-2437 BUG-4) ─────────────
   const handleStop = useCallback(() => {
+    // BUG-11: executeAgent is async — abortRef may still be null when Stop is
+    // clicked during setup. Flag the request so handleSend can abort after the
+    // cancel fn is returned.
+    stopRequestedRef.current = true
     abortRef.current?.()
     abortRef.current = null
     const msgId = streamMsgIdRef.current
@@ -790,10 +852,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       setMessages(prev => prev.map(m => m.id === msgId
         ? { ...m, content: (m.content || '') + '\n\n*[stopped]*', status: 'completed' }
         : m))
+      // Clean up the temp streaming state entry (BUG-10)
+      setAssistantStates(prev => {
+        const next = new Map(prev)
+        next.delete(msgId)
+        return next
+      })
     }
     setSending(false)
+    sendingRef.current = false
     // QA-2445: Don't reload — useEffect handles it
-  }, [activeId, updateAssistantState])
+  }, [updateAssistantState])
 
   const handleCreate = async () => {
     try {
@@ -802,6 +871,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       setActiveId(c.id)
     } catch (e) { console.error(e) }
   }
+
+  // "New Conversation" from the command palette / app — create a real session.
+  useEffect(() => {
+    if (newSessionSignal !== prevNewSessionSignalRef.current) {
+      prevNewSessionSignalRef.current = newSessionSignal
+      void handleCreate()
+    }
+  }, [newSessionSignal])
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -831,11 +908,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   }
 
   const handleSend = async () => {
-    if ((!input.trim() && attachments.length === 0) || sending) return
+    // BUG-1: guard on the ref (set synchronously) instead of the `sending`
+    // state, which can be stale in a closure when two Enter presses land in
+    // the same tick — the ref closes the double-send race.
+    if ((!input.trim() && attachments.length === 0) || sendingRef.current) return
+    sendingRef.current = true
+    stopRequestedRef.current = false
     const hasImages = attachments.some(file => file.type.startsWith('image/'))
     const visionProvider = providers.find(provider => provider.name === tiers.vision.provider)
     const visionModel = visionProvider?.models.find(model => model.id === tiers.vision.model)
     if (hasImages && (!tiers.vision.model || visionModel?.capabilities.vision !== true)) {
+      sendingRef.current = false
       setVisionWarning('The selected Vision model does not support images. Select a model marked Vision in the Vision tier.')
       return
     }
@@ -846,6 +929,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     try {
       attachmentPayload = await Promise.all(attachments.map(readAttachment))
     } catch (error) {
+      sendingRef.current = false
       setVisionWarning(error instanceof Error ? error.message : 'Could not read attachment')
       return
     }
@@ -865,20 +949,21 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       } catch (e: any) {
         const errMsg = e?.message || String(e)
         const tempErr: MessageRecord = {
-          id: 'err-' + Date.now(), conversation_id: '', role: 'assistant', content: `Failed to create session: ${errMsg}`,
+          id: genId('err'), conversation_id: '', role: 'assistant', content: `Failed to create session: ${errMsg}`,
           status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
         }
         setMessages(prev => [...prev, tempErr])
         setSending(false)
+        sendingRef.current = false
         return
       }
     }
 
     const tempUserMsg: MessageRecord = {
-      id: 'temp-' + Date.now(), conversation_id: convId, role: 'user', content: promptText,
+      id: genId('temp'), conversation_id: convId, role: 'user', content: promptText,
       status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
     }
-    const tempAsstId = 'temp-ast-' + Date.now()
+    const tempAsstId = genId('temp-ast')
     const tempAsstMsg: MessageRecord = {
       id: tempAsstId, conversation_id: convId, role: 'assistant', content: '',
       status: 'streaming', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
@@ -909,7 +994,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           },
           onToolStart: (tool, args, callId) => {
             const tc: ToolCallData = {
-              id: callId || 'tc-' + Date.now(), type: tool, label: `${tool}: ${args.path || args.command || args.pattern || ''}`,
+              id: callId || genId('tc'), type: tool, label: `${tool}: ${args.path || args.command || args.pattern || ''}`,
               status: 'running', args, result: {}, output: '', duration_ms: 0, timestamp: new Date().toISOString(), error: null,
             }
             updateAssistantState(tempAsstId, s => ({ ...s, toolCalls: [...s.toolCalls, tc] }))
@@ -931,27 +1016,63 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           onDone: () => {
             abortRef.current = null
             streamMsgIdRef.current = null
-            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false }))
+            // Clean up the temp streaming state entry (BUG-10)
+            setAssistantStates(prev => {
+              const next = new Map(prev)
+              next.delete(tempAsstId)
+              return next
+            })
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, status: 'completed' } : m))
             setSending(false)
+            sendingRef.current = false
             // QA-2445: Don't reload immediately — give API time to commit the response.
             // The useEffect on [activeId, sending] will reload naturally.
           },
           onError: (err) => {
             abortRef.current = null
             streamMsgIdRef.current = null
-            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, content: s.content || `Error: ${err}` }))
+            setAssistantStates(prev => {
+              const next = new Map(prev)
+              next.delete(tempAsstId)
+              return next
+            })
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: (m.content || '') + `\n\nError: ${err}`, status: 'completed' } : m))
             setSending(false)
+            sendingRef.current = false
           },
         },
       )
+      // BUG-11: Stop may have been clicked while executeAgent was still setting
+      // up (abortRef was null). Abort now that the cancel fn exists.
+      if (stopRequestedRef.current) {
+        stopRequestedRef.current = false
+        abortRef.current?.()
+        abortRef.current = null
+        streamMsgIdRef.current = null
+        setAssistantStates(prev => {
+          const next = new Map(prev)
+          next.delete(tempAsstId)
+          return next
+        })
+        setMessages(prev => prev.map(m => m.id === tempAsstId
+          ? { ...m, content: (m.content || '') + '\n\n*[stopped]*', status: 'completed' }
+          : m))
+        setSending(false)
+        sendingRef.current = false
+        return
+      }
     } catch (err: any) {
       abortRef.current = null
       streamMsgIdRef.current = null
+      setAssistantStates(prev => {
+        const next = new Map(prev)
+        next.delete(tempAsstId)
+        return next
+      })
       const errMsg = err?.message || String(err)
       setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: `Failed to send: ${errMsg}`, status: 'completed' } : m))
       setSending(false)
+      sendingRef.current = false
     }
   }
 
@@ -961,12 +1082,26 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     const warnings: string[] = []
     const skipped = all.length - accepted.length
     if (skipped > 0) warnings.push(`Skipped ${skipped} file(s) over 20MB`)
-    const overCount = accepted.length > 10 - attachments.length
-    setAttachments(prev => {
-      const next = [...prev, ...accepted].slice(0, 10)
-      if (next.length > 10) warnings.push('Only the first 10 files are kept')
-      return next
-    })
+    // Aggregate cap: 10 files × 20MB could balloon into a ~270MB base64 POST.
+    // Reject files that would push the total past 50MB at add time.
+    const MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024
+    let total = attachments.reduce((sum, f) => sum + f.size, 0)
+    const kept: File[] = []
+    for (const f of accepted) {
+      if (total + f.size > MAX_TOTAL_ATTACHMENT_BYTES) {
+        warnings.push(`Skipped ${f.name} — total attachment size exceeds 50MB`)
+        continue
+      }
+      total += f.size
+      kept.push(f)
+    }
+    if (kept.length > 0) {
+      setAttachments(prev => {
+        const next = [...prev, ...kept].slice(0, 10)
+        if (next.length > 10) warnings.push('Only the first 10 files are kept')
+        return next
+      })
+    }
     if (warnings.length > 0) setAttachWarnings(warnings)
     if (accepted.some(file => file.type.startsWith('image/')) && !tiers.vision.model) {
       setVisionWarning('Image attached. Select a Vision model before sending.')

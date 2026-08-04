@@ -21,6 +21,16 @@ from typing import Optional, Any
 logger = logging.getLogger("aic.mcp.client")
 
 
+# Known stdio MCP server packages that may be spawned. Endpoints are validated
+# against this allowlist before create_subprocess_exec — anything else is
+# rejected to prevent arbitrary command execution via POST /mcp/servers.
+# Only the exact pattern "npx -y <known-package>" is accepted.
+MCP_STDIO_ALLOWED_PACKAGES: frozenset[str] = frozenset({
+    "@modelcontextprotocol/server-memory",
+    "@modelcontextprotocol/server-filesystem",
+})
+
+
 class MCPError(Exception):
     """MCP protocol error."""
     def __init__(self, code: int, message: str):
@@ -59,9 +69,29 @@ class MCPClient:
             logger.error(f"MCP connect failed ({self.protocol}://{self.endpoint}): {e}")
             return False
 
+    def _is_allowed_stdio_endpoint(self, endpoint: str) -> bool:
+        """Check an endpoint against the known stdio command allowlist.
+
+        QA-E2E FIX: endpoints were split() and passed straight to
+        create_subprocess_exec with no validation, so POST /mcp/servers could
+        spawn arbitrary commands. Only the exact "npx -y <known-package>"
+        pattern is permitted, and the package must be in the allowlist.
+        """
+        ep = (endpoint or "").strip()
+        parts = ep.split()
+        return (
+            len(parts) == 3
+            and parts[0] == "npx"
+            and parts[1] == "-y"
+            and parts[2] in MCP_STDIO_ALLOWED_PACKAGES
+        )
+
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""
         try:
+            if not self._is_allowed_stdio_endpoint(self.endpoint):
+                logger.error(f"MCP stdio endpoint not in allowlist: {self.endpoint}")
+                return False
             cmd_parts = self.endpoint.split()
 
             # Pass environment variables from config if provided
@@ -299,30 +329,43 @@ class MCPClientPool:
     def __init__(self):
         self._clients: dict[str, MCPClient] = {}  # server_id → client
         self._tool_map: dict[str, tuple[str, str]] = {}  # tool_name → (server_id, tool_name)
+        # QA-E2E FIX: guard pool mutations (connect/disconnect/discover/call)
+        # so concurrent access does not race on _clients/_tool_map.
+        self._lock = asyncio.Lock()
 
     async def connect_server(self, server_id: str, endpoint: str, protocol: str = "stdio", config: dict | None = None) -> bool:
         """Connect to an MCP server and cache the client."""
         client = MCPClient(endpoint=endpoint, protocol=protocol, config=config)
         connected = await client.connect()
         if connected:
-            self._clients[server_id] = client
+            async with self._lock:
+                self._clients[server_id] = client
             return True
         return False
 
     async def disconnect_server(self, server_id: str):
         """Disconnect and remove a server client."""
-        client = self._clients.pop(server_id, None)
-        if client:
-            await client.disconnect()
-        # Clean up tool map
-        self._tool_map = {k: v for k, v in self._tool_map.items() if v[0] != server_id}
+        async with self._lock:
+            client = self._clients.pop(server_id, None)
+            if client:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+            # Clean up tool map
+            self._tool_map = {k: v for k, v in self._tool_map.items() if v[0] != server_id}
 
     async def disconnect_all(self):
         """Disconnect all clients."""
-        for client in self._clients.values():
-            await client.disconnect()
-        self._clients.clear()
-        self._tool_map.clear()
+        async with self._lock:
+            clients = list(self._clients.values())
+            self._clients.clear()
+            self._tool_map.clear()
+        for client in clients:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
     async def discover_all_tools(self) -> list[dict]:
         """Discover tools from all connected servers.
@@ -330,29 +373,36 @@ class MCPClientPool:
         Returns flat list of tool definitions with server_id attached.
         """
         all_tools = []
-        for server_id, client in self._clients.items():
+        async with self._lock:
+            clients = list(self._clients.items())
+        for server_id, client in clients:
             tools = await client.list_tools()
             for tool in tools:
                 tool_name = tool.get("name", "")
                 tool["_server_id"] = server_id
-                self._tool_map[tool_name] = (server_id, tool_name)
+                async with self._lock:
+                    self._tool_map[tool_name] = (server_id, tool_name)
                 all_tools.append(tool)
         return all_tools
 
     async def call_tool(self, tool_name: str, arguments: dict) -> dict:
         """Call a tool by name, routing to the correct server."""
-        if tool_name in self._tool_map:
-            server_id, _ = self._tool_map[tool_name]
-            client = self._clients.get(server_id)
-            if client:
-                return await client.call_tool(tool_name, arguments)
-            raise MCPError(-1, f"Server {server_id} not connected")
+        async with self._lock:
+            if tool_name in self._tool_map:
+                server_id, _ = self._tool_map[tool_name]
+                client = self._clients.get(server_id)
+                if client:
+                    return await client.call_tool(tool_name, arguments)
+                raise MCPError(-1, f"Server {server_id} not connected")
 
-        # Try all connected servers
-        for server_id, client in self._clients.items():
+            # Try all connected servers
+            clients = list(self._clients.items())
+
+        for server_id, client in clients:
             try:
                 result = await client.call_tool(tool_name, arguments)
-                self._tool_map[tool_name] = (server_id, tool_name)
+                async with self._lock:
+                    self._tool_map[tool_name] = (server_id, tool_name)
                 return result
             except MCPError:
                 continue

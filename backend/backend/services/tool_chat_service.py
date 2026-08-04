@@ -26,8 +26,32 @@ from typing import AsyncGenerator
 
 from llm.provider import provider_manager, ModelTier
 from workers.tools import ToolExecutor
+from backend.services.tool_executor import check_permission
 
 logger = logging.getLogger("aic.tool_chat")
+
+# Default chat tool permissions: only read-only tools are enabled for the
+# generic chat path. write_file / shell / mcp_call are denied unless a
+# permission checker is explicitly supplied (worker-scoped chat).
+CHAT_DEFAULT_ALLOWED_TOOLS = frozenset({"read_file", "explore", "search"})
+
+
+def _chat_permission_checker(worker_type: str | None = None):
+    """Build a real permission checker for the chat tool path.
+
+    QA-E2E FIX: the ToolExecutor was constructed with no permission_checker,
+    so LLM-controlled shell/write_file calls ran ungated. When a worker_type
+    is available delegate to check_permission (the same mechanism AgentRunner
+    uses); otherwise fall back to a read-only default.
+    """
+    if worker_type:
+        def _check(tool_name: str) -> bool:
+            return check_permission(worker_type, tool_name)
+        return _check
+
+    def _default_check(tool_name: str) -> bool:
+        return tool_name in CHAT_DEFAULT_ALLOWED_TOOLS
+    return _default_check
 
 # ── Tool-use prompt injection ────────────────────────────
 
@@ -124,8 +148,10 @@ def _parse_tool_calls(content: str) -> list[tuple[str, dict]]:
 class ToolAwareChatService:
     """Chat service that detects and executes tool calls from LLM responses."""
 
-    def __init__(self, workspace_root: str = ""):
+    def __init__(self, workspace_root: str = "", worker_type: str | None = None, permission_checker=None):
         self.workspace_root = workspace_root
+        self._worker_type = worker_type
+        self._permission_checker = permission_checker
 
     async def stream_with_tools(
         self,
@@ -134,6 +160,8 @@ class ToolAwareChatService:
         temperature: float = 0.4,
         max_tokens: int | None = None,
         tier=None,
+        worker_type: str | None = None,
+        permission_checker=None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response with tool execution.
 
@@ -199,9 +227,14 @@ class ToolAwareChatService:
             """Collect events to emit after tool execution."""
             tool_events_emitted.append(event)
 
+        # QA-E2E FIX: previously the ToolExecutor was built with NO permission
+        # checker, so LLM-controlled shell/write_file calls ran ungated in the
+        # /chat/stream tool path. Pass a real permission checker now.
         executor = ToolExecutor(
             workspace_root=self.workspace_root,
             on_event=on_tool_event,
+            permission_checker=permission_checker or self._permission_checker
+            or _chat_permission_checker(worker_type or self._worker_type),
         )
 
         # Track modified files across the conversation

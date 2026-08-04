@@ -61,9 +61,17 @@ export function BugReportDialog({ open, onClose }: DialogProps) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [appVersion, setAppVersion] = useState("…");
+
+  // BUG-17: Read the real app version from Electron instead of a hardcoded value.
+  useEffect(() => {
+    window.aic?.getAppVersion?.().then((v: string) => {
+      if (v) setAppVersion(v);
+    }).catch(() => {});
+  }, []);
 
   const sys = {
-    version: "2.1.0",
+    version: appVersion,
     os: typeof navigator !== "undefined" ? navigator.platform : "Linux",
     provider: "Local",
     mission: "—",

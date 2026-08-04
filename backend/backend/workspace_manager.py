@@ -41,10 +41,34 @@ def get_task_workspace_dir(task_id: str) -> Path:
     return wdir
 
 
+def _safe_join(base: Path, rel: str) -> Path:
+    """Join a user-supplied relative path onto base, blocking traversal outside.
+
+    QA-E2E FIX: previously `wdir / relative_filename` was joined with no
+    validation, so '..' components and absolute paths escaped the workspace,
+    and read_workspace_file_content used startswith(str(wdir)) without a
+    separator (sibling-prefix bypass). Reject absolute paths and '..'
+    components, then re-verify the resolved path stays inside base.
+    """
+    if not isinstance(rel, str) or not rel.strip():
+        raise ValueError("Invalid filename: must be a non-empty relative path")
+    if os.path.isabs(rel) or rel.startswith("/"):
+        raise ValueError("Invalid filename: absolute paths are not allowed")
+    if ".." in Path(rel).parts:
+        raise ValueError("Invalid filename: '..' path components are not allowed")
+    base_r = base.resolve()
+    candidate = (base_r / rel).resolve()
+    try:
+        candidate.relative_to(base_r)
+    except ValueError:
+        raise ValueError("Invalid filename: outside workspace")
+    return candidate
+
+
 def save_deliverable_file(task_id: str, relative_filename: str, content: str) -> str:
     """Save a deliverable file into task workspace directory."""
     wdir = get_task_workspace_dir(task_id)
-    fpath = wdir / relative_filename
+    fpath = _safe_join(wdir, relative_filename)
     fpath.parent.mkdir(parents=True, exist_ok=True)
     fpath.write_text(content, encoding="utf-8")
     logger.info(f"Saved deliverable file for task {task_id[:8]}: {relative_filename} ({len(content)} bytes)")
@@ -75,10 +99,7 @@ def list_workspace_files(task_id: str) -> list[dict]:
 def read_workspace_file_content(task_id: str, relative_path: str) -> str:
     """Read content of a deliverable file in task workspace."""
     wdir = get_task_workspace_dir(task_id)
-    fpath = (wdir / relative_path).resolve()
-
-    if not str(fpath).startswith(str(wdir.resolve())):
-        raise PermissionError("Access denied: path outside workspace")
+    fpath = _safe_join(wdir, relative_path)
 
     if not fpath.exists() or not fpath.is_file():
         raise FileNotFoundError(f"File not found: {relative_path}")

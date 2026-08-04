@@ -250,7 +250,12 @@ class ToolExecutor:
         )
         await self._emit("tool_start", {"tool_call": tc.to_dict()})
 
-        if self._permission_checker and not self._permission_checker("shell"):
+        # QA-E2E FIX: shell is arbitrary command execution — fail closed when
+        # no permission checker is configured (e.g. the /chat/stream tool path
+        # previously passed no checker, so create_subprocess_shell ran any
+        # LLM-controlled command). Mirror agent_runner.py's check_permission
+        # gate: the tool must never run without an explicit permission gate.
+        if not self._permission_checker or not self._permission_checker("shell"):
             tc.status = "error"
             tc.error = "Permission denied for tool: shell"
             tc.output = tc.error
@@ -561,12 +566,19 @@ class ToolExecutor:
     # ── Helpers ──────────────────────────────────────────
 
     def _resolve_path(self, path: str) -> str:
-        """Resolve a path relative to workspace root."""
-        if os.path.isabs(path):
-            return path
-        if self.workspace_root:
-            return os.path.join(self.workspace_root, path)
-        return path
+        """Resolve a path inside the workspace, blocking traversal outside.
+
+        QA-E2E FIX: previously os.path.isabs() accepted absolute paths and
+        '..' was never normalized, so an LLM-controlled tool call could read
+        or write arbitrary files outside the workspace (e.g. /etc/passwd).
+        Now every path is resolved against the workspace root and must stay
+        inside it (port of backend/services/tool_executor.py logic).
+        """
+        root = os.path.abspath(self.workspace_root)
+        candidate = os.path.abspath(os.path.join(root, path))
+        if candidate != root and not candidate.startswith(root + os.sep):
+            raise ValueError(f"Path is outside the workspace: {path}")
+        return candidate
 
     def to_openai_schema(self) -> list[dict]:
         """Return tool definitions in OpenAI function-calling format."""

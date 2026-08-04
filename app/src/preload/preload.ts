@@ -122,16 +122,7 @@ const api = {
       ipcRenderer.off("aic:update-state-changed", handler);
     };
   },
-  
-  // Unsaved dialog support (for update restarts)
-  showUnsavedDialog: (): Promise<"save_restart" | "restart" | "cancel"> => 
-    ipcRenderer.invoke("aic:show-unsaved-dialog"),
-  
-  // Explicit workspace persistence
-  workspaceSave: (): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke("aic:workspace-save"),
-  workspaceHasUnsaved: (): Promise<boolean> => 
-    ipcRenderer.invoke("aic:workspace-has-unsaved"),
+
   onNavigate: (cb: (view: string) => void): (() => void) => {
     const handler = (_: unknown, view: string) => cb(view);
     ipcRenderer.on("aic:navigate", handler);

@@ -6,6 +6,7 @@ RUN tests, SEARCH codebases — not just chat.
 import asyncio
 import json
 import base64
+import shlex
 import subprocess
 import tempfile
 import zipfile
@@ -223,6 +224,12 @@ class AgentRunner:
         if tier == ModelTier.VISION and not provider.config.get_model(ModelTier.VISION):
             yield {"type": "error", "error": "Vision model is not configured. Select a model that supports vision in the Vision tier."}
             return
+        # QA-E2E FIX: also guard non-vision tiers — an empty model (e.g. a
+        # provider with no provider_models/worker_runtime rows) would otherwise
+        # produce a confusing 404/400 from the upstream API.
+        if not provider.config.get_model(tier):
+            yield {"type": "error", "error": f"Model is not configured for tier '{tier}'. Select a model in Settings > Providers."}
+            return
         
         tool_executor_map = {
             "read_file": lambda a: self.executor.read_file(a.get("path", ""), a.get("offset", 0), a.get("limit", -1)),
@@ -259,7 +266,10 @@ class AgentRunner:
                             script_path = ptool.get("script_path", "")
                             if script_path and Path(script_path).exists():
                                 def make_tool_fn(sp=script_path):
-                                    return lambda a: self.executor.run_shell(f"bash '{sp}'", 60)
+                                    # QA-E2E FIX: quote the script path — a
+                                    # plugin path containing "'" previously
+                                    # broke out of the shell command.
+                                    return lambda a: self.executor.run_shell(f"bash {shlex.quote(sp)}", 60)
                                 tool_executor_map[pname] = make_tool_fn()
                                 tools.append({"function": {"name": pname, "description": ptool.get("description", pname), "parameters": {"type": "object", "properties": ptool.get("arguments", {}), "additionalProperties": False}}})
                     # Inject plugin agent instructions into the context.

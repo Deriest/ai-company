@@ -18,6 +18,7 @@ from typing import Optional
 import json
 import logging
 import os
+import threading
 
 import httpx
 
@@ -78,11 +79,18 @@ class ProviderConfig:
     max_retries: int = 4
     fallback_provider: str | None = None
 
+    def __post_init__(self):
+        # QA-E2E FIX: callers sometimes pass models=None (e.g. empty DB
+        # provider_models) — normalize to an empty dict so _init_profiles()
+        # and get_model() never crash on a None models attribute.
+        if self.models is None:
+            self.models = {}
+
     def get_model(self, tier: ModelTier | str) -> str:
         t = tier.value if isinstance(tier, ModelTier) else str(tier)
         if t == ModelTier.VISION.value:
             return self.models.get(t, "")
-        return self.models.get(t, self.models.get(ModelTier.CRAFTER.value, "gpt-4o-mini"))
+        return self.models.get(t, self.models.get(ModelTier.CRAFTER.value, ""))
 
 
 @dataclass
@@ -108,12 +116,13 @@ class UsageTracker:
     """Tracks LLM token usage."""
     def __init__(self):
         self._records: list[UsageRecord] = []
-        self._lock = None
+        self._lock = threading.Lock()
 
     def record(self, record: UsageRecord) -> None:
-        self._records.append(record)
-        if len(self._records) > 10000:
-            self._records = self._records[-5000:]
+        with self._lock:
+            self._records.append(record)
+            if len(self._records) > 10000:
+                self._records = self._records[-5000:]
         logger.info(f"LLM usage: {record.provider}/{record.model} "
                      f"tokens={record.total_tokens} purpose={record.purpose}")
         # Persist to DB (fire-and-forget)
@@ -145,7 +154,8 @@ class UsageTracker:
             logger.debug(f"Failed to persist LLM usage: {e}")
 
     def summary(self, since: datetime | None = None) -> dict:
-        records = self._records
+        with self._lock:
+            records = list(self._records)
         if since:
             records = [r for r in records if r.timestamp >= since.isoformat()]
 
@@ -168,6 +178,8 @@ class UsageTracker:
         }
 
     def recent(self, limit: int = 50) -> list[dict]:
+        with self._lock:
+            records = list(self._records[-limit:])
         return [
             {
                 "provider": r.provider,
@@ -179,7 +191,7 @@ class UsageTracker:
                 "purpose": r.purpose,
                 "timestamp": r.timestamp,
             }
-            for r in self._records[-limit:]
+            for r in records
         ]
 
 
@@ -233,6 +245,15 @@ class LLMProvider:
         """
         model = self.config.get_model(tier)
         tier_str = tier.value if isinstance(tier, ModelTier) else str(tier)
+
+        # QA-E2E FIX: never send an empty model to upstream — providers with no
+        # configured models (empty provider_models/worker_runtime) would hit a
+        # confusing 404/400. Surface a clear error instead.
+        if not model:
+            raise LLMError(
+                f"Model is not configured for tier '{tier_str}'. "
+                f"Select a model in Settings > Providers."
+            )
 
         # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
         messages = _flatten_history(messages)
@@ -535,6 +556,11 @@ class LLMProvider:
         model = self.config.get_model(tier)
         tier_str = tier.value if isinstance(tier, ModelTier) else str(tier)
 
+        # QA-E2E FIX: never stream with an empty model (see chat()).
+        if not model:
+            yield {"type": "error", "error": f"Model is not configured for tier '{tier_str}'. Select a model in Settings > Providers."}
+            return
+
         # QA-249-R6: Flatten history to workaround VansRouter multi-turn bug
         messages = _flatten_history(messages)
 
@@ -673,7 +699,15 @@ def _flatten_history(messages: list[dict]) -> list[dict]:
     """
     if len(messages) <= 2:
         return messages
-    
+
+    # QA-FIX: Never flatten tool-calling conversations — the VansRouter
+    # workaround collapses assistant tool_calls + tool results into a plain
+    # user message, which breaks the agent_runner multi-turn tool loop (the
+    # last tool result would become a "user" message and the tool_calls
+    # structure would be destroyed).
+    if any(m.get("tool_calls") for m in messages) or any(m.get("role") == "tool" for m in messages):
+        return messages
+
     # Separate system, history, and last user message
     system_messages = [m for m in messages if m.get("role") == "system"]
     other_messages = [m for m in messages if m.get("role") != "system"]
@@ -728,13 +762,20 @@ class ProviderManager:
 
     def register(self, config: ProviderConfig) -> None:
         """Register or update a provider."""
-        # Close existing provider if updating
-        if config.name in self._providers:
-            # Can't await here — caller should call aregister for async
-            self._providers.pop(config.name, None)
-
+        old = self._providers.get(config.name)
         self._configs[config.name] = config
         self._providers[config.name] = LLMProvider(config)
+
+        if old is not None:
+            # Leak fix: close the replaced httpx client. register() is sync so
+            # it can't await — schedule the close on the running loop. Callers
+            # in async contexts should prefer aregister().
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(old.close())
+            except RuntimeError:
+                pass  # No running loop — old client is reclaimed by GC.
 
         if not self._active:
             self._active = config.name
@@ -941,3 +982,38 @@ def init_provider_from_env() -> ProviderConfig | None:
         api_key=api_key,
         models=models,
     )
+
+
+def _env_models_for_base_url(base_url: str) -> dict:
+    """Return the AIC_MODEL_* env mapping only when *base_url* matches the
+    configured AIC_LLM_BASE_URL.
+
+    The user's explicit engine config (Settings > Providers) is written as
+    AIC_LLM_BASE_URL + AIC_MODEL_* together. Stamping those models onto every
+    registered DB provider would send a model that doesn't exist on the wrong
+    provider's endpoint (404). Only the env/router provider (or the DB provider
+    whose endpoint matches the env base URL) may carry the env models.
+    """
+    from backend.config import settings as _settings
+
+    env_models = {
+        "thinker": _settings.AIC_MODEL_THINKER,
+        "crafter": _settings.AIC_MODEL_CRAFTER,
+        "sprinter": _settings.AIC_MODEL_SPRINTER,
+        "vision": _settings.AIC_MODEL_VISION,
+    }
+    if not any(env_models.values()):
+        return {}
+
+    env_base = (_settings.AIC_LLM_BASE_URL or "").strip().rstrip("/")
+    if not env_base:
+        return {}
+
+    def _norm(u: str) -> str:
+        if u.endswith("/v1"):
+            u = u[:-3]
+        return u.rstrip("/")
+
+    if _norm((base_url or "").strip().rstrip("/")) == _norm(env_base):
+        return env_models
+    return {}

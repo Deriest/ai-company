@@ -23,11 +23,25 @@ class WorkerToolExecutor:
     
     def __init__(self, workspace_root: str = "."):
         self.workspace_root = workspace_root
-    
+
+    def _resolve_path(self, path: str) -> str:
+        """Resolve a path inside the workspace, blocking traversal outside.
+
+        QA-E2E FIX: previously os.path.isabs() accepted absolute paths and
+        '..' was never normalized, so a worker could read/write arbitrary
+        files outside the workspace (e.g. /etc/passwd). Now every path is
+        resolved against the workspace root and must stay inside it.
+        """
+        root = os.path.abspath(self.workspace_root)
+        candidate = os.path.abspath(os.path.join(root, path))
+        if candidate != root and not candidate.startswith(root + os.sep):
+            raise ValueError(f"Path is outside the workspace: {path}")
+        return candidate
+
     async def read_file(self, path: str, offset: int = 0, limit: int = -1) -> ToolResult:
         """Read file contents."""
         try:
-            full_path = os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path
+            full_path = self._resolve_path(path)
             with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
                 if offset > 0:
                     for _ in range(offset):
@@ -48,7 +62,7 @@ class WorkerToolExecutor:
     async def write_file(self, path: str, content: str) -> ToolResult:
         """Write content to file."""
         try:
-            full_path = os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path
+            full_path = self._resolve_path(path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -64,7 +78,7 @@ class WorkerToolExecutor:
     async def list_directory(self, path: str = ".") -> ToolResult:
         """List directory contents."""
         try:
-            full_path = os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path
+            full_path = self._resolve_path(path)
             entries = []
             for entry in os.scandir(full_path):
                 type_str = "dir" if entry.is_dir() else "file"
@@ -85,7 +99,7 @@ class WorkerToolExecutor:
     async def search_files(self, pattern: str, path: str = ".", file_pattern: str = "*") -> ToolResult:
         """Search for pattern in files (grep-like)."""
         try:
-            full_path = os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path
+            full_path = self._resolve_path(path)
             matches = []
             search_pattern = os.path.join(full_path, "**", file_pattern)
             for filepath in glob_mod.glob(search_pattern, recursive=True):

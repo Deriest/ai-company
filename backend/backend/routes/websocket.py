@@ -10,6 +10,7 @@ Features:
 import json
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from collections import defaultdict
 
@@ -18,17 +19,54 @@ from auth.security import decode_access_token
 router = APIRouter()
 logger = logging.getLogger("aic.websocket")
 
+_LOCALHOST_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _host_is_localhost(host: str) -> bool:
+    """Parse a Host header value and compare the host part exactly.
+
+    QA-E2E FIX: startswith(("127.0.0.1", "localhost", "[::1]")) was bypassable
+    via a Host header like "127.0.0.1.evil.com", which starts with "127.0.0.1".
+    Strip the port (and IPv6 brackets) and compare the exact host.
+    """
+    if not host:
+        return False
+    raw = host.strip()
+    if raw.startswith("["):  # IPv6 literal, e.g. [::1]:8000
+        if "]" in raw:
+            raw = raw.split("]", 1)[0]
+        else:
+            raw = raw[1:]
+        raw = raw.lstrip("[")
+    else:
+        raw = raw.split(":", 1)[0]
+    return raw.strip().lower() in _LOCALHOST_HOSTS
+
+
+def _origin_is_localhost(origin: str) -> bool:
+    """Parse an Origin header and check whether its host is localhost.
+
+    QA-E2E FIX: startswith(("http://127.0.0.1", ...)) was bypassable via an
+    Origin like "http://127.0.0.1.evil.com". Parse the URL and compare the
+    exact hostname.
+    """
+    if not origin:
+        return False
+    try:
+        hostname = urlsplit(origin).hostname or ""
+    except ValueError:
+        return False
+    return hostname.strip().lower() in _LOCALHOST_HOSTS
+
 
 def _is_localhost(websocket: WebSocket) -> bool:
     """Check if the WebSocket connection is from localhost (desktop mode)."""
-    host = websocket.headers.get("host", "")
-    origin = websocket.headers.get("origin", "")
     client = websocket.client
     if client and client.host in ("127.0.0.1", "localhost", "::1"):
         return True
-    if host.startswith(("127.0.0.1", "localhost", "[::1]")):
+    if _host_is_localhost(websocket.headers.get("host", "")):
         return True
-    if origin.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]")):
+    if _origin_is_localhost(websocket.headers.get("origin", "")):
         return True
     return False
 
