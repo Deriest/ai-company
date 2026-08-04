@@ -200,6 +200,12 @@ class LLMProvider:
         self.config = config
         self._init_profiles()
         headers = {"Content-Type": "application/json"}
+        # Some gateways (e.g. api.aicompany.biz.id) are behind Cloudflare and
+        # reject requests without a browser-like User-Agent (HTTP 403, code 1010).
+        headers["User-Agent"] = (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        )
         if config.api_key:
             headers["Authorization"] = f"Bearer {config.api_key}"
         self.client = httpx.AsyncClient(
@@ -395,6 +401,64 @@ class LLMProvider:
                         if msg.get(field):
                             content = msg[field]
                             break
+                if not content:
+                    # Some gateways (e.g. api.aicompany.biz.id) return an empty
+                    # non-streaming response for certain models (gemini flash)
+                    # but stream the full answer when stream=true. Retry once
+                    # with streaming and merge the deltas.
+                    try:
+                        stream_payload = dict(payload)
+                        stream_payload["stream"] = True
+                        merged_content = ""
+                        merged_tool_calls: dict[int, dict] = {}
+                        async with self.client.stream("POST", "/chat/completions", json=stream_payload) as sresp:
+                            sresp.raise_for_status()
+                            async for line in sresp.aiter_lines():
+                                if not line or not line.startswith("data: "):
+                                    continue
+                                data_str = line[6:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    continue
+                                for ch in chunk.get("choices", []):
+                                    delta = ch.get("delta", {})
+                                    if delta.get("content"):
+                                        merged_content += delta["content"]
+                                    if delta.get("tool_calls"):
+                                        for tc in delta["tool_calls"]:
+                                            idx = tc.get("index", 0)
+                                            if idx not in merged_tool_calls:
+                                                merged_tool_calls[idx] = {
+                                                    "index": idx,
+                                                    "id": tc.get("id", ""),
+                                                    "type": "function",
+                                                    "function": {
+                                                        "name": tc.get("function", {}).get("name", ""),
+                                                        "arguments": tc.get("function", {}).get("arguments", ""),
+                                                    },
+                                                }
+                                            else:
+                                                existing = merged_tool_calls[idx]
+                                                fn = tc.get("function", {})
+                                                if fn.get("name"):
+                                                    existing["function"]["name"] += fn["name"]
+                                                if fn.get("arguments"):
+                                                    existing["function"]["arguments"] += fn["arguments"]
+                                                if tc.get("id"):
+                                                    existing["id"] = tc["id"]
+                        if merged_content or merged_tool_calls:
+                            content = merged_content
+                            if merged_tool_calls:
+                                msg["tool_calls"] = [merged_tool_calls[k] for k in sorted(merged_tool_calls.keys())]
+                            logger.info(
+                                f"LLM streaming fallback produced content for {model} "
+                                f"at {self.config.base_url} (len={len(content)})"
+                            )
+                    except Exception as e:
+                        logger.warning(f"LLM streaming fallback failed for {model}: {e}")
                 if not content:
                     logger.warning(
                         f"LLM empty content. Model={model} URL={self.config.base_url} "
