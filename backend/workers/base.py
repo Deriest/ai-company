@@ -10,6 +10,8 @@ import logging
 import shutil
 import sys
 
+from backend.services.content_utils import truncate_content
+
 logger = logging.getLogger("aic.workers")
 
 
@@ -41,7 +43,7 @@ async def _llm_or_fallback(worker, user_prompt, tier, temperature, purpose, fall
     if agent_id:
         try:
             from agents.context_assembly import assemble_system_prompt, get_model_config
-            ctx = task_context or {"title": purpose, "description": user_prompt[:200]}
+            ctx = task_context or {"title": purpose, "description": truncate_content(user_prompt, 200)}
             system_prompt = assemble_system_prompt(agent_id, ctx, phase or "execution")
             model_cfg = get_model_config(agent_id)
             if model_cfg.get("temperature") is not None:
@@ -131,7 +133,7 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
     if agent_id:
         try:
             from agents.context_assembly import assemble_system_prompt, get_model_config
-            ctx = task_context or {"title": purpose, "description": user_prompt[:200]}
+            ctx = task_context or {"title": purpose, "description": truncate_content(user_prompt, 200)}
             system_prompt = assemble_system_prompt(agent_id, ctx, phase or "execution")
             model_cfg = get_model_config(agent_id)
             if model_cfg.get("temperature") is not None:

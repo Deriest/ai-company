@@ -110,9 +110,14 @@ function renderInline(text: string): React.ReactNode {
   return <>{nodes}</>
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function highlightCode(code: string, language: string): string {
+  const safe = escapeHtml(code)
   if (['js', 'ts', 'jsx', 'tsx', 'javascript', 'typescript'].includes(language)) {
-    return code
+    return safe
       .replace(/\b(const|let|var|function|return|import|export|from|class|extends|if|else|for|while|do|switch|case|break|continue|new|this|typeof|instanceof|async|await|try|catch|throw|finally|yield|of|in)\b/g, '<span class="text-purple-400">$1</span>')
       .replace(/\b(true|false|null|undefined|NaN|Infinity)\b/g, '<span class="text-orange-400">$1</span>')
       .replace(/(["'`])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
@@ -120,19 +125,19 @@ function highlightCode(code: string, language: string): string {
       .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
   }
   if (['py', 'python'].includes(language)) {
-    return code
+    return safe
       .replace(/\b(def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|yield|lambda|pass|break|continue|raise|global|nonlocal|and|or|not|is|in|True|False|None|async|await|self)\b/g, '<span class="text-purple-400">$1</span>')
       .replace(/(#.*$)/gm, '<span class="text-muted-foreground/50">$1</span>')
       .replace(/(["'])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
       .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
   }
   if (['json'].includes(language)) {
-    return code
+    return safe
       .replace(/(["'])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
       .replace(/\b(\d+\.?\d*)\b/g, '<span class="text-orange-400">$1</span>')
       .replace(/\b(true|false|null)\b/g, '<span class="text-orange-400">$1</span>')
   }
-  return code
+  return safe
 }
 
 function CodeBlock({ language, code }: { language: string; code: string }) {
@@ -515,7 +520,7 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onArch
 
 // ── Main ChatView ────────────────────────────────────────
 
-export function ChatView({ health = 'unknown', currentProvider = null }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null }) {
+export function ChatView({ health = 'unknown', currentProvider = null, view = '' }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null; view?: string }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => {
     try { return sessionStorage.getItem('aic-ade-active-conversation') }
@@ -524,6 +529,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
+  const [attachWarnings, setAttachWarnings] = useState<string[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [visionWarning, setVisionWarning] = useState('')
   const [sending, setSending] = useState(false)
@@ -681,38 +687,44 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
     })
   }, [])
 
-  // ── Engine tier config (THINKER/CRAFTER/SPRINTER) ──────
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
+  // ── Engine tier config (THINKER/CRAFTER/SPRINTER/VISION) ──
+  const loadEngineConfig = useCallback(async () => {
+    try {
+      const [envCfg, pList] = await Promise.all([
+        providerManageApi.getEnvConfig(),
+        providersApi.list(),
+      ])
+      setProviders(pList)
+      let saved: Record<string, string> = {}
+      try { saved = JSON.parse(localStorage.getItem('aic-ade-engine-tiers') || '{}') } catch { /* ignore */ }
       try {
-        const [envCfg, pList] = await Promise.all([
-          providerManageApi.getEnvConfig(),
-          providersApi.list(),
-        ])
-        if (cancelled) return
-        setProviders(pList)
-        let saved: Record<string, string> = {}
-        try { saved = JSON.parse(localStorage.getItem('aic-ade-engine-tiers') || '{}') } catch { /* ignore */ }
-        try {
-          const ipcCfg = await window.aic?.storeGet?.('engineConfig') as Record<string, string> | null
-          if (ipcCfg) saved = { ...saved, ...ipcCfg }
-        } catch { /* ignore */ }
-        if (cancelled) return
-        const bootProvider = currentProvider?.name || ''
-        const bootModel = resolveDefaultModelId(currentProvider)
-        const defaultProvider = envCfg.provider_name || bootProvider || pList[0]?.name || ''
-        const defaultModel = envCfg.thinker || bootModel || ''
-        setTiers({
-          thinker: { provider: saved.thinkerProvider || defaultProvider, model: saved.thinkerModel || defaultModel },
-          crafter: { provider: saved.crafterProvider || defaultProvider, model: saved.crafterModel || envCfg.crafter || bootModel || '' },
-          sprinter: { provider: saved.sprinterProvider || defaultProvider, model: saved.sprinterModel || envCfg.sprinter || bootModel || '' },
-          vision: { provider: saved.visionProvider || defaultProvider, model: saved.visionModel || envCfg.vision || bootModel || '' },
-        })
-      } catch (e) { console.error('Load engine config failed', e) }
-    })()
-    return () => { cancelled = true }
-  }, [])
+        const ipcCfg = await window.aic?.storeGet?.('engineConfig') as Record<string, string> | null
+        if (ipcCfg) saved = { ...saved, ...ipcCfg }
+      } catch { /* ignore */ }
+      const bootProvider = currentProvider?.name || ''
+      const bootModel = resolveDefaultModelId(currentProvider)
+      const defaultProvider = envCfg.provider_name || bootProvider || pList[0]?.name || ''
+      const defaultModel = envCfg.thinker || bootModel || ''
+      setTiers({
+        thinker: { provider: saved.thinkerProvider || defaultProvider, model: saved.thinkerModel || defaultModel },
+        crafter: { provider: saved.crafterProvider || defaultProvider, model: saved.crafterModel || envCfg.crafter || bootModel || '' },
+        sprinter: { provider: saved.sprinterProvider || defaultProvider, model: saved.sprinterModel || envCfg.sprinter || bootModel || '' },
+        vision: { provider: saved.visionProvider || defaultProvider, model: saved.visionModel || envCfg.vision || bootModel || '' },
+      })
+    } catch (e) { console.error('Load engine config failed', e) }
+  }, [currentProvider])
+
+  useEffect(() => { void loadEngineConfig() }, [loadEngineConfig])
+
+  // Reload engine config when the user navigates back to the Command Center,
+  // so provider/env changes made in Settings are picked up (ChatView stays
+  // mounted while hidden, so the mount-only effect would otherwise go stale).
+  const prevViewRef = useRef(view)
+  useEffect(() => {
+    const entered = (view === 'hermes' || view === 'chat') && prevViewRef.current !== 'hermes' && prevViewRef.current !== 'chat'
+    prevViewRef.current = view
+    if (entered) void loadEngineConfig()
+  }, [view, loadEngineConfig])
 
   const handleTierChange = useCallback((tier: EngineTier, patch: Partial<TierSelection>) => {
     const next: Record<EngineTier, TierSelection> = { ...tiers, [tier]: { ...tiers[tier], ...patch } }
@@ -944,8 +956,18 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
   }
 
   const addAttachments = (files: FileList | File[]) => {
-    const accepted = Array.from(files).filter(file => file.size <= 20 * 1024 * 1024)
-    setAttachments(prev => [...prev, ...accepted].slice(0, 10))
+    const all = Array.from(files)
+    const accepted = all.filter(file => file.size <= 20 * 1024 * 1024)
+    const warnings: string[] = []
+    const skipped = all.length - accepted.length
+    if (skipped > 0) warnings.push(`Skipped ${skipped} file(s) over 20MB`)
+    const overCount = accepted.length > 10 - attachments.length
+    setAttachments(prev => {
+      const next = [...prev, ...accepted].slice(0, 10)
+      if (next.length > 10) warnings.push('Only the first 10 files are kept')
+      return next
+    })
+    if (warnings.length > 0) setAttachWarnings(warnings)
     if (accepted.some(file => file.type.startsWith('image/')) && !tiers.vision.model) {
       setVisionWarning('Image attached. Select a Vision model before sending.')
     }
@@ -1066,7 +1088,7 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
                 {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors */}
                 {ENGINE_TIERS.map(tier => {
                   const sel = tiers[tier]
-                  const providerModels = providers.find(p => p.name === sel.provider)?.models || []
+                  const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
                   return (
                     <div key={tier} className="flex min-w-0 shrink items-center gap-0.5">
                       <span className={cn("text-[7px] font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
@@ -1098,6 +1120,14 @@ export function ChatView({ health = 'unknown', currentProvider = null }: { healt
               </div>
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
+              {attachWarnings.length > 0 && (
+                <div className="mb-2 flex items-center gap-2">
+                  {attachWarnings.map((w, i) => (
+                    <span key={i} className="text-[10px] text-warning">{w}</span>
+                  ))}
+                  <button onClick={() => setAttachWarnings([])} className="text-[10px] text-muted-foreground/60 hover:text-foreground" aria-label="Dismiss warnings">✕</button>
+                </div>
+              )}
               {attachments.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {attachments.map((file, index) => (

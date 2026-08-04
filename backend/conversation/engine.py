@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from storage.models import (
     Conversation, Message, Task, Project, TaskType, TaskStatus,
 )
+from backend.services.content_utils import content_to_text, truncate_content
 from policy.engine import policy, Decision
 
 logger = logging.getLogger("aic.conversation")
@@ -212,7 +213,7 @@ class ConversationEngine:
         # Update conversation context
         conv_context = conversation.context or {}
         conv_context["last_intent"] = intent
-        conv_context["last_message"] = content[:200]
+        conv_context["last_message"] = truncate_content(content, 200)
         conv_context["message_count"] = conv_context.get("message_count", 0) + 1
         conversation.context = conv_context
 
@@ -311,12 +312,12 @@ class ConversationEngine:
         4. If complete and forced / already confirmed → create task.
         """
         # Aggregate conversation text corpus
-        corpus_parts = [content]
+        corpus_parts = [content_to_text(content)]
         for m in history:
             if isinstance(m, dict) and m.get("content"):
-                corpus_parts.append(m["content"])
+                corpus_parts.append(content_to_text(m["content"]))
             elif hasattr(m, "content") and m.content:
-                corpus_parts.append(m.content)
+                corpus_parts.append(content_to_text(m.content))
         full_corpus = " ".join(corpus_parts)
 
         is_complete, missing_fields = self._evaluate_intake_completeness(full_corpus)
@@ -985,7 +986,7 @@ Respond with ONLY the JSON object."""
                             resource_type="task",
                             resource_id=metadata["task_id"],
                             result="success",
-                            details={"title": content[:200], "worker": metadata.get("worker"),
+                            details={"title": truncate_content(content, 200), "worker": metadata.get("worker"),
                                       "type": metadata.get("task_type"), "task_code": metadata.get("task_code")},
                         ))
 

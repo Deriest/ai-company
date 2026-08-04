@@ -10,6 +10,7 @@ from uuid import uuid4
 from dataclasses import dataclass, field
 from discovery.config import discovery_config
 from discovery.intent import IntentResult
+from backend.services.content_utils import truncate_content
 from discovery.requirements import ExtractionResult, Requirement
 from discovery.readiness import ReadinessResult
 
@@ -163,7 +164,7 @@ class BriefGenerator:
             version=round_number + 1,
             discovery_rounds=round_number,
             engineering_goal=engineering_goal,
-            user_intent=content[:500],
+            user_intent=truncate_content(content, 500),
             request_category=intent.domain,
             scope=scope,
             functional_requirements=functional,

@@ -14,6 +14,8 @@ from enum import Enum
 import re
 import logging
 
+from backend.services.content_utils import content_to_text
+
 logger = logging.getLogger("aic.triage")
 
 
@@ -144,7 +146,7 @@ def perform_smart_triage(
 
     Combines deterministic guardrails with heuristic classification.
     """
-    content = text.lower()
+    content = content_to_text(text).lower()
     guardrails_triggered = []
     min_level = ExecutionLevel.QUICK
     min_risk = "low"

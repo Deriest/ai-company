@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Search, Terminal, Users, Wrench, Plug, Settings, MessageSquare, LayoutDashboard, PanelBottom, PanelLeft } from 'lucide-react'
+import { Search, Terminal, Users, Wrench, Plug, Blocks, Settings, MessageSquare, LayoutDashboard, PanelBottom, PanelLeft } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 interface Command {
@@ -23,6 +23,7 @@ export function CommandPalette({ open, onClose, onNavigate, onNewSession, onTogg
     { id: 'company', label: 'Go to Live Company', category: 'Navigation', icon: Users, action: () => { onNavigate('live'); onClose() } },
     { id: 'skills', label: 'Go to Skills', category: 'Navigation', icon: Wrench, action: () => { onNavigate('skills'); onClose() } },
     { id: 'mcp', label: 'Go to MCP Servers', category: 'Navigation', icon: Plug, action: () => { onNavigate('mcp'); onClose() } },
+    { id: 'plugins', label: 'Go to Plugins', category: 'Navigation', icon: Blocks, action: () => { onNavigate('plugins'); onClose() } },
     { id: 'settings', label: 'Open Settings', category: 'Navigation', icon: Settings, action: () => { onNavigate('settings'); onClose() } },
     { id: 'new-conversation', label: 'New Conversation', category: 'Actions', icon: Terminal, action: () => { onNewSession(); onClose() } },
     { id: 'toggle-terminal', label: 'Toggle Terminal', category: 'Actions', icon: PanelBottom, action: () => { onToggleTerminal?.(); onClose() } },

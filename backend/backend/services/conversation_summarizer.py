@@ -6,6 +6,8 @@ to simple truncation when the LLM call fails.
 import logging
 from typing import TYPE_CHECKING
 
+from backend.services.content_utils import content_to_text, truncate_content
+
 if TYPE_CHECKING:
     from llm.provider import LLMProvider
 
@@ -46,7 +48,7 @@ async def summarize_conversation(
     transcript_parts = []
     for m in messages:
         role = m.get("role", "user")
-        content = (m.get("content", "") or "")[:800]
+        content = truncate_content(m.get("content", ""), 800)
         if content.strip():
             transcript_parts.append(f"{role}: {content}")
     transcript = "\n".join(transcript_parts)
@@ -97,7 +99,7 @@ def _fallback_summary(messages: list[dict], max_tokens: int = 500) -> str:
     meaningful = []
     for m in messages:
         role = m.get("role", "user")
-        content = (m.get("content", "") or "").strip()
+        content = content_to_text(m.get("content", "")).strip()
         # Skip very short or empty messages
         if len(content) < 20:
             continue
@@ -150,7 +152,7 @@ async def summarize_if_needed(
     if len(messages) <= 6:
         return messages
 
-    total_text = " ".join(m.get("content", "") or "" for m in messages)
+    total_text = " ".join(content_to_text(m.get("content", "")) for m in messages)
     total_tokens = estimate_tokens(total_text)
 
     if total_tokens <= token_threshold:
@@ -172,7 +174,7 @@ async def summarize_if_needed(
     ]
 
     new_tokens = estimate_tokens(
-        " ".join(m.get("content", "") or "" for m in condensed)
+        " ".join(content_to_text(m.get("content", "")) for m in condensed)
     )
     logger.info(
         f"Conversation condensed: {len(messages)} messages ({total_tokens} tokens) "

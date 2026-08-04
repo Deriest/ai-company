@@ -160,6 +160,7 @@ export class UpdateManager {
   private listeners = new Set<UpdateListener>();
   private config: UpdateConfig;
   private checking = false;
+  private downloading = false;
   private abortDownload = false;
   private _backendProc: any = null;
 
@@ -217,7 +218,7 @@ export class UpdateManager {
   }
 
   async checkForUpdates(_opts?: { silent?: boolean }): Promise<UpdateState> {
-    if (this.checking) return this.getState();
+    if (this.checking || this.downloading) return this.getState();
     this.checking = true;
     this.setState({ status: "checking", error: undefined });
     try {
@@ -284,6 +285,7 @@ export class UpdateManager {
       });
 
       if (this.config.autoDownload) {
+        this.checking = false;
         void this.downloadUpdate();
       }
       return this.getState();
@@ -301,66 +303,72 @@ export class UpdateManager {
   }
 
   async downloadUpdate(): Promise<UpdateState> {
-    const artifact = this.state.artifact;
-    if (!artifact) {
-      this.setState({ status: "error", error: "No update artifact selected. Check for updates first." });
-      return this.getState();
-    }
-    this.abortDownload = false;
-    const dir = path.join(app.getPath("userData"), "aic-ade", "updates", "staged");
-    fs.mkdirSync(dir, { recursive: true });
-    const tempDest = path.join(dir, `${artifact.filename || `update-${this.state.availableVersion}`}.tmp`);
-    const finalDest = path.join(dir, artifact.filename || `update-${this.state.availableVersion}`);
-    this.setState({
-      status: "downloading",
-      progress: 0,
-      bytesDownloaded: 0,
-      bytesTotal: artifact.size || 0,
-      downloadPath: tempDest,
-      error: undefined,
-    });
-
+    if (this.downloading) return this.getState();
+    this.downloading = true;
     try {
-      await downloadFile(artifact.downloadUrl, tempDest, (downloaded, total, speed) => {
-        if (this.abortDownload) return;
-        this.setState({
-          status: "downloading",
-          progress: total ? Math.min(100, Math.round((downloaded / total) * 100)) : undefined,
-          bytesDownloaded: downloaded,
-          bytesTotal: total || artifact.size,
-          speedBps: speed,
-        });
-      });
-
-      this.setState({ status: "verifying", progress: 100 });
-      const hash = await sha256File(tempDest);
-      const expected = (artifact.sha256 || "").toLowerCase();
-      if (expected && hash.toLowerCase() !== expected) {
-        fs.unlinkSync(tempDest);
-        this.setState({
-          status: "error",
-          error: `SHA256 mismatch. Expected ${expected.slice(0, 16)}… got ${hash.slice(0, 16)}…`,
-          downloadPath: undefined,
-        });
+      const artifact = this.state.artifact;
+      if (!artifact) {
+        this.setState({ status: "error", error: "No update artifact selected. Check for updates first." });
         return this.getState();
       }
-
-      // Atomic rename from temp to final staged path
-      if (fs.existsSync(finalDest)) {
-        fs.unlinkSync(finalDest);
-      }
-      fs.renameSync(tempDest, finalDest);
-
+      this.abortDownload = false;
+      const dir = path.join(app.getPath("userData"), "aic-ade", "updates", "staged");
+      fs.mkdirSync(dir, { recursive: true });
+      const tempDest = path.join(dir, `${artifact.filename || `update-${this.state.availableVersion}`}.tmp`);
+      const finalDest = path.join(dir, artifact.filename || `update-${this.state.availableVersion}`);
       this.setState({
-        status: "ready_to_install",
-        downloadPath: finalDest,
-        progress: 100,
+        status: "downloading",
+        progress: 0,
+        bytesDownloaded: 0,
+        bytesTotal: artifact.size || 0,
+        downloadPath: tempDest,
+        error: undefined,
       });
-      return this.getState();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.setState({ status: "error", error: `Download failed: ${msg}` });
-      return this.getState();
+
+      try {
+        await downloadFile(artifact.downloadUrl, tempDest, (downloaded, total, speed) => {
+          if (this.abortDownload) return;
+          this.setState({
+            status: "downloading",
+            progress: total ? Math.min(100, Math.round((downloaded / total) * 100)) : undefined,
+            bytesDownloaded: downloaded,
+            bytesTotal: total || artifact.size,
+            speedBps: speed,
+          });
+        });
+
+        this.setState({ status: "verifying", progress: 100 });
+        const hash = await sha256File(tempDest);
+        const expected = (artifact.sha256 || "").toLowerCase();
+        if (expected && hash.toLowerCase() !== expected) {
+          fs.unlinkSync(tempDest);
+          this.setState({
+            status: "error",
+            error: `SHA256 mismatch. Expected ${expected.slice(0, 16)}… got ${hash.slice(0, 16)}…`,
+            downloadPath: undefined,
+          });
+          return this.getState();
+        }
+
+        // Atomic rename from temp to final staged path
+        if (fs.existsSync(finalDest)) {
+          fs.unlinkSync(finalDest);
+        }
+        fs.renameSync(tempDest, finalDest);
+
+        this.setState({
+          status: "ready_to_install",
+          downloadPath: finalDest,
+          progress: 100,
+        });
+        return this.getState();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.setState({ status: "error", error: `Download failed: ${msg}` });
+        return this.getState();
+      }
+    } finally {
+      this.downloading = false;
     }
   }
 

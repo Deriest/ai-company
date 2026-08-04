@@ -251,6 +251,7 @@ WORKER_PERMISSIONS: dict[str, set[str]] = {
     "security": {"read_file", "list_directory", "search_files", "run_shell", "mcp_call"},
     "performance": {"read_file", "list_directory", "search_files", "run_shell", "mcp_call"},
     "review": {"read_file", "list_directory", "search_files"},
+    "vision": {"read_file", "list_directory", "search_files"},
     # Full access: backend, frontend, coding, fullstack, architect, database, devops, deployment, pm (dispatcher)
 }
 

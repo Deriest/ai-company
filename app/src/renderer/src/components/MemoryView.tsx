@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, Trash2, Archive, RefreshCw, X } from 'lucide-react'
+import { Plus, Search, Trash2, Archive, X } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'
 import {

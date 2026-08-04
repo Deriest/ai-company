@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from backend.services.content_utils import content_to_text
 from backend.models.orchestration import (
     OrchestrationSession, OrchestrationTask, OrchestrationApproval,
     WorkflowDefinition, Checkpoint,
@@ -489,8 +490,8 @@ class OrchestratorService:
             system_prompt=worker.system_prompt,
         )
 
-        task.output_context = {"response": result.get("content", ""), "message_id": result.get("id", "")}
-        shared[f"task_{task.worker_role}_output"] = result.get("content", "")
+        task.output_context = {"response": content_to_text(result.get("content", "")), "message_id": result.get("id", "")}
+        shared[f"task_{task.worker_role}_output"] = content_to_text(result.get("content", ""))
         session.shared_context = shared
         await db.commit()
 

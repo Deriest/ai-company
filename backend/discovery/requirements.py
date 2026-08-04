@@ -8,6 +8,7 @@ import re
 import logging
 from dataclasses import dataclass, field
 from discovery.domains import DomainRegistry, Domain as DomainType
+from backend.services.content_utils import content_to_text
 
 logger = logging.getLogger("aic.discovery.requirements")
 
@@ -104,13 +105,13 @@ class RequirementExtractor:
         lower = content.lower().strip()
 
         # Build full corpus from history
-        corpus_parts = [content]
+        corpus_parts = [content_to_text(content)]
         if history:
             for msg in history:
                 if isinstance(msg, dict) and msg.get("content"):
-                    corpus_parts.append(msg["content"])
+                    corpus_parts.append(content_to_text(msg["content"]))
                 elif hasattr(msg, "content") and msg.content:
-                    corpus_parts.append(msg.content)
+                    corpus_parts.append(content_to_text(msg.content))
         full_corpus = " ".join(corpus_parts).lower()
 
         # Extract requirements by type

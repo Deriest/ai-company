@@ -3,8 +3,8 @@ import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
 import {
-  Users, Cpu, Shield, Code, Palette, Database,
-  Server, BookOpen, Search, Zap, TestTube2,
+  Users, Shield, Code, Palette, Database,
+  Server, BookOpen, Search, TestTube2,
   GitBranch, Lock, Rocket, Gauge, LayoutDashboard,
   UserCog, Brain,
 } from 'lucide-react'

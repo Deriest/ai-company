@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from backend.services.content_utils import truncate_content
+
 
 @dataclass
 class DeliverableFile:
@@ -29,7 +31,7 @@ class DeliverableSummary:
                     "path": f.path,
                     "action": f.action,
                     "size": f.size,
-                    "preview": f.content[:500],
+                    "preview": truncate_content(f.content, 500),
                 }
                 for f in self.files
             ],

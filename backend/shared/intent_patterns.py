@@ -10,6 +10,8 @@ and IntentClassifier.classify.
 """
 import re
 
+from backend.services.content_utils import content_to_text
+
 # ── Intent constants ────────────────────────────────────
 INTENT_APPROVAL = "approval"
 INTENT_STATUS = "status"
@@ -64,6 +66,7 @@ def classify_intent(content: str) -> str:
     5. Task request (action verbs + minimum 3 words)
     6. Chat (default fallback)
     """
+    content = content_to_text(content)
     lower = content.lower().strip()
     words = content.split()
 

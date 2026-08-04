@@ -23,20 +23,21 @@ export type UpdateManifest = {
 };
 
 export function parseVersion(v: string): number[] {
-  const s = String(v || "0").replace(/^v/i, "");
-  const parts = s.split(/[.+-]/);
-  const result: number[] = [];
-  for (const p of parts) {
-    const num = parseInt(p.replace(/\D/g, ""), 10) || 0;
-    result.push(num);
-    const alpha = p.replace(/\d/g, "").toLowerCase();
-    if (alpha) {
-      for (let i = 0; i < alpha.length; i++) {
-        result.push(alpha.charCodeAt(i) - 96);
-      }
+  const s = String(v || "0").replace(/^v/i, "").split("+")[0];
+  const [base, pre] = s.split("-", 2);
+  const core = base.split(".").map((p) => parseInt(p, 10) || 0);
+  while (core.length < 3) core.push(0);
+  if (!pre) return core;
+  const preParts: number[] = [];
+  for (const p of pre.split(".")) {
+    const num = parseInt(p, 10);
+    if (Number.isNaN(num)) {
+      for (let i = 0; i < p.length; i++) preParts.push(p.charCodeAt(i) - 96);
+    } else {
+      preParts.push(num);
     }
   }
-  return result.length ? result : [0];
+  return [...core.slice(0, 3), -1, ...preParts];
 }
 
 /** Returns true if remote > local. */

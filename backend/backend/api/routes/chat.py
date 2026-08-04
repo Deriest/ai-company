@@ -109,7 +109,18 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     worker_type = payload.worker_role or "backend"
-    workspace = "."  # TODO: get from project context
+    # Resolve workspace root from the conversation's project (fallback: payload.workspace, then ".").
+    workspace = payload.workspace or "."
+    if conv.project_id:
+        try:
+            async with AsyncSessionLocal() as session:
+                from storage.models import Project
+                proj_res = await session.execute(select(Project).where(Project.id == conv.project_id))
+                proj = proj_res.scalar_one_or_none()
+                if proj and proj.repo_path:
+                    workspace = proj.repo_path
+        except Exception as e:
+            logger.warning(f"Failed to resolve project workspace: {e}")
 
     async def event_generator():
         persist_session = AsyncSessionLocal()
@@ -368,6 +379,10 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
         # chat_service.chat_stream already persists internally, but we collect
         # the streamed content here as a safety net to guarantee persistence
         # even if the internal commit fails or the session lifecycle is off.
+        # NOTE: Vision/multimodal requests are handled by POST /chat/execute,
+        # which passes payload.model_tier ("vision") into AgentRunner and maps
+        # it to ModelTier.VISION (agent_runner.py). This legacy ChatService
+        # path stays provider_id/model_id based and does not support vision.
         collected_content = ""
         try:
             async for chunk in chat_service.chat_stream(

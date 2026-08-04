@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Hand, Bot, Zap, Cpu, Download, FolderOpen,
-  Bug, Clock, HardDrive, Save, FileText, RefreshCw, Trash2,
+  Bug, Save, Trash2,
 } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'

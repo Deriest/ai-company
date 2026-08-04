@@ -442,7 +442,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("aic:open-external", async (_e, target: string) => {
-    if (!target || typeof target !== "string" || !/^https:\/\/(github\.com|raw\.githubusercontent\.com)\//.test(target)) {
+    if (!target || typeof target !== "string" || !/^https:\/\/(github\.com|raw\.githubusercontent\.com|api\.github\.com)\//.test(target)) {
       return { ok: false, error: "external URL is not allowed" };
     }
     await shell.openExternal(target);

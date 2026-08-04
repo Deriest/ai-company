@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.services.content_utils import content_to_text
+
 logger = logging.getLogger("aic.context.sources")
 
 
@@ -318,7 +320,7 @@ class ConversationSource(ContextSource):
         total_tokens = 0
 
         for msg in messages:
-            content = msg.content or ""
+            content = content_to_text(msg.content or "")
             token_count = len(content.split())
             if total_tokens + token_count > max_tokens:
                 break

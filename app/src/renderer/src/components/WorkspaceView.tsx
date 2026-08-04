@@ -7,7 +7,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Target, Users, Terminal, UserPlus, Command, X, Coins, Zap, FolderOpen, Activity,
+  Target, Users, Terminal, UserPlus, Command, X, Zap, FolderOpen, Activity,
   Brain, Shield, UserCog, Search, Palette, BookOpen,
   LayoutDashboard, Server, Code, TestTube2, Gauge,
   Database, GitBranch, Rocket, Lock, CheckCircle2, Clock,

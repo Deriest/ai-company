@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import {
-  Plus, Search, ToggleLeft, ToggleRight, Users, Trash2,
+  Plus, Search, ToggleLeft, ToggleRight, Trash2,
   RefreshCw, BookOpen, Shield, Code, Server, Wrench, GitBranch, X,
 } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'

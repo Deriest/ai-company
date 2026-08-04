@@ -10,6 +10,7 @@ from storage.models import Message
 from backend.models.ai_runtime import GenerationLog, ToolCall, ToolResult
 from backend.services.crypto import decrypt as decrypt_api_key
 from backend.services.tool_dispatcher import tool_dispatcher
+from backend.services.content_utils import content_to_text, truncate_content
 from backend.services.artifact_service import artifact_service
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ class ChatService:
         config = await cls._get_provider_config(db, provider_id)
         
         # Persist user message
-        user_content = messages[-1].get("content", "") if messages else ""
+        user_content = content_to_text(messages[-1].get("content", "")) if messages else ""
         if user_content:
             user_msg = Message(
                 conversation_id=conversation_id,
@@ -434,7 +435,7 @@ class ChatService:
         config = await cls._get_provider_config(db, provider_id)
         
         # Persist user message from the last message in the payload
-        user_query = messages[-1].get("content", "") if messages else ""
+        user_query = content_to_text(messages[-1].get("content", "")) if messages else ""
         if user_query:
             user_msg = Message(
                 conversation_id=conversation_id,

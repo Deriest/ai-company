@@ -8,6 +8,8 @@ Strategies (applied in order):
 import logging
 from typing import TYPE_CHECKING
 
+from backend.services.content_utils import content_to_text, truncate_content
+
 if TYPE_CHECKING:
     from llm.provider import LLMProvider
 
@@ -15,8 +17,8 @@ logger = logging.getLogger("aic.context_overflow")
 
 
 def estimate_tokens(messages: list[dict]) -> int:
-    """Rough token estimate (~4 chars per token)."""
-    return sum(len(m.get("content", "")) // 4 for m in messages)
+    """Rough token estimate (~4 chars per token). Handles multimodal content."""
+    return sum(len(content_to_text(m.get("content", ""))) // 4 for m in messages)
 
 
 async def summarize_messages(messages: list[dict], provider: "LLMProvider") -> str:
@@ -25,7 +27,7 @@ async def summarize_messages(messages: list[dict], provider: "LLMProvider") -> s
     Falls back to a simple text extraction when the LLM call fails.
     """
     transcript = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')[:500]}"
+        f"{m.get('role', 'user')}: {truncate_content(m.get('content', ''), 500)}"
         for m in messages
     )
 

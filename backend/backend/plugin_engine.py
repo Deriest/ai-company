@@ -14,7 +14,8 @@ from storage.models import PluginEntry
 
 def _plugin_root() -> Path:
     base = os.environ.get("AIC_DATA_DIR", "").strip()
-    return Path(base) / "plugins" if base else Path(__file__).resolve().parents[3] / "data" / "plugins"
+    # plugin_engine.py = backend/backend/plugin_engine.py → parents[2] = repo root
+    return Path(base) / "plugins" if base else Path(__file__).resolve().parents[2] / "data" / "plugins"
 
 
 def _detect_components(package_dir: Path) -> list[str]:
@@ -217,6 +218,9 @@ async def update_plugin(session: AsyncSession, plugin_id: str, patch: dict) -> d
     if "is_enabled" in patch:
         entry.is_enabled = patch["is_enabled"]
     if "is_required" in patch:
+        # A plugin cannot be required if its package is missing (would crash enforcement).
+        if patch["is_required"] and (not entry.package_path or not Path(entry.package_path).exists()):
+            raise ValueError("Cannot mark plugin as required: package is missing")
         entry.is_required = patch["is_required"]
     await session.commit()
     await session.refresh(entry)

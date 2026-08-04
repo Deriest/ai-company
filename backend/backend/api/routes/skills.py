@@ -21,7 +21,8 @@ router = APIRouter()
 
 def _installed_skill_root() -> Path:
     base = os.environ.get("AIC_DATA_DIR", "").strip()
-    return Path(base) / "skills" / "github" if base else Path(__file__).resolve().parents[3] / "data" / "skills" / "github"
+    # skills.py = backend/backend/api/routes/skills.py → parents[4] = repo root
+    return Path(base) / "skills" / "github" if base else Path(__file__).resolve().parents[4] / "data" / "skills" / "github"
 
 
 @router.post("/skills/install-github")

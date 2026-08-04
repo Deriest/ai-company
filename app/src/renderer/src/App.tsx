@@ -75,7 +75,7 @@ export function App() {
         e.preventDefault();
         setShowTerminal(o => !o);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key >= "1" && e.key <= "6") {
+      if ((e.metaKey || e.ctrlKey) && e.key >= "1" && e.key <= "7") {
         e.preventDefault();
         const idx = parseInt(e.key) - 1;
         if (navViews[idx]) setView(navViews[idx]);
@@ -184,7 +184,7 @@ export function App() {
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
             <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-              <ChatView health={boot.health} currentProvider={boot.currentProvider} />
+              <ChatView health={boot.health} currentProvider={boot.currentProvider} view={view} />
             </div>
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {renderView()}

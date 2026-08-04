@@ -214,7 +214,7 @@ class WorkerContext:
             system_parts.append(f"\n\n## Project Context\n{self.project_overview}")
 
         if self.skills:
-            skills_text = "\n".join(f"- {s}" for s in self.skills[:5])
+            skills_text = "\n".join(f"- {s[:2000]}" for s in self.skills[:20])
             system_parts.append(f"\n\n## Skills\n{skills_text}")
 
         if self.task_description:

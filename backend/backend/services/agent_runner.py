@@ -20,6 +20,9 @@ from llm.provider import provider_manager, ModelTier, _worker_fallback_chain
 
 logger = logging.getLogger("aic.agent_runner")
 
+# Maximum allowed size for an image attachment (data_url string length).
+IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
 
 async def _get_mcp_tools_for_agent(db) -> list[dict]:
     """Fetch MCP tool schemas and convert to OpenAI function format.
@@ -184,6 +187,10 @@ class AgentRunner:
             for attachment in attachments:
                 data_url = attachment.get("data_url", "")
                 if attachment.get("mime_type", "").startswith("image/") and data_url:
+                    if len(data_url) > IMAGE_MAX_BYTES:
+                        logger.warning(f"Image attachment too large ({len(data_url)} bytes > {IMAGE_MAX_BYTES})")
+                        yield {"type": "error", "error": "Image too large (max 10MB). Attach a smaller image."}
+                        return
                     parts.append({"type": "image_url", "image_url": {"url": data_url}})
                 else:
                     extracted = self._extract_attachment_text(attachment)

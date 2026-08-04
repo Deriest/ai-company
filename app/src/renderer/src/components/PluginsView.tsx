@@ -6,10 +6,10 @@
  */
 import { useState, useEffect } from 'react'
 import {
-  Plus, Search, X, Trash2, RefreshCw, Plug, GitBranch,
-  CheckCircle2, AlertTriangle, Loader2, ToggleLeft, ToggleRight,
-  Users, Terminal, Cpu, Shield, Code, Palette, Database,
-  Server, BookOpen, Wrench, GitPullRequest,
+  Plus, Search, X, Trash2, RefreshCw, Plug,
+  CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
+  Terminal, Cpu, Shield, Palette,
+  BookOpen, Wrench, GitPullRequest,
 } from 'lucide-react'
 import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'

@@ -261,6 +261,13 @@ export const chatApi = {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
+        // Cap the SSE buffer so a misbehaving stream can never grow unbounded.
+        // Keep only the tail after the last complete event boundary.
+        if (buffer.length > 1_000_000) {
+          const lastBreak = buffer.lastIndexOf('\n\n');
+          buffer = lastBreak >= 0 ? buffer.slice(lastBreak + 2) : '';
+        }
+
         const lines = buffer.split("\n\n");
         buffer = lines.pop() || "";
 
