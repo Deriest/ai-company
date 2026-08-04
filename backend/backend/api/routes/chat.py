@@ -40,8 +40,8 @@ async def chat_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)
     # resolve worker defaults if provided
     prov_id = payload.provider_id
     mod_id = payload.model_id
-    temp = payload.temperature or 0.4
-    top_p = payload.top_p or 1.0
+    temp = payload.temperature if payload.temperature is not None else 0.4
+    top_p = payload.top_p if payload.top_p is not None else 1.0
     max_t = payload.max_tokens
 
     system_prompt = None
@@ -69,7 +69,20 @@ async def chat_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)
         return res
     except Exception as e:
         await worker_runtime_service.finish_execution(db, exec_rec.id, "error")
-        raise HTTPException(status_code=500, detail=str(e))
+        # QA-249-R5/F13: map LLM failures to proper status codes instead of a
+        # raw 500. Log the internal detail server-side only.
+        logger.error(f"chat_completion failed: {e}")
+        from llm.provider import LLMError
+        if isinstance(e, LLMError):
+            msg = str(e).lower()
+            if "no llm provider" in msg or "no provider" in msg or "not configured" in msg:
+                raise HTTPException(status_code=503, detail="LLM provider is not configured")
+            if "timeout" in msg or "timed out" in msg:
+                raise HTTPException(status_code=502, detail="LLM provider timed out")
+            if "connection" in msg or "refused" in msg or "unreachable" in msg:
+                raise HTTPException(status_code=502, detail="LLM provider is unreachable")
+            raise HTTPException(status_code=502, detail="LLM provider error")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------

@@ -254,12 +254,24 @@ async def _run_test(base_url: str, api_key: str) -> ProviderTestResponse:
     client = ProviderClient(base_url, api_key)
     try:
         res = await client.test_connection()
+        # F5 FIX: also fetch the model list so the "fetch models" UI flow
+        # (which calls /providers/test-ephemeral) gets real models instead of
+        # an empty list. Best-effort — model enumeration is optional.
+        models: list[ModelInfo] = []
+        try:
+            raw_models, _latency = await client.fetch_models()
+            for m in raw_models:
+                mids = m.get("id") or m.get("name") or ""
+                models.append(ModelInfo(id=mids, name=mids, capabilities=ModelCapabilities(contextWindow=0, vision=False, toolCalling=False, streaming=False, reasoning=False, functionCalling=False, jsonMode=False, embedding=False, maxOutputTokens=0)))
+        except Exception:
+            pass  # model fetch is best-effort
         await client.close()
         return ProviderTestResponse(
             ok=True,
             latencyMs=res["latency_ms"],
             version=res["version"],
-            healthNotes=["chat.completions", "models.list"]
+            healthNotes=["chat.completions", "models.list"],
+            models=models or None,
         )
     except (ProviderAPIError, ProviderConnectionError, ProviderTimeoutError) as e:
         await client.close()

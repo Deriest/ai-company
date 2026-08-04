@@ -1,5 +1,6 @@
 """Plugin registry — install, list, update, assign, toggle, uninstall GitHub plugins."""
 import asyncio
+import logging
 from pathlib import Path
 import json
 import os
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from storage.models import PluginEntry
+
+logger = logging.getLogger("aic.plugin_engine")
 
 
 def _plugin_root() -> Path:
@@ -197,6 +200,10 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
         await session.commit()
         await session.refresh(entry)
 
+        logger.info(
+            "Plugin installed: plugin_id=%s name=%s version=%s",
+            entry.plugin_id, entry.name, entry.version,
+        )
         return {
             "id": entry.id,
             "plugin_id": entry.plugin_id,
@@ -212,6 +219,9 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
             "is_required": entry.is_required,
             "instructions": instructions,
         }
+    except Exception as e:
+        logger.warning("Plugin install failed (repo=%s): %s", repo_url, e)
+        raise
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -239,6 +249,7 @@ async def update_plugin(session: AsyncSession, plugin_id: str, patch: dict) -> d
     result = await session.execute(select(PluginEntry).where(PluginEntry.plugin_id == plugin_id))
     entry = result.scalar_one_or_none()
     if not entry:
+        logger.warning("Plugin update failed: plugin_id=%s not found", plugin_id)
         return None
     if "assigned_workers" in patch:
         entry.assigned_workers = patch["assigned_workers"]
@@ -251,6 +262,10 @@ async def update_plugin(session: AsyncSession, plugin_id: str, patch: dict) -> d
         entry.is_required = patch["is_required"]
     await session.commit()
     await session.refresh(entry)
+    logger.info(
+        "Plugin updated: plugin_id=%s enabled=%s required=%s workers=%s",
+        entry.plugin_id, entry.is_enabled, entry.is_required, entry.assigned_workers or [],
+    )
     return {
         "id": entry.id,
         "plugin_id": entry.plugin_id,
@@ -281,6 +296,7 @@ async def update_plugin_repo(session: AsyncSession, plugin_id: str) -> dict | No
     result = await session.execute(select(PluginEntry).where(PluginEntry.plugin_id == plugin_id))
     entry = result.scalar_one_or_none()
     if not entry:
+        logger.warning("Plugin update-repo failed: plugin_id=%s not found", plugin_id)
         return None
     if not entry.source_url:
         raise ValueError("Plugin has no source URL; cannot update")
@@ -288,6 +304,11 @@ async def update_plugin_repo(session: AsyncSession, plugin_id: str) -> dict | No
     fresh = await install_plugin(session, entry.source_url, "", is_required=entry.is_required)
     new_version = fresh.get("version") or "0.0.0"
     same_identity = fresh.get("plugin_id") == plugin_id
+    logger.info(
+        "Plugin repo updated: plugin_id=%s version=%s->%s updated=%s",
+        plugin_id, previous_version, new_version,
+        same_identity and new_version != previous_version,
+    )
     return {
         "updated": same_identity and new_version != previous_version,
         "plugin_id": fresh.get("plugin_id"),
@@ -302,10 +323,12 @@ async def uninstall_plugin(session: AsyncSession, plugin_id: str) -> bool:
     result = await session.execute(select(PluginEntry).where(PluginEntry.plugin_id == plugin_id))
     entry = result.scalar_one_or_none()
     if not entry:
+        logger.warning("Plugin uninstall failed: plugin_id=%s not found", plugin_id)
         return False
     await session.delete(entry)
     await session.commit()
     shutil.rmtree(_plugin_root() / plugin_id, ignore_errors=True)
+    logger.info("Plugin uninstalled: plugin_id=%s name=%s", plugin_id, entry.name)
     return True
 
 

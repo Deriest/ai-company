@@ -30,7 +30,7 @@ export function GeneralTab({
         setProfile(p);
         setDisplayName(p.displayName);
       }
-    });
+    }).catch(() => {});
 
     // Read real app version from Electron
     window.aic?.getAppVersion?.().then((v: string) => {

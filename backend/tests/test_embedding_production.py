@@ -10,29 +10,34 @@ from backend.services.embedding_provider import (
 
 
 def test_sentencetransformers_available():
-    """Test that SentenceTransformers is available as default provider."""
+    """Deterministic embedding test — forces the hash provider.
+
+    F18: the previous version probed http://localhost:11434 (Ollama) and
+    downloaded the ~80MB all-MiniLM-L6-v2 model from HuggingFace on first
+    run, making the test slow/flaky and failing offline. Forcing the hash
+    provider exercises the embed pipeline deterministically with no network.
+    """
     # Reset provider state
     import backend.services.embedding_provider as ep
     ep._embedding_provider = None
-    
-    # Clear env to trigger auto-detection
+
     old_val = os.environ.get("AIC_EMBEDDING_PROVIDER")
-    if "AIC_EMBEDDING_PROVIDER" in os.environ:
-        del os.environ["AIC_EMBEDDING_PROVIDER"]
-    
+    os.environ["AIC_EMBEDDING_PROVIDER"] = "hash"
+
     try:
         provider = get_embedding_provider()
-        # Should be sentencetransformers (installed) or hash (fallback)
-        assert provider in ("sentencetransformers", "hash")
-        
-        if provider == "sentencetransformers":
-            # Verify it actually works
-            emb = embed_single("test text")
-            assert isinstance(emb, list)
-            assert len(emb) == 384  # all-MiniLM-L6-v2 dimension
+        assert provider == "hash"
+
+        # Verify it actually works and is deterministic
+        emb = embed_single("test text")
+        assert isinstance(emb, list)
+        assert len(emb) == 384  # hash pseudo-embedding dimension
+        assert embed_single("test text") == emb  # deterministic
     finally:
         if old_val:
             os.environ["AIC_EMBEDDING_PROVIDER"] = old_val
+        elif "AIC_EMBEDDING_PROVIDER" in os.environ:
+            del os.environ["AIC_EMBEDDING_PROVIDER"]
         ep._embedding_provider = None
 
 

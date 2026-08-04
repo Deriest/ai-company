@@ -48,12 +48,22 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
     path_params = request.path_params
     for key, value in path_params.items():
         if isinstance(value, str):
-            # Check for SQL injection patterns
-            if any(pattern in value.lower() for pattern in [
-                "drop table", "delete from", "insert into",
-                "update set", "--", ";", "/*", "*/",
-                "union select", "or 1=1", "or true"
-            ]):
+            # F11 FIX: a bare ``--`` anywhere is allowed — skill/plugin IDs
+            # legitimately contain double hyphens (re.sub(r"[^a-z0-9-]+", "-", ...)).
+            # Only reject unambiguous dangerous patterns: path-traversal tokens,
+            # SQL comment/statement markers, and SQL keywords.
+            lower_value = value.lower()
+            if (
+                "../" in value
+                or ";" in value
+                or "/*" in value
+                or "*/" in value
+                or value.startswith("--")
+                or any(kw in lower_value for kw in [
+                    "drop table", "delete from", "insert into",
+                    "update set", "union select", "or 1=1", "or true",
+                ])
+            ):
                 logger.warning(f"Suspicious path parameter: {key}={value}")
                 return JSONResponse(
                     status_code=400,

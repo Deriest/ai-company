@@ -13,10 +13,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
+import logging
 
 from backend.database.session import get_db
 
 router = APIRouter()
+
+logger = logging.getLogger("aic.agent")
 
 
 @router.post("/agent/run")
@@ -37,17 +40,28 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
     workspace = payload.get("workspace", ".")
     
     if not prompt:
+        logger.warning("Agent run rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
     from backend.services.agent_runner import AgentRunner
     runner = AgentRunner(workspace_root=workspace)
+    logger.info(
+        "Agent run started: worker_type=%s model_tier=%s", worker_type, model_tier,
+    )
     
     async def event_stream():
-        async for event in runner.run_agent(
-            worker_type, prompt, system_prompt, model_tier,
-            db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
+        try:
+            async for event in runner.run_agent(
+                worker_type, prompt, system_prompt, model_tier,
+                db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            # F14 FIX: a mid-stream exception would otherwise kill the SSE
+            # generator with no structured error (renderer would fire onDone
+            # with a truncated response). Surface a proper error event instead.
+            logger.error("Agent run failed: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)[:200]})}\n\n"
     
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -65,11 +79,18 @@ async def run_agent_sync(payload: dict, db: AsyncSession = Depends(get_db)):
     workspace = payload.get("workspace", ".")
     
     if not prompt:
+        logger.warning("Agent run-sync rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
     
     from backend.services.agent_runner import run_worker_with_tools
+    logger.info(
+        "Agent run-sync started: worker_type=%s model_tier=%s", worker_type, model_tier,
+    )
     result = await run_worker_with_tools(
         worker_type, prompt, system_prompt, workspace, model_tier,
         db=db,  # BUG-17 FIX: pass db so MCP tools can be fetched
+    )
+    logger.info(
+        "Agent run-sync finished: worker_type=%s success=%s", worker_type, result.get("success"),
     )
     return result

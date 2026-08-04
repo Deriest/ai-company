@@ -1,13 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 
-class ProviderTestResponse(BaseModel):
-    ok: bool
-    latencyMs: Optional[int] = None
-    version: Optional[str] = None
-    healthNotes: Optional[List[str]] = None
-    error: Optional[str] = None
-
 class ModelCapabilities(BaseModel):
     contextWindow: int
     vision: bool
@@ -23,6 +16,14 @@ class ModelInfo(BaseModel):
     id: str
     name: str
     capabilities: ModelCapabilities
+
+class ProviderTestResponse(BaseModel):
+    ok: bool
+    latencyMs: Optional[int] = None
+    version: Optional[str] = None
+    healthNotes: Optional[List[str]] = None
+    error: Optional[str] = None
+    models: Optional[List[ModelInfo]] = None
 
 class ProviderModelResponse(BaseModel):
     id: str

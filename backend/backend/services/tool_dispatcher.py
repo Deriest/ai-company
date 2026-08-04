@@ -1,12 +1,22 @@
 import os
 import glob
 import time
+from pathlib import Path
 from typing import Dict, Any, List
 
 from backend.services.path_utils import resolve_workspace_path
 
 class ToolDispatcher:
-    def __init__(self, workspace_dir: str = "/tmp/aic-workspace"):
+    def __init__(self, workspace_dir: str | None = None):
+        # F10 FIX: do not default to a fixed world-writable /tmp path — a
+        # pre-existing symlink there could redirect writes. Derive the root
+        # from settings (DATA_DIR / AIC_DATA_DIR) like every other service.
+        if workspace_dir is None:
+            try:
+                from backend.config import settings
+                workspace_dir = str(settings.WORKSPACE_DIR)
+            except Exception:
+                workspace_dir = str(Path(__file__).resolve().parent.parent / "data" / "workspace")
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
 

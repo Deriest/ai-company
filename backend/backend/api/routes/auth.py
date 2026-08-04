@@ -8,6 +8,7 @@ endpoints only ever serve the local sidecar on 127.0.0.1.
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
+import logging
 
 from backend.config import settings
 # NOTE: plaintext compare — the identity file stores a random hex password,
@@ -15,6 +16,8 @@ from backend.config import settings
 from auth.security import create_access_token, decode_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+logger = logging.getLogger("aic.auth")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
@@ -37,11 +40,14 @@ async def login(body: LoginRequest):
         body.username != settings.IDENTITY_USERNAME
         or body.password != settings.IDENTITY_PASSWORD
     ):
+        # Log the failed username (never the password) for brute-force visibility.
+        logger.warning("Login failed: username=%s", body.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    logger.info("Login success: username=%s", body.username)
     token = create_access_token({"sub": body.username})
     return LoginResponse(access_token=token, username=body.username)
 

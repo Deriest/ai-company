@@ -7,24 +7,11 @@ Verifies:
 - Worker-specific skill resolution (Worker A receives skill X, Worker B does not)
 """
 import pytest
-import storage.database
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
 from storage.models import Base
 
 from backend.skill_engine import (
     seed_builtin_skills, list_skills, toggle_skill, assign_skill_workers, resolve_skills_for_worker
 )
-
-
-@pytest.fixture
-async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
 
 
 @pytest.mark.asyncio

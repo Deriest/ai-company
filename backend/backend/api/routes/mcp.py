@@ -3,10 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import Optional, List
 import json
+import logging
 
 from backend.database.session import get_db
 
 router = APIRouter()
+
+logger = logging.getLogger("aic.mcp")
 
 from backend.services.mcp_service import mcp_service
 from backend.models.mcp import MCPRegistry, MCPTool, MCPToolExecution
@@ -22,6 +25,7 @@ async def register_mcp_server(payload: dict, db: AsyncSession = Depends(get_db))
         description=payload.get("description", ""),
         config=payload.get("config"),
     )
+    logger.info("MCP server registered: id=%s name=%s protocol=%s", server.id, server.name, server.protocol)
     return {"id": server.id, "name": server.name, "endpoint": server.endpoint, "status": server.status}
 
 @router.get("/mcp/servers")
@@ -45,8 +49,10 @@ async def update_mcp_server(server_id: str, payload: dict, db: AsyncSession = De
 async def delete_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
     try:
         await mcp_service.delete_server(db, server_id)
+        logger.info("MCP server deleted: server_id=%s", server_id)
         return {"status": "ok"}
     except ValueError as e:
+        logger.warning("MCP server delete failed: server_id=%s error=%s", server_id, e)
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/mcp/servers/{server_id}/discover")
@@ -106,6 +112,7 @@ async def connect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db))
     """Connect to MCP server via protocol client and discover tools."""
     try:
         tools = await mcp_service.connect_and_discover(db, server_id)
+        logger.info("MCP server connected: server_id=%s tools_discovered=%d", server_id, len(tools))
         return {
             "status": "connected",
             "server_id": server_id,
@@ -113,6 +120,7 @@ async def connect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db))
             "tools": [{"id": t.id, "toolName": t.tool_name, "description": t.description} for t in tools],
         }
     except ValueError as e:
+        logger.warning("MCP server connect failed: server_id=%s error=%s", server_id, e)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -120,6 +128,7 @@ async def connect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db))
 async def disconnect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
     """Disconnect from MCP server."""
     await mcp_service.disconnect_server(db, server_id)
+    logger.info("MCP server disconnected: server_id=%s", server_id)
     return {"status": "disconnected", "server_id": server_id}
 
 

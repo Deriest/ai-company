@@ -7,23 +7,11 @@ Verifies:
 - Retrieval filtering
 """
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
 from storage.models import Base
 
 from backend.memory_engine import (
     save_memory_entry, retrieve_project_memories, supersede_memory_entry
 )
-
-
-@pytest.fixture
-async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
 
 
 @pytest.mark.asyncio

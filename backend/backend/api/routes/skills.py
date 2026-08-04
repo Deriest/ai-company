@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
 import asyncio
+import logging
 import re
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from storage.models import SkillEntry
 from sqlalchemy import select
 
 router = APIRouter()
+
+logger = logging.getLogger("aic.skills")
 
 
 def _installed_skill_root() -> Path:
@@ -40,6 +43,8 @@ async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)
     try:
         result = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
+            logger.warning("Skill install failed (repo=%s): clone exited %s: %s",
+                           repo_url, result.returncode, result.stderr[-300:])
             raise HTTPException(status_code=400, detail=f"GitHub clone failed: {result.stderr[-300:]}")
         root = (temp_dir / "repo" / skill_path).resolve()
         repo_root = (temp_dir / "repo").resolve()
@@ -85,9 +90,15 @@ async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)
             else:
                 entry = SkillEntry(skill_id=skill_id, name=parsed_name, description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True); db.add(entry)
             installed.append(entry)
-        if not installed: raise HTTPException(status_code=400, detail="No usable skills found")
+        if not installed: 
+            logger.warning("Skill install failed (repo=%s): no usable skills found", repo_url)
+            raise HTTPException(status_code=400, detail="No usable skills found")
         await db.commit()
         for entry in installed: await db.refresh(entry)
+        logger.info(
+            "Skill(s) installed from repo=%s: skill_ids=%s",
+            repo_url, [e.skill_id for e in installed],
+        )
         return {"installed": [{"id": e.id, "skill_id": e.skill_id, "name": e.name, "description": e.description, "category": e.category, "source": e.source, "assigned_workers": e.assigned_workers, "is_enabled": e.is_enabled, "instructions": e.instructions} for e in installed]}
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -145,6 +156,7 @@ async def create_custom_skill(payload: dict, db: AsyncSession = Depends(get_db))
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
+    logger.info("Skill created: skill_id=%s name=%s source=custom", entry.skill_id, entry.name)
 
     return {
         "id": entry.id,
@@ -171,6 +183,7 @@ async def delete_skill(skill_id: str, db: AsyncSession = Depends(get_db)):
     await db.delete(skill)
     await db.commit()
     shutil.rmtree(_installed_skill_root() / skill_id, ignore_errors=True)
+    logger.info("Skill deleted: skill_id=%s name=%s", skill_id, skill.name)
     return {"status": "ok"}
 
 

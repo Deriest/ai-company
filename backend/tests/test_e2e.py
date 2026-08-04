@@ -4,41 +4,10 @@ Tests full pipeline: Chat -> Task -> Dispatcher -> Workflow -> Completion.
 """
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
-import storage.database
 from storage.models import (
-    Base, User, Project, Task, TaskStatus, TaskType, Role,
+    User, Task, TaskStatus, TaskType,
     Conversation, Approval, ApprovalStatus,
 )
-
-
-@pytest.fixture
-async def db_session():
-    """Provide an async session with in-memory SQLite."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    old_factory = storage.database.async_session
-    old_engine = storage.database.engine
-    storage.database.async_session = factory
-    storage.database.engine = engine
-
-    async with factory() as session:
-        user = User(id="user-1", username="admin", hashed_password="x", role=Role.OWNER.value, is_active=True)
-        project = Project(id="proj-1", name="Test", slug="test", description="E2E", owner_id="user-1")
-        conv = Conversation(id="conv-1", user_id="user-1", project_id="proj-1", title="Test", context={"project_id": "proj-1"})
-        session.add_all([user, project, conv])
-        await session.commit()
-    yield factory
-    storage.database.async_session = old_factory
-    storage.database.engine = old_engine
-    await engine.dispose()
 
 
 async def _approve_pending(session, dispatcher, task_id, approver_id):
