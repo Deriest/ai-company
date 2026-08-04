@@ -308,6 +308,12 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # FIX: Attachment rows have no FK/relationship to messages — delete them
+    # explicitly so they don't become orphans when the conversation (and its
+    # messages via ORM cascade) is removed.
+    await db.execute(text(
+        "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = :cid)"
+    ), {"cid": id})
     await db.delete(conv)
     await db.commit()
     await remove_fts_by_conversation(db, id)
@@ -521,6 +527,9 @@ async def delete_folder(id: str, db: AsyncSession = Depends(get_db)):
     f = res.scalars().first()
     if not f:
         raise HTTPException(status_code=404, detail="Folder not found")
+    # FIX: folder_id is a plain column (no FK) — NULL it on conversations so
+    # they don't dangle after the folder is deleted.
+    await db.execute(text("UPDATE conversations SET folder_id = NULL WHERE folder_id = :fid"), {"fid": id})
     await db.delete(f)
     await db.commit()
     return {"status": "ok"}

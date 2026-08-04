@@ -10,6 +10,8 @@ import datetime
 import json
 import logging
 from typing import Optional
+from fastapi import HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.services.content_utils import content_to_text
@@ -150,11 +152,29 @@ class OrchestratorService:
         session = await OrchestratorService.get_session(db, session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
-        if session.status not in ("pending", "paused"):
-            raise ValueError(f"Session status '{session.status}' is not executable")
 
-        session.status = "running"
-        session.started_at = datetime.datetime.now(datetime.timezone.utc)
+        # FIX: atomic check-then-act gate — two concurrent POST /execute on the
+        # same session must not both pass. The conditional UPDATE claims the
+        # session (pending/paused -> running) atomically; rowcount 0 means
+        # another runner already claimed it (or the session is terminal).
+        now = datetime.datetime.now(datetime.timezone.utc)
+        res = await db.execute(
+            update(OrchestrationSession)
+            .where(
+                OrchestrationSession.id == session_id,
+                OrchestrationSession.status.in_(["pending", "paused"]),
+            )
+            .values(status="running", started_at=now)
+        )
+        if res.rowcount != 1:
+            # The claim failed — either the session is terminal (cancelled /
+            # completed / failed) or another runner already claimed it.
+            # Preserve the historical 400 for terminal states and use 409 for
+            # the concurrent double-start race.
+            await db.refresh(session)
+            if session.status == "running":
+                raise HTTPException(status_code=409, detail="Session is already running")
+            raise ValueError(f"Session status '{session.status}' is not executable")
         await db.commit()
         logger.info(json.dumps({
             "event": "orchestration_session_started",
@@ -170,6 +190,15 @@ class OrchestratorService:
 
             # Check final status
             await db.refresh(session)
+            # FIX: if the session was cancelled mid-run (cancel_session flips the
+            # DB status), do NOT overwrite "cancelled" with "completed"/"failed".
+            if session.status == "cancelled":
+                if session.completed_at is None:
+                    session.completed_at = datetime.datetime.now(datetime.timezone.utc)
+                await db.commit()
+                await db.refresh(session)
+                return session
+
             tasks = await OrchestratorService.get_tasks(db, session_id)
             has_failure = any(t.status == "failed" for t in tasks)
             all_done = all(t.status in ("completed", "skipped") for t in tasks)
@@ -187,6 +216,13 @@ class OrchestratorService:
                 "status": session.status,
             }))
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            # FIX: never overwrite a user cancellation with a failure status.
+            await db.refresh(session)
+            if session.status == "cancelled":
+                await db.commit()
+                raise
             session.status = "failed"
             session.error_message = str(e)
             session.completed_at = datetime.datetime.now(datetime.timezone.utc)
@@ -201,12 +237,28 @@ class OrchestratorService:
         return session
 
     @staticmethod
+    async def _session_cancelled(db: AsyncSession, session_id: str) -> bool:
+        """Re-check the session status from the DB.
+
+        cancel_session() runs on a different DB session; the local ORM object
+        is stale. A fresh query is the only reliable way to see a mid-run
+        cancellation.
+        """
+        res = await db.execute(
+            select(OrchestrationSession.status).where(OrchestrationSession.id == session_id)
+        )
+        return res.scalar_one_or_none() == "cancelled"
+
+    @staticmethod
     async def _execute_sequential(db: AsyncSession, session: OrchestrationSession):
         """Execute tasks one by one in sequence_order."""
         tasks = await OrchestratorService.get_tasks(db, session.id)
         for task in tasks:
             if task.status in ("completed", "skipped", "cancelled"):
                 continue
+            # FIX: stop if the session was cancelled while we were waiting.
+            if await OrchestratorService._session_cancelled(db, session.id):
+                return
             await OrchestratorService._run_single_task(db, session, task)
             if task.status == "failed":
                 break  # Stop on failure in sequential mode
@@ -225,6 +277,9 @@ class OrchestratorService:
         iteration = 0
 
         while remaining and iteration < max_iterations:
+            # FIX: stop if the session was cancelled mid-run.
+            if await OrchestratorService._session_cancelled(db, session.id):
+                return
             iteration += 1
             executed_this_round = False
             still_remaining = []
@@ -383,6 +438,10 @@ class OrchestratorService:
         timeout = task.timeout_seconds or 300  # default 5 min
 
         for attempt in range(max_attempts):
+            # FIX: a cancel_session() call may have flipped this task (and/or
+            # the session) to cancelled while we were waiting — don't re-run it.
+            if task.status == "cancelled" or await OrchestratorService._session_cancelled(db, session.id):
+                return
             task.retry_count = attempt
             task.status = "running"
             task.started_at = datetime.datetime.now(datetime.timezone.utc)
@@ -401,6 +460,11 @@ class OrchestratorService:
                     OrchestratorService._execute_task_body(db, session, task),
                     timeout=timeout,
                 )
+                # FIX: don't overwrite a "cancelled" status (cancel_session may
+                # have run while the task body was executing).
+                await db.refresh(task)
+                if task.status == "cancelled" or await OrchestratorService._session_cancelled(db, session.id):
+                    return
                 task.status = "completed"
                 task.completed_at = datetime.datetime.now(datetime.timezone.utc)
                 await db.commit()
@@ -434,6 +498,11 @@ class OrchestratorService:
                     task.status = "pending"
                     await db.commit()
                     await asyncio.sleep(min(2 ** attempt, 30))
+                    # FIX: stop retrying if the session was cancelled while we slept.
+                    if await OrchestratorService._session_cancelled(db, session.id):
+                        task.status = "cancelled"
+                        await db.commit()
+                        return
                 else:
                     task.status = "failed"
                     task.completed_at = datetime.datetime.now(datetime.timezone.utc)
@@ -452,6 +521,11 @@ class OrchestratorService:
                     task.status = "pending"
                     await db.commit()
                     await asyncio.sleep(min(2 ** attempt, 30))
+                    # FIX: stop retrying if the session was cancelled while we slept.
+                    if await OrchestratorService._session_cancelled(db, session.id):
+                        task.status = "cancelled"
+                        await db.commit()
+                        return
                 else:
                     task.status = "failed"
                     task.completed_at = datetime.datetime.now(datetime.timezone.utc)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Search, Terminal, Users, Wrench, Plug, Blocks, Settings, MessageSquare, LayoutDashboard, PanelBottom, PanelLeft } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -39,11 +39,47 @@ export function CommandPalette({ open, onClose, onNavigate, onNewSession, onTogg
   useEffect(() => { setSelected(0); setQuery('') }, [open])
   useEffect(() => { setSelected(0) }, [query])
 
+  // A11y: save the previously focused element and restore it on close. A Tab
+  // key trap keeps focus inside the dialog while it is open.
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    return () => { previouslyFocused?.focus?.() }
+  }, [open])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return
+    const container = dialogRef.current
+    if (!container) return
+    const focusables = Array.from(container.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    )).filter(el => !el.hasAttribute('disabled'))
+    if (focusables.length === 0) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        onKeyDown={handleKeyDown}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <Search className="size-4 text-muted-foreground" />
           <input

@@ -2,13 +2,20 @@ import { apiClient } from "./client";
 import { MessageRecord } from "./conversations";
 
 // PERF-FIX: cache the backend port after the first IPC round-trip so every
-// stream call doesn't pay a getBackendStatus IPC hop.
+// stream call doesn't pay a getBackendStatus IPC hop. The cache is bounded
+// by a TTL so a backend restart onto a different port (8000-8099) is picked
+// up within a minute instead of being cached forever.
+const PORT_CACHE_TTL_MS = 60_000;
 let cachedBackendPort: number | null = null;
+let cachedBackendPortAt = 0;
 
 async function getBackendPort(): Promise<number> {
-  if (cachedBackendPort !== null) return cachedBackendPort;
+  if (cachedBackendPort !== null && Date.now() - cachedBackendPortAt < PORT_CACHE_TTL_MS) {
+    return cachedBackendPort;
+  }
   const port = await (window as any).aic?.getBackendStatus()?.then((s: any) => s.port).catch(() => 8000) || 8000;
   cachedBackendPort = port;
+  cachedBackendPortAt = Date.now();
   return port;
 }
 

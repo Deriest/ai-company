@@ -14,11 +14,6 @@ export default function TitleBar() {
         window.screen.height === window.outerHeight
       )
     }
-    // Try to get initial state via IPC
-    ;(window as any).aic?.storeGet("window-maximized").then((v: any) => {
-      if (v !== null) setMaximized(v)
-    }).catch(() => {})
-
     // Re-evaluate on resize — sets the actual state, never toggles blindly.
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
@@ -48,6 +43,7 @@ export default function TitleBar() {
       <div className="flex items-center" style={{ WebkitAppRegion: "no-drag" } as any}>
         <button
           onClick={handleMinimize}
+          aria-label="Minimize"
           className="flex h-9 w-11 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           title="Minimize"
         >
@@ -57,6 +53,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={handleMaximize}
+          aria-label={maximized ? "Restore" : "Maximize"}
           className="flex h-9 w-11 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           title={maximized ? "Restore" : "Maximize"}
         >
@@ -73,6 +70,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={handleClose}
+          aria-label="Close"
           className="flex h-9 w-11 items-center justify-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
           title="Close"
         >

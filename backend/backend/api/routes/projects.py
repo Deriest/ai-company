@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import text
 from typing import Optional
 
 from backend.database.session import get_db
@@ -168,6 +169,23 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     active_id = await _get_active_project_id(db)
     if active_id == project_id:
         await _set_active_project_id(db, None)
+
+    # FIX: delete child rows explicitly before the project. FK enforcement is now
+    # ON, so tasks/milestones/memory_entries (FK → projects.id) must be removed
+    # first; leases/approvals/workflow_states reference tasks and go first of all.
+    await db.execute(text(
+        "DELETE FROM leases WHERE task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+    ), {"pid": project_id})
+    await db.execute(text(
+        "DELETE FROM approvals WHERE task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+    ), {"pid": project_id})
+    await db.execute(text(
+        "DELETE FROM workflow_states WHERE task_id IN (SELECT id FROM tasks WHERE project_id = :pid)"
+    ), {"pid": project_id})
+    await db.execute(text("DELETE FROM tasks WHERE project_id = :pid"), {"pid": project_id})
+    await db.execute(text("DELETE FROM milestones WHERE project_id = :pid"), {"pid": project_id})
+    await db.execute(text("DELETE FROM conversations WHERE project_id = :pid"), {"pid": project_id})
+    await db.execute(text("DELETE FROM memory_entries WHERE project_id = :pid"), {"pid": project_id})
 
     await db.delete(project)
     await db.commit()

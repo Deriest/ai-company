@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Bug, MessageSquareHeart, LifeBuoy, Paperclip, Monitor, Send } from "lucide-react";
 import { cn } from "../../lib/utils";
 // auth-kit removed — inline stubs
@@ -30,10 +30,40 @@ export function ModalShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // A11y: save the previously focused element and restore it on close. A Tab
+  // key trap keeps focus inside the dialog while it is open.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    return () => { previouslyFocused?.focus?.(); };
+  }, [open]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    const container = dialogRef.current;
+    if (!container) return;
+    const focusables = Array.from(container.querySelectorAll<HTMLElement>(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])",
+    )).filter(el => !el.hasAttribute("disabled"));
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={dialogRef}
+        onKeyDown={handleKeyDown}
         className="w-full rounded-xl border border-border bg-card shadow-xl"
         style={{ maxWidth }}
         onClick={(e) => e.stopPropagation()}
@@ -262,7 +292,6 @@ export function UpdatesDialog({
   onInstall?: () => void;
   onDismiss?: () => void;
 }) {
-  const [channel, setChannel] = useState<"stable" | "beta" | "nightly">("stable");
   const checking = updateState?.status === "checking";
   const downloading = updateState?.status === "downloading";
   const ready = updateState?.status === "ready_to_install" || updateState?.status === "ready_to_restart";
@@ -318,25 +347,6 @@ export function UpdatesDialog({
             </div>
           </div>
         )}
-
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Release channel</p>
-          <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
-            {(["stable", "beta", "nightly"] as const).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setChannel(c)}
-                className={cn(
-                  "flex-1 rounded-md px-3 py-1.5 text-xs capitalize transition-colors",
-                  channel === c ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <div className="flex flex-col gap-2">
           {updateState?.status === "available" ? (

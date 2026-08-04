@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from storage.models import Lease, LeaseStatus, Task, Worker, WorkerStatus
+from storage.models import Lease, LeaseStatus, Message, Task, Worker, WorkerStatus
 
 logger = logging.getLogger("aic.self_healing")
 
@@ -105,6 +105,19 @@ class SelfHealingEngine:
                     t.error_message = t.error_message or "Cancelled by self-healing (stale in-progress)"
                     issues.append(f"Task {t.id[:8]} stuck in '{prev}'")
                     repairs.append(f"Cancelled task {t.id[:8]} (was {prev})")
+
+            # 2b. Cancel stale streaming Message rows left over after a hard
+            # kill/restart — mirror the task query above for messages so a
+            # crashed stream never leaves an assistant row stuck in "streaming".
+            res_msg = await self.session.execute(
+                select(Message).where(Message.status == "streaming")
+            )
+            for msg in res_msg.scalars().all():
+                prev = msg.status
+                msg.status = "cancelled"
+                msg.updated_at = datetime.now(timezone.utc)
+                issues.append(f"Message {msg.id[:8]} stuck in '{prev}'")
+                repairs.append(f"Cancelled streaming message {msg.id[:8]} (was {prev})")
 
             # 3. Re-dispatch tasks still in 'created'
             if redispatch_created:

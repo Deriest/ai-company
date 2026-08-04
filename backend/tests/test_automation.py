@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text
 from backend.main import app
 from backend.database.session import init_db, AsyncSessionLocal, engine, Base
 from backend.services.search_service import init_fts5
@@ -13,8 +14,18 @@ async def setup_db():
         await init_fts5(db)
     yield
     async with engine.begin() as conn:
+        # FK-fallout cleanup: storage tables (messages, conversations, …) are
+        # not part of the backend Base — drop them too so no child rows survive
+        # the teardown. FK enforcement is relaxed only for the DROP (cross-
+        # metadata FK references make a pure FK-ordered drop impossible) and
+        # re-enabled before the connection returns to the pool.
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        from storage.models import Base as StorageBase
+        await conn.run_sync(StorageBase.metadata.drop_all)
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(StorageBase.metadata.create_all)
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("PRAGMA foreign_keys=ON"))
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
 

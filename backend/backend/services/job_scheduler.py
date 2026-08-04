@@ -207,6 +207,11 @@ class JobSchedulerService:
 
         max_attempts = job.max_retries + 1
         for attempt in range(max_attempts):
+            # FIX: cancel_job() may have run while we were waiting — re-check
+            # the DB status so a cancelled job is never re-executed.
+            await db.refresh(job)
+            if job.status == "cancelled":
+                return
             job.status = "running"
             job.retry_count = attempt
             job.started_at = datetime.datetime.now(datetime.timezone.utc)
@@ -222,6 +227,11 @@ class JobSchedulerService:
 
             try:
                 result = await handler(job.payload, db, lambda p, m=None: self._progress_cb(db, job.id, p, m))
+                # FIX: don't overwrite a "cancelled" status — cancel_job() may
+                # have flipped the DB row while the handler was running.
+                await db.refresh(job)
+                if job.status == "cancelled":
+                    return
                 job.result = result
                 job.status = "completed"
                 job.progress = 100
@@ -247,6 +257,11 @@ class JobSchedulerService:
                 }))
 
                 if attempt < max_attempts - 1:
+                    # FIX: don't resurrect a job that was cancelled while the
+                    # handler was running (cancel_job may have committed first).
+                    await db.refresh(job)
+                    if job.status == "cancelled":
+                        return
                     job.status = "queued"
                     await db.commit()
                     wait = min(2 ** attempt, 60)

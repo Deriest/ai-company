@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import delete
 from typing import List
 
 from backend.database.session import get_db
@@ -126,6 +127,9 @@ async def delete_message(id: str, db: AsyncSession = Depends(get_db)):
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
+    # FIX: Attachment rows have no FK/relationship to messages — delete them
+    # explicitly so they don't become orphans.
+    await db.execute(delete(Attachment).where(Attachment.message_id == id))
     await db.delete(msg)
     await db.commit()
     await remove_fts(db, 'message', id)

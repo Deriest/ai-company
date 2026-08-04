@@ -553,6 +553,13 @@ class ChatService:
             )
             db.add(user_msg)
             await db.commit()
+            # FIX: index the user message so /conversations/search finds chat
+            # content (REST routes already index; the streaming path did not).
+            try:
+                from backend.services.search_service import index_message_fts
+                await index_message_fts(db, user_msg.id, conversation_id, user_query)
+            except Exception as fts_err:
+                logger.warning(f"FTS indexing failed for user message (non-critical): {fts_err}")
             # New message → cached context assembly for this conversation is stale.
             _invalidate_context_cache(conversation_id)
         
@@ -875,6 +882,13 @@ class ChatService:
                 # Estimate: ~4 chars per token for content + messages
                 msg.token_count = len(msg.content) // 4 + sum(len(m.get("content", "")) // 4 for m in messages)
             await db.commit()
+            # FIX: index the finalized assistant message so /conversations/search
+            # finds streaming chat content (REST routes already index).
+            try:
+                from backend.services.search_service import index_message_fts
+                await index_message_fts(db, msg.id, conversation_id, msg.content or "")
+            except Exception as fts_err:
+                logger.warning(f"FTS indexing failed for assistant message (non-critical): {fts_err}")
             await artifact_service.extract_and_store(db, conversation_id, msg.id, msg.content)
 
             # C7: Estimate cost for streaming (based on content length)

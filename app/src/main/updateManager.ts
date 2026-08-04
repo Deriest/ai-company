@@ -495,19 +495,21 @@ export class UpdateManager {
     }
     this.setState({ status: "installing" });
     try {
-      if (process.platform === "linux" && file.endsWith(".AppImage")) {
-        try { fs.chmodSync(file, 0o755); } catch { /* ignore */ }
-        spawn(file, [], { detached: true, stdio: "ignore" }).unref();
-      } else {
-        // macOS / win32: surface the installer to the user (Finder opens the
-        // .dmg; Windows runs the installer). The restart is applied separately
-        // via quitAndInstall so the freshly installed app takes effect.
+      if (process.platform === "darwin") {
+        // macOS: surface the .dmg to the user (Finder opens it). The restart
+        // is applied separately via quitAndInstall so the freshly installed
+        // app takes effect.
         const err = await shell.openPath(file);
         if (err) {
           this.setState({ status: "error", error: `Could not open installer: ${err}` });
           return this.getState();
         }
       }
+      // win32 / linux AppImage: do NOT spawn the installer here — quitAndInstall
+      // performs the actual install + relaunch. Spawning now would either run
+      // the new AppImage while we still hold the single-instance lock (it quits
+      // and focuses the old window — a silent no-op) or double-install on
+      // Windows (installer opens here, then quitAndInstall runs it again).
       this.setState({ status: "ready_to_restart" });
       return this.getState();
     } catch (e) {

@@ -7,7 +7,7 @@
  * Sidebar is compact — session name + time.
  * Status bar shows model, tokens, connection.
  */
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
@@ -188,7 +188,7 @@ const TOOL_COLORS: Record<string, string> = {
   explore: 'text-primary', search: 'text-primary', mcp_call: 'text-primary',
 }
 
-function ToolPanelInline({ toolCall }: { toolCall: ToolCallData }) {
+const ToolPanelInline = memo(function ToolPanelInline({ toolCall }: { toolCall: ToolCallData }) {
   const Icon = TOOL_ICONS[toolCall.type] || FileText
   const color = TOOL_COLORS[toolCall.type] || 'text-muted-foreground'
   const isError = toolCall.status === 'error'
@@ -220,9 +220,9 @@ function ToolPanelInline({ toolCall }: { toolCall: ToolCallData }) {
       )}
     </div>
   )
-}
+})
 
-function FileDiffInline({ diff }: { diff: FileDiffData }) {
+const FileDiffInline = memo(function FileDiffInline({ diff }: { diff: FileDiffData }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -248,9 +248,9 @@ function FileDiffInline({ diff }: { diff: FileDiffData }) {
       )}
     </div>
   )
-}
+})
 
-function ShellOutputInline({ command, outputs }: { command: string; outputs: ShellOutputData[] }) {
+const ShellOutputInline = memo(function ShellOutputInline({ command, outputs }: { command: string; outputs: ShellOutputData[] }) {
   const fullOutput = outputs.map(o => o.chunk).join('')
   const lastStatus = outputs[outputs.length - 1]?.status || 'running'
   const exitCode = outputs.find(o => o.exit_code !== null)?.exit_code
@@ -276,7 +276,7 @@ function ShellOutputInline({ command, outputs }: { command: string; outputs: She
       )}
     </div>
   )
-}
+})
 
 function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSummary }) {
   const [showPreviews, setShowPreviews] = useState<Set<string>>(new Set())
@@ -417,7 +417,7 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
 
 // ── Message Row ──────────────────────────────────────────
 
-function MessageRow({ message, state }: { message: MessageRecord; state?: AssistantMessageState }) {
+const MessageRow = memo(function MessageRow({ message, state }: { message: MessageRecord; state?: AssistantMessageState }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -489,7 +489,7 @@ function MessageRow({ message, state }: { message: MessageRecord; state?: Assist
       </div>
     </div>
   )
-}
+})
 
 // ── Sidebar (compact) ────────────────────────────────────
 
@@ -528,6 +528,15 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDupl
               const active = c.id === activeId
               return (
                 <div key={c.id} onClick={() => onSelect(c.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open session ${c.title}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelect(c.id);
+                    }
+                  }}
                   className={cn(
                     'group relative flex cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 transition-colors',
                     active ? 'bg-muted/80 text-foreground' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',

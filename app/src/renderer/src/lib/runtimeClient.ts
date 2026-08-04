@@ -95,14 +95,32 @@ export function connectWs(
   onMessage: (msg: unknown) => void,
   onStatus: (status: string) => void,
 ): () => void {
-  const wsUrl = baseUrl.replace(/^http/, "ws") + `/ws/${channel}` + (authToken ? `?token=${encodeURIComponent(authToken)}` : "");
   let ws: WebSocket | null = null;
   let closed = false;
 
-  function connect() {
+  function currentWsUrl(): string {
+    const wsBase = baseUrl.replace(/^http/, "ws");
+    return `${wsBase}/ws/${channel}` + (authToken ? `?token=${encodeURIComponent(authToken)}` : "");
+  }
+
+  async function connect() {
     if (closed) return;
+    // Re-resolve the backend port before each (re)connect so a backend restart
+    // onto a different port (8000-8099) doesn't leave the WS pinned to a dead
+    // port forever.
+    if (typeof window !== "undefined" && window.aic?.getBackendStatus) {
+      try {
+        const status = await window.aic.getBackendStatus();
+        if (closed) return;
+        if (status && status.port) {
+          baseUrl = `http://127.0.0.1:${status.port}`;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(currentWsUrl());
       ws.onopen = () => onStatus("connected");
       ws.onmessage = (ev) => {
         try { onMessage(JSON.parse(ev.data)); } catch { onMessage(ev.data); }
@@ -120,7 +138,7 @@ export function connectWs(
     }
   }
 
-  connect();
+  void connect();
 
   return () => {
     closed = true;

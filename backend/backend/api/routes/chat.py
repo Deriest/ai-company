@@ -1,4 +1,5 @@
 """Chat routes — completion, streaming, cancel, regenerate, artifacts."""
+import asyncio
 import logging
 import json
 from datetime import datetime, timezone, timedelta
@@ -144,6 +145,10 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
         user_msg = None
         assistant_msg = None
         chunks_since_commit = 0
+        # FIX: cooperative cancellation — set when the client disconnects so
+        # the AgentRunner loop (which receives this event) stops executing
+        # tools instead of continuing in the background after "Stop".
+        cancel_event = asyncio.Event()
         try:
             # Persist both records before execution starts. Command Center work
             # can run for a long time, so the conversation must survive a view
@@ -201,6 +206,7 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                     max_iterations=10,
                     attachments=payload.attachments,
                     db=db,
+                    cancel_event=cancel_event,
                 ):
                     if event["type"] == "content":
                         chunk = event.get("content", "")
@@ -233,6 +239,15 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                         deliverables = event.get("deliverables")
                         if deliverables:
                             yield f"data: {json.dumps({'type': 'deliverables', 'deliverables': deliverables})}\n\n"
+                    elif event["type"] == "cancelled":
+                        # FIX: AgentRunner stopped cooperatively after the user
+                        # hit Stop — persist a cancelled status instead of
+                        # leaving the row in "streaming".
+                        assistant_msg.status = "cancelled"
+                        assistant_msg.updated_at = datetime.now(timezone.utc)
+                        await persist_session.commit()
+                        yield f"data: {json.dumps({'type': 'cancelled', 'reason': event.get('reason', 'User cancelled')})}\n\n"
+                        return
             except LLMUnavailableError:
                 assistant_msg.status = "error"
                 assistant_msg.updated_at = datetime.now(timezone.utc)
@@ -260,6 +275,17 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
             assistant_msg.token_count = len(final_content) // 4 + len(user_content) // 4
             await persist_session.commit()
 
+            # FIX: index the persisted messages so /conversations/search finds
+            # /chat/execute content (the REST routes index; this path did not).
+            try:
+                from backend.services.search_service import index_message_fts
+                if user_msg is not None:
+                    await index_message_fts(persist_session, user_msg.id, payload.conversation_id, user_content)
+                if assistant_msg is not None and final_content:
+                    await index_message_fts(persist_session, assistant_msg.id, payload.conversation_id, final_content)
+            except Exception as fts_err:
+                logger.warning(f"FTS indexing failed (non-critical): {fts_err}")
+
             yield f"data: {json.dumps({'type': 'done', 'intent': intent})}\n\n"
 
         except LLMUnavailableError:
@@ -285,6 +311,7 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
             # H4: client disconnected mid-stream. Persist a cancelled status so
             # the assistant row is never left stuck in "streaming" forever, then
             # let the generator close cleanly.
+            cancel_event.set()
             try:
                 if assistant_msg is not None:
                     assistant_msg.status = "cancelled"
@@ -294,6 +321,10 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 logger.warning(f"Failed to persist cancelled status on disconnect: {log_err}")
             raise
         finally:
+            # FIX: signal the AgentRunner to stop at its next checkpoint on any
+            # exit path (normal completion, error, or disconnect) so the agent
+            # loop never keeps running in the background after the stream ends.
+            cancel_event.set()
             await persist_session.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

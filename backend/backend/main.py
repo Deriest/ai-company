@@ -36,8 +36,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
-    from backend.migrations.runner import run_migrations
-    await run_migrations()
+    # FIX: run_migrations is invoked inside init_db() — do not call it twice at
+    # startup (harmless but wasteful).
 
     # Initialize LLM provider from environment
     from llm.provider import provider_manager, init_provider_from_env, ProviderConfig

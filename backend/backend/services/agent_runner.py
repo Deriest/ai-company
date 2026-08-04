@@ -3,6 +3,7 @@
 This is the key innovation: workers actually READ files, WRITE code,
 RUN tests, SEARCH codebases — not just chat.
 """
+import asyncio
 import json
 import base64
 import shlex
@@ -155,13 +156,24 @@ class AgentRunner:
         provider_id: str | None = None,
         model_id: str | None = None,
         attachments: list | None = None,
+        cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Run agent with tool execution loop, yielding events.
         
         When *db*, *provider_id* and *model_id* are provided the runner
         queries the real model context window and applies overflow
         handling (summarization / truncation) before each LLM call.
+
+        *cancel_event* (optional) is a cooperative cancellation flag: when set,
+        the loop stops at the next safe checkpoint (between tool rounds and
+        before each provider.call) and yields a clean "cancelled" event instead
+        of continuing to run in the background after the client disconnects.
         """
+        def _is_cancelled() -> bool:
+            return cancel_event is not None and cancel_event.is_set()
+
+        def _cancelled_event(iteration: int) -> dict:
+            return {"type": "cancelled", "iterations": iteration, "reason": "User cancelled"}
         
         # BUG-17 FIX: Get static tools + merge MCP tool schemas
         tools = get_tools_for_worker(worker_type)
@@ -380,6 +392,13 @@ class AgentRunner:
         verify_prompted = False
 
         for iteration in range(max_iterations):
+            # ── Cooperative cancellation ─────────────────────────────
+            # Check between tool rounds: if the client disconnected and the
+            # caller set the cancel event, stop instead of running on.
+            if _is_cancelled():
+                yield _cancelled_event(iteration)
+                return
+
             # ── Overflow guard ──────────────────────────────────────
             # Check estimated tokens against the policy budget and
             # compress/truncate when necessary.
@@ -393,6 +412,11 @@ class AgentRunner:
             result = None
             last_error = None
             for attempt_tier in tier_chain:
+                # FIX: cooperative cancellation — don't start a fresh LLM call
+                # after the user has stopped the stream.
+                if _is_cancelled():
+                    yield _cancelled_event(iteration)
+                    return
                 try:
                     result = await provider.chat(
                         messages=messages,
@@ -457,6 +481,12 @@ class AgentRunner:
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
             
             for call in tool_calls:
+                # FIX: cooperative cancellation — stop before executing the
+                # next tool round when the user has stopped the stream.
+                if _is_cancelled():
+                    yield _cancelled_event(iteration)
+                    return
+
                 fn = call.get("function", {})
                 fn_name = fn.get("name", "")
                 fn_args_raw = fn.get("arguments", "{}")

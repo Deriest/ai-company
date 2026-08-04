@@ -17,6 +17,10 @@ def _configure_sqlite_connection(dbapi_conn, _connection_record):
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    # FIX: SQLite defaults FK enforcement OFF, so ondelete=CASCADE/SET NULL never
+    # fired and delete routes left orphaned rows. Enable per-connection (SQLite
+    # pragmas are connection-scoped).
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 

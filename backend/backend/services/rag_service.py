@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import delete
 from storage.models import Document, DocumentChunk
 from backend.services.embedding_provider import embed_single, embed_texts
 
@@ -133,6 +134,9 @@ class RAGService:
         doc = await RAGService.get_document(db, doc_id)
         if not doc:
             raise ValueError(f"Document {doc_id} not found")
+        # FIX: delete chunks explicitly so retrieve() never returns results for a
+        # deleted document (titled "Unknown").
+        await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc_id))
         await db.delete(doc)
         await db.commit()
 
