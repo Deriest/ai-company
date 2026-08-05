@@ -4,6 +4,48 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 
 ---
 
+## v2.4.68 — 2026-08-05
+
+### Fix
+- Revert JWT to python-jose — packaged Windows/Linux runtimes ship `python-jose`,
+  not PyJWT. The installed app crashed at startup with
+  `ModuleNotFoundError: No module named 'jwt'` because the code migrated to
+  PyJWT but the bundled runtime never had it. `backend.main` imports cleanly again.
+
+---
+
+## v2.4.67 — 2026-08-05
+
+### Quality: Level 1 + Level 2 + binary attachments
+- chat_service refactored (CC 109 → `_resolve_model_chain`, `_taste_rewrite_if_needed`,
+  `_is_content_length_overflow`, `_handle_content_length_overflow`; behavior identical)
+- Electron main tests: `UpdateManager` injectable (IO + AppAdapter) + 16 tests;
+  `security.ts` extracted + 20 tests
+- ChatView message-list virtualization (windowing ~16–52 rows per 1000) + 15 unit tests
+- vitest/jsdom infra + first component tests (ErrorBoundary 3, ChatView 5)
+- tool_executor: `CancelledError` → `proc.kill()` (instant cancel, no 120s wait)
+- `overflow_warning` SSE forwarding in /chat/execute
+- JWT migration python-jose → PyJWT (later reverted in v2.4.68 for runtime compat)
+- Binary attachment storage: `attachment_store.py` (save/read/delete under
+  `DATA_DIR/attachments/<id>`), /chat/execute persists binary from `data_url`,
+  `GET /attachments/{id}` serves with mime_type, backup zip includes attachments
+- Suite: 806 pytest passed / 1 skipped · 163 vitest passed · tsc 0 · oxlint 0
+
+---
+
+## v2.4.66 — 2026-08-05
+
+### New
+- Full backup/restore: `POST /backup/create` (VACUUM INTO snapshot + zip DATA_DIR +
+  manifest), `POST /backup/validate`, `GET /backup/list`
+- Electron: `aic:backup-create-to` (save dialog) + `aic:backup-restore` (stop backend →
+  extract zip-slip-guarded → swap data dir with rollback → restart, preserve identity)
+- Settings → Data tab (create/restore/validate/list backups)
+- Settings "Apply to Engine" error now uses destructive styling (was green)
+- Removed stale STATUS.txt / CURRENT_STATUS.txt
+
+---
+
 ## v2.4.65 — 2026-08-04
 
 ### Highlights

@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.65** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.68** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -51,15 +51,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.65
+## Download v2.4.68
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.65.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.65/AIC-ADE-Setup-2.4.65.exe) |
-| Linux AppImage | [AIC-ADE-2.4.65-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.65/AIC-ADE-2.4.65-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.65-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.65/AIC-ADE-2.4.65-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.68.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-Setup-2.4.68.exe) |
+| Linux AppImage | [AIC-ADE-2.4.68-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-2.4.68-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.68-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-2.4.68-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.65)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.68)
 
 ### Checksums
 
@@ -319,7 +319,7 @@ JSON-RPC), agent runner (tool loop, stuck-loop detection, feedback), SSE parser
 
 ```bash
 export GH_TOKEN=ghp_your_token
-./scripts/release.sh 2.4.66
+./scripts/release.sh 2.4.68
 ```
 
 Installed apps auto-detect the new release via `latest.json` and prompt to
@@ -355,7 +355,7 @@ download + install.
 - [`docs/sot/`](./docs/sot/) — product and engineering Source of Truth (constitution, architecture, specs)
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
 - [`docs/archive/`](./docs/archive/) — historical QA notes and archived material
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (v2.4.6 → v2.4.65)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (v2.4.6 → v2.4.68)
 
 ---
 
