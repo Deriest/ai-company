@@ -26,5 +26,8 @@ class LocalProfile(Base):
     onboarding_completed = Column(Boolean, default=False)
     active_project_id = Column(String, nullable=True)
     approval_config = Column(JSON, nullable=True)
+    # GitHub personal token (GHP) — stored ENCRYPTED via backend.services.crypto
+    # (Fernet, per-install key). The API only ever returns "***" when set.
+    github_token = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -11,13 +11,15 @@ import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect, mem
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
-import { chatApi, type ToolCallData, type FileDiffData, type ShellOutputData, type TodoItemData, type DeliverableSummary } from '../lib/api/chat'
+import { chatApi, type ToolCallData, type FileDiffData, type ShellOutputData, type TodoItemData, type DeliverableSummary, type ClarifyPayload } from '../lib/api/chat'
 import { providersApi, type ProviderRecord } from '../lib/api/providers'
 import { providerManageApi } from '../lib/api/provider_manage'
+import { type ProjectRecord } from '../lib/api/projects'
+import { ProjectPicker } from './ProjectPicker'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
 
@@ -46,6 +48,8 @@ interface AssistantMessageState {
   streamStatus?: 'queued' | 'streaming'
   metadata?: Record<string, any>
   deliverables?: DeliverableSummary
+  /** Backend asked clarifying questions (missing project/workspace) — render as a block. */
+  clarify?: ClarifyPayload
 }
 
 type AgentMode = 'build' | 'plan'
@@ -431,6 +435,48 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
 
 // ── Message Row ──────────────────────────────────────────
 
+/** Plain-text fallback of a clarify payload (persisted into the message). */
+function formatClarify(p: ClarifyPayload): string {
+  const lines = [p.reason || 'Sebelum mulai, saya perlu beberapa detail:']
+  p.questions?.forEach((q, i) => {
+    lines.push(`\n${i + 1}. ${q.question}`)
+    if (q.options?.length) lines.push(`   Pilihan: ${q.options.join(', ')}`)
+  })
+  return lines.join('\n')
+}
+
+/** Structured "I need a few details" assistant block (clarify SSE event). */
+function ClarifyBlock({ payload }: { payload: ClarifyPayload }) {
+  const intro = payload.reason || 'Sebelum mulai, saya perlu beberapa detail:'
+  return (
+    <div className="my-1 rounded-lg border border-info/30 bg-info/5 p-3">
+      <div className="flex items-center gap-2">
+        <ClipboardList className="size-3.5 text-info" />
+        <span className="text-[11px] font-semibold text-info">Perlu beberapa detail</span>
+      </div>
+      <p className="mt-2 text-[12px] leading-relaxed text-foreground/85">{intro}</p>
+      <ol className="mt-2 space-y-2">
+        {payload.questions?.map((q, i) => (
+          <li key={q.id} className="rounded-md border border-border/50 bg-card/60 p-2">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-info/15 text-[9px] font-semibold text-info">{i + 1}</span>
+              <span className="text-[12px] leading-snug">{q.question}</span>
+            </div>
+            {q.options?.length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1 pl-6">
+                {q.options.map(opt => (
+                  <span key={opt} className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{opt}</span>
+                ))}
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-[10px] text-muted-foreground/70">Jawab di pesan berikutnya untuk melanjutkan.</p>
+    </div>
+  )
+}
+
 // Exported for the component test (ChatView.test.tsx) — a real component test
 // renders MessageRow directly with a sample message instead of mocking the
 // whole ChatView (api calls, SSE, sessionStorage, ResizeObserver…).
@@ -485,6 +531,15 @@ export const MessageRow = memo(function MessageRow({ message, state }: { message
           {(() => {
             const contentText = state?.content ?? message.content
             const isStreaming = state?.isStreaming
+            // Clarify renders as a structured block (from live state OR the
+            // metadata persisted on the finalized message) instead of text.
+            const clarify = state?.clarify
+              ?? (message.role === 'assistant'
+                ? (message.message_metadata as { clarify?: ClarifyPayload } | undefined)?.clarify
+                : undefined)
+            if (clarify) {
+              return <ClarifyBlock payload={clarify} />
+            }
             if (isStreaming && !contentText) {
               return (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -512,11 +567,12 @@ export const MessageRow = memo(function MessageRow({ message, state }: { message
 
 // ── Sidebar (compact) ────────────────────────────────────
 
-function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDuplicate, onSearch }: {
+function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDuplicate, onSearch, projectBar }: {
   conversations: ConversationRecord[]; activeId: string | null;
   onSelect: (id: string) => void; onCreate: () => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void; onSearch: (q: string) => void;
+  projectBar?: React.ReactNode;
 }) {
   const [query, setQuery] = useState('')
   // Debounce sidebar search so keystrokes don't fire a search per character.
@@ -581,13 +637,18 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDupl
           </div>
         )}
       </div>
+      {projectBar && <div className="border-t border-border px-2 py-2">{projectBar}</div>}
     </aside>
   )
 }
 
 // ── Main ChatView ────────────────────────────────────────
 
-export function ChatView({ health = 'unknown', currentProvider = null, view = '', newSessionSignal = 0 }: { health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null; view?: string; newSessionSignal?: number }) {
+export function ChatView({ health = 'unknown', currentProvider = null, view = '', newSessionSignal = 0, projectRoot = null, projectName = null, projectRefreshKey = 0, onProjectChange }: {
+  health?: 'ok' | 'bad' | 'unknown'; currentProvider?: ProviderLike | null; view?: string; newSessionSignal?: number;
+  projectRoot?: string | null; projectName?: string | null; projectRefreshKey?: number;
+  onProjectChange?: (project: ProjectRecord | null) => void;
+}) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => {
     try { return sessionStorage.getItem('aic-ade-active-conversation') }
@@ -611,6 +672,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     sprinter: { provider: '', model: '' },
     vision: { provider: '', model: '' },
   })
+  // Active project — used for the sidebar picker AND sent with chat requests
+  // (`workspace` = repo_path, `project_id` = id) so the dispatcher creates
+  // project folders in the user's chosen location instead of the app data dir.
+  const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
   const [fetchingModels, setFetchingModels] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -991,7 +1056,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 
   const handleCreate = async () => {
     try {
-      const c = await conversationsApi.create('New Session')
+      const c = await conversationsApi.create('New Session', undefined, [], activeProject?.id)
       setConversations(prev => [c, ...prev])
       setActiveId(c.id)
     } catch (e) { console.error(e) }
@@ -1058,7 +1123,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     let convId = activeId
     if (!convId) {
       try {
-        const conv = await conversationsApi.create(promptText.slice(0, 60))
+        const conv = await conversationsApi.create(promptText.slice(0, 60), undefined, [], activeProject?.id)
         setConversations(prev => [conv, ...prev])
         convId = conv.id
         setActiveId(convId)
@@ -1096,6 +1161,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     try {
       // Use executeAgent — goes through ConversationEngine → Dispatcher → Orchestrator → Workers
       // executeAgent returns an AbortController-backed cancel fn (QA-2437 BUG-4)
+      // workspace + project_id: send the active project (repo_path + id) so the
+      // dispatcher creates folder/files inside the user's chosen project folder.
       abortRef.current = await chatApi.executeAgent(
         {
           conversation_id: convId,
@@ -1103,6 +1170,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           worker_role: AGENT_WORKER_MAP[agentMode],
           model_tier: hasImages ? 'vision' : 'crafter',
           attachments: attachmentPayload,
+          workspace: activeProject?.repo_path || projectRoot || undefined,
+          project_id: activeProject?.id || undefined,
         },
         {
           onChunk: (chunk) => {
@@ -1158,6 +1227,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               setSending(false)
               sendingRef.current = false
             }
+          },
+          onClarify: (payload) => {
+            // Backend needs missing details (project/workspace). Stop the
+            // "thinking…"/queued state, render the structured question block,
+            // and persist a plain-text fallback — the stream later sends done.
+            const text = formatClarify(payload)
+            streamContentRef.current = text
+            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, streamStatus: undefined, clarify: payload }))
+            setMessages(prev => prev.map(m => m.id === tempAsstId
+              ? { ...m, content: text, message_metadata: { ...m.message_metadata, clarify: payload } }
+              : m))
           },
           onDeliverables: (deliverables) => {
             updateAssistantState(tempAsstId, s => ({ ...s, deliverables }))
@@ -1276,7 +1356,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       <div className="flex min-h-0 flex-1">
         <Sidebar conversations={conversations} activeId={activeId} onSelect={setActiveId}
           onCreate={handleCreate} onDelete={handleDelete}
-          onDuplicate={handleDuplicate} onSearch={q => void loadConversations(q)} />
+          onDuplicate={handleDuplicate} onSearch={q => void loadConversations(q)}
+          projectBar={
+            <ProjectPicker
+              onProjectChange={(p) => { setActiveProject(p); onProjectChange?.(p) }}
+              onActiveChange={setActiveProject}
+              refreshKey={projectRefreshKey}
+              fallbackLabel={projectName}
+              fallbackPath={projectRoot}
+              dropdownUp
+            />
+          } />
 
         <div className="flex min-w-0 min-h-0 flex-1 flex-col">
           {/* Header — minimal */}
@@ -1285,6 +1375,15 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               <Terminal className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
               {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{visibleMessages.length} msgs</span>}
+              {(activeProject || projectRoot) && (
+                <span
+                  className="hidden lg:inline-flex max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
+                  title={activeProject?.repo_path || projectRoot || undefined}
+                >
+                  <GitBranch className="size-2.5 shrink-0 text-primary/70" />
+                  <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
+                </span>
+              )}
             </div>
           </div>
 

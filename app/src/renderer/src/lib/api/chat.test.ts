@@ -172,6 +172,41 @@ describe("executeAgent SSE parser", () => {
     expect(callbacks.onChunk).toHaveBeenCalledWith("still going");
     expect(callbacks.onDone).toHaveBeenCalledWith("ok");
   });
+
+  it("dispatches the clarify event with its full payload and keeps streaming to done", async () => {
+    const sse = [
+      'data: {"type":"clarify","data":{"reason":"Missing project","questions":[{"id":"proj","question":"Which project?","options":["blog","api"]},{"id":"lang","question":"Language?"}]}}\n\n',
+      'data: {"type":"done","intent":"clarified"}\n\n',
+    ].join("");
+    mockFetchWithSSE([sse]);
+
+    const callbacks = {
+      onChunk: vi.fn(),
+      onToolStart: vi.fn(),
+      onToolResult: vi.fn(),
+      onStatus: vi.fn(),
+      onDeliverables: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+      onClarify: vi.fn(),
+    };
+
+    await chatApi.executeAgent({ conversation_id: "c", messages: [] }, callbacks);
+    await flush();
+
+    // The clarify payload must be forwarded whole (reason + questions + options)…
+    expect(callbacks.onClarify).toHaveBeenCalledWith({
+      reason: "Missing project",
+      questions: [
+        { id: "proj", question: "Which project?", options: ["blog", "api"] },
+        { id: "lang", question: "Language?" },
+      ],
+    });
+    // …and the stream must NOT terminate on clarify — a later done event
+    // finalizes the assistant message (no dead-end thinking state).
+    expect(callbacks.onDone).toHaveBeenCalledWith("clarified");
+    expect(callbacks.onError).not.toHaveBeenCalled();
+  });
 });
 
 describe("streamWithTools SSE parser", () => {

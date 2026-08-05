@@ -6,6 +6,7 @@ from backend.database.session import get_db
 from backend.services.profile_service import (
     get_profile, create_profile, update_profile, complete_onboarding,
 )
+from backend.services.crypto import encrypt
 
 router = APIRouter()
 
@@ -22,6 +23,9 @@ async def read_profile(db: AsyncSession = Depends(get_db)):
         "deviceId": profile.device_id,
         "appVersion": profile.app_version,
         "onboardingCompleted": profile.onboarding_completed,
+        # GHP: never return the token — mask as "***" whenever one is stored
+        # (mirrors the providers.py apiKey masking pattern).
+        "githubToken": "***" if profile.github_token else "",
         "createdAt": profile.created_at.isoformat() if profile.created_at else None,
         "lastSeen": profile.last_seen.isoformat() if profile.last_seen else None,
     }
@@ -37,27 +41,48 @@ async def create_new_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     if not name:
         raise HTTPException(status_code=400, detail="displayName is required")
     profile = await create_profile(db, name)
+
+    # GHP: persist the GitHub personal token encrypted during setup/onboarding.
+    github_token = payload.get("github_token")
+    if github_token and github_token != "***":
+        profile.github_token = encrypt(github_token)
+        await db.commit()
+        await db.refresh(profile)
+
     return {
         "id": profile.id,
         "displayName": profile.display_name,
         "onboardingCompleted": profile.onboarding_completed,
+        "githubToken": "***" if profile.github_token else "",
     }
 
 
 @router.patch("/profile")
 async def update_local_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     """Update the local profile."""
-    profile = await update_profile(
+    profile = await get_profile(db)
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile")
+
+    # GHP: persist the GitHub personal token encrypted (Fernet). A masked "***"
+    # value means "leave unchanged" and is skipped (mirrors provider_manage.py);
+    # an empty string clears the stored token.
+    github_token = payload.get("github_token")
+    if github_token is not None and github_token != "***":
+        profile.github_token = encrypt(github_token) if github_token else ""
+
+    await update_profile(
         db,
         display_name=payload.get("displayName"),
         app_version=payload.get("appVersion"),
     )
-    if not profile:
-        raise HTTPException(status_code=404, detail="No profile")
+    await db.refresh(profile)
+
     return {
         "id": profile.id,
         "displayName": profile.display_name,
         "onboardingCompleted": profile.onboarding_completed,
+        "githubToken": "***" if profile.github_token else "",
     }
 
 

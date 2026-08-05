@@ -318,8 +318,13 @@ class AgentRunner:
             "list_directory": lambda a: self.executor.list_directory(a.get("path", ".")),
             "search_files": lambda a: self.executor.search_files(a.get("pattern", ""), a.get("path", "."), a.get("file_pattern", "*")),
             # FIX: clamp the model-supplied timeout so a runaway `timeout: 999999`
-            # cannot pin a subprocess forever.
-            "run_shell": lambda a: self.executor.run_shell(a.get("command", ""), min(int(a.get("timeout", 30) or 30), MAX_SHELL_TIMEOUT)),
+            # cannot pin a subprocess forever, and always run shell commands in
+            # the resolved workspace root (never the process cwd).
+            "run_shell": lambda a: self.executor.run_shell(
+                a.get("command", ""),
+                min(int(a.get("timeout", 30) or 30), MAX_SHELL_TIMEOUT),
+                cwd=self.executor.workspace_root,
+            ),
             "mcp_call": lambda a: self.executor.mcp_call(a.get("tool_name", ""), a.get("arguments", {})),
         }
 
@@ -530,7 +535,26 @@ class AgentRunner:
                     # Execute tool
                     tool_fn = tool_executor_map.get(fn_name)
                     if tool_fn:
-                        tool_result = await tool_fn(args)
+                        # FIX: bound every tool call so a hanging tool (e.g. a
+                        # shell command that backgrounds a process and holds the
+                        # pipe open) can never stall the generator forever.
+                        # run_shell already clamps to MAX_SHELL_TIMEOUT; this
+                        # outer bound is a safety net (+5s) and cancels the tool
+                        # coroutine on timeout (which triggers its own
+                        # process-group kill).
+                        try:
+                            tool_result = await asyncio.wait_for(
+                                tool_fn(args),
+                                timeout=MAX_SHELL_TIMEOUT + 5,
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                f"Tool '{fn_name}' hung longer than {MAX_SHELL_TIMEOUT + 5}s — aborting the call"
+                            )
+                            tool_result = ToolResult(
+                                tool=fn_name, success=False, output="",
+                                error=f"Tool '{fn_name}' timed out after {MAX_SHELL_TIMEOUT + 5}s (possible backgrounded process holding the pipe open)",
+                            )
                     else:
                         tool_result = ToolResult(tool=fn_name, success=False, output="", error=f"Unknown tool: {fn_name}")
                 

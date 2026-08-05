@@ -173,6 +173,24 @@ def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
     is_small = any(x in id_lower for x in ["mini", "3b", "haiku", "flash"])
     is_reason = any(x in id_lower for x in ["opus", "o3", "reasoner", "r1"])
 
+    # ── Vision capability ──
+    # Multimodal by family (claude / gpt / gemini are natively multimodal), plus
+    # unambiguous vision name markers. Conservative by design: plain code models
+    # (deepseek-coder, qwen3-coder, gpt-oss, llama-3.x) stay off unless they hit
+    # a family flag above. o4 and qwen-vl use word-boundary regexes so bare "vl"
+    # / "o4" substrings in unrelated ids do not false-positive.
+    import re as _re
+    _supports_vision = (
+        is_claude or is_gpt or is_gemini
+        or "vision" in id_lower
+        or "4o" in id_lower               # gpt-4o family
+        or "llava" in id_lower
+        or "pixtral" in id_lower
+        or "llama-4" in id_lower          # llama-4 family is natively multimodal
+        or "image" in id_lower
+        or bool(_re.search(r"\bo4\b|\bvl\b|\bvlm\b", id_lower))  # o4 / qwen-vl / vlm
+    )
+
     context_window = None
     context_source = "probe"
     
@@ -262,7 +280,7 @@ def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
     return {
         "context_window": context_window,
         "context_source": context_source,
-        "supports_vision": is_claude or is_gpt or is_gemini or "vision" in id_lower or "4o" in id_lower,
+        "supports_vision": _supports_vision,
         "supports_tool_calling": "embed" not in id_lower,
         "supports_streaming": True,
         "supports_json_mode": is_gpt or is_ds or is_qwen or is_claude,

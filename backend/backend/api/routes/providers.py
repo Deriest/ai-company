@@ -295,9 +295,27 @@ async def _run_test(base_url: str, api_key: str) -> ProviderTestResponse:
         models: list[ModelInfo] = []
         try:
             raw_models, _latency = await client.fetch_models()
+            # GAP-A FIX: surface the real inferred capabilities from
+            # fetch_models() instead of hardcoding vision=False — that masked
+            # every vision-capable model in the "Test Connection" flow.
             for m in raw_models:
-                mids = m.get("id") or m.get("name") or ""
-                models.append(ModelInfo(id=mids, name=mids, capabilities=ModelCapabilities(contextWindow=0, vision=False, toolCalling=False, streaming=False, reasoning=False, functionCalling=False, jsonMode=False, embedding=False, maxOutputTokens=0)))
+                mids = m.get("model_id") or m.get("id") or ""
+                disp = m.get("display_name") or mids
+                models.append(ModelInfo(
+                    id=mids,
+                    name=disp,
+                    capabilities=ModelCapabilities(
+                        contextWindow=m.get("context_window") or 8192,
+                        vision=bool(m.get("supports_vision")),
+                        toolCalling=bool(m.get("supports_tool_calling")),
+                        streaming=bool(m.get("supports_streaming")),
+                        reasoning=bool(m.get("supports_reasoning")),
+                        functionCalling=bool(m.get("supports_function_calling")),
+                        jsonMode=bool(m.get("supports_json_mode")),
+                        embedding=bool(m.get("supports_embeddings")),
+                        maxOutputTokens=m.get("max_output_tokens") or 4096,
+                    ),
+                ))
         except Exception:
             pass  # model fetch is best-effort
         await client.close()

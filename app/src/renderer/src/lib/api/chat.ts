@@ -57,6 +57,18 @@ export interface TodoItemData {
   priority: string; // high, medium, low
 }
 
+/** Clarify question from the backend when a task lacks project/workspace details. */
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  options?: string[];
+}
+
+export interface ClarifyPayload {
+  reason?: string;
+  questions: ClarifyQuestion[];
+}
+
 /** Deliverable summary from backend */
 export interface DeliverableFile {
   path: string;
@@ -250,6 +262,10 @@ export const chatApi = {
     worker_role?: string;
     model_tier?: string;
     attachments?: { name: string; mime_type: string; data_url: string }[];
+    /** Active project root — tells the dispatcher where to create project folders. */
+    workspace?: string;
+    /** Active project record id — conversations/agents run scoped to this project. */
+    project_id?: string;
   }, callbacks: {
     onChunk: (content: string) => void;
     onToolStart: (tool: string, args: Record<string, any>, callId: string) => void;
@@ -258,6 +274,8 @@ export const chatApi = {
     onDeliverables: (deliverables: DeliverableSummary) => void;
     onDone: (intent: string) => void;
     onError: (error: string) => void;
+    /** Backend asks for missing details (project/workspace) — render, don't auto-spawn. */
+    onClarify?: (payload: ClarifyPayload) => void;
   }): Promise<() => void> {
     const port = await getBackendPort();
     const url = `http://127.0.0.1:${port}/chat/execute`;
@@ -323,6 +341,12 @@ export const chatApi = {
                 break;
               case "deliverables":
                 callbacks.onDeliverables(evt.deliverables);
+                break;
+              case "clarify":
+                // Backend needs more detail (missing project/workspace). Forward
+                // the payload so the UI can render the questions; the stream
+                // continues and includes a later "done" event.
+                callbacks.onClarify?.(evt.data);
                 break;
               case "done":
                 callbacks.onDone(evt.intent || "");

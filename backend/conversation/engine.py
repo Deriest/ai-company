@@ -268,34 +268,17 @@ class ConversationEngine:
     def _evaluate_intake_completeness(self, text_corpus: str) -> tuple[bool, list[str]]:
         """Evaluate requirement completeness against mandatory intake checklist.
 
-        Returns (is_complete, missing_fields).
+        Returns (is_complete, missing_fields). Delegates to the shared helper
+        (backend/shared/intake.py) — single source of truth used by the
+        /chat/execute clarify gate as well.
         """
-        text = text_corpus.lower()
-        mandatory = {
-            "business_goal": r"\b(goal|purpose|objective|why|app to|site to|website for|buatkan|untuk|tujuan|aplikasi|sistem|aplikasi ini|project)\b",
-            "target_user": r"\b(user|users|audience|people|client|customer|admin|developer|pengembang|pelanggan|pengguna|masyarakat|umum|untuk siapa)\b",
-            "core_features": r"\b(feature|features|allow|function|receive|send|auth|login|button|api|crud|fitur|section|table|form|gallery|kontak|lokasi|sistem|dashboard|database|user|payment|notification)\b",
-        }
-
-        # Reduced from 6 to 3 mandatory fields — more pragmatic
-        missing = [field for field, pattern in mandatory.items() if not re.search(pattern, text)]
-        # Complete if missing <= 1 mandatory field or user explicitly forces build
-        is_complete = (len(missing) <= 1) or bool(re.search(
-            r"\b(create task|build now|start task|start build|create task to|"
-            r"langsung kerjakan|gas sekarang|mulai sekarang|kerjakan sekarang)\b", text
-        ))
-        return is_complete, missing
+        from shared.intake import evaluate_intake_completeness
+        return evaluate_intake_completeness(text_corpus)
 
     def _user_forces_task_creation(self, text: str) -> bool:
         """True when user explicitly wants engineering to start now."""
-        return bool(
-            re.search(
-                r"\b(create task|build now|start task|start build|create the task|"
-                r"just do it|do it now|implement now|kerjakan sekarang|buat task|"
-                r"langsung kerjakan|gas sekarang)\b",
-                text.lower(),
-            )
-        )
+        from shared.intake import user_forces_task_creation
+        return user_forces_task_creation(text)
 
     async def _handle_task_request(
         self,

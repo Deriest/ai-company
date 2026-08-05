@@ -69,22 +69,37 @@ function mapProvider(p: ProviderWithModelsResponse): ProviderRecord {
     latencyMs: p.latencyMs,
     version: p.version,
     healthNotes: p.healthNotes || ["chat"],
-    models: p.models || [],
+    // Defensive: if the backend ever returns models without capabilities
+    // (e.g. a fresh provider before the model scan), fill from the local
+    // heuristic so vision/tooling models never silently disappear from the
+    // tier dropdowns.
+    models: (p.models || []).map((m) =>
+      m.capabilities ? m : { ...m, capabilities: inferModelCapabilities(m.id) }
+    ),
     modelsCachedAt: p.modelsCachedAt,
     lastRefreshAt: p.lastRefreshAt
   };
 }
 
 // Mock metadata provider logic (since backend doesn't provide it yet)
+// Vision rules mirror the backend's extended detection: gpt-4o, o4, "vl"/
+// "vision" family (qwen-vl, llava, pixtral), llama-4, gemini, claude.
 export function inferModelCapabilities(modelId: string): ModelCapabilities {
   const id = modelId.toLowerCase();
   const isClaude = id.includes("claude") || id.includes("opus") || id.includes("sonnet") || id.includes("haiku");
-  const isGpt = id.includes("gpt") || id.includes("o3") || id.includes("o1");
+  const isGpt = id.includes("gpt") || id.includes("o3") || id.includes("o1") || id.includes("o4");
   const isDs = id.includes("deepseek");
   const isQwen = id.includes("qwen");
   const isGemini = id.includes("gemini");
   const isSmall = id.includes("mini") || id.includes("3b") || id.includes("haiku") || id.includes("flash");
   const isReason = id.includes("opus") || id.includes("o3") || id.includes("reasoner") || id.includes("r1");
+
+  // `vl` matches as a token (qwen2-vl, qwen2.5-vl, llava-vl…) but not inside
+  // unrelated words; `4o` and `o4` cover the OpenAI vision family.
+  const isVisionNamed =
+    id.includes("vision") || id.includes("4o") || id.includes("o4") ||
+    /(?:^|[-_./])vl(?:[-_./]|$)/.test(id) ||
+    id.includes("llava") || id.includes("pixtral") || id.includes("llama-4");
 
   let contextWindow = 128_000;
   if (isClaude && id.includes("opus")) contextWindow = 200_000;
@@ -97,7 +112,7 @@ export function inferModelCapabilities(modelId: string): ModelCapabilities {
 
   return {
     contextWindow,
-    vision: isClaude || isGpt || isGemini || id.includes("vision") || id.includes("4o"),
+    vision: isClaude || isGpt || isGemini || isVisionNamed,
     toolCalling: !id.includes("embed"),
     streaming: true,
     reasoning: isReason || isClaude || id.includes("think"),

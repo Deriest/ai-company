@@ -36,6 +36,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_clarify_questions(missing_fields: list[str], workspace_unresolved: bool) -> list[dict]:
+    """Build structured clarification questions for the /chat/execute gate.
+
+    Each question is ``{id, question, options}`` where options may be empty for
+    open-ended answers. The workspace question is appended whenever no project
+    repo_path was resolvable so files never land in an ambiguous location.
+    """
+    from shared.intake import missing_field_question
+
+    questions: list[dict] = []
+    for field in missing_fields:
+        text = missing_field_question(field)
+        if text:
+            questions.append({"id": field, "question": text, "options": []})
+
+    if workspace_unresolved:
+        questions.append({
+            "id": "workspace",
+            "question": "Which workspace folder should I create the project in?",
+            "options": [
+                "Create a new project folder",
+                "Select an existing folder",
+                "Use a per-chat sandbox",
+            ],
+        })
+
+    if not questions:
+        questions.append({
+            "id": "details",
+            "question": "Could you share a few more details about the request?",
+            "options": [],
+        })
+    return questions
+
+
 # ---------------------------------------------------------------------------
 # POST /chat  (non-streaming)
 # ---------------------------------------------------------------------------
@@ -131,18 +166,19 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     worker_type = payload.worker_role or "backend"
-    # Resolve workspace root from the conversation's project (fallback: payload.workspace, then ".").
-    workspace = payload.workspace or "."
-    if conv.project_id:
-        try:
-            async with AsyncSessionLocal() as session:
-                from storage.models import Project
-                proj_res = await session.execute(select(Project).where(Project.id == conv.project_id))
-                proj = proj_res.scalar_one_or_none()
-                if proj and proj.repo_path:
-                    workspace = proj.repo_path
-        except Exception as e:
-            logger.warning(f"Failed to resolve project workspace: {e}")
+    # Resolve workspace root with the shared resolver. Priority:
+    #   1. payload.workspace
+    #   2. conversation.project_id -> project.repo_path
+    #   3. active local profile project -> project.repo_path
+    #   4. per-conversation sandbox under DATA_DIR/workspaces (never process cwd)
+    # ``workspace_resolved`` is False when only the sandbox fallback applied —
+    # used by the clarify gate below to block agent runs that would write files
+    # into an ambiguous location.
+    async with AsyncSessionLocal() as session:
+        from shared.workspace import resolve_conversation_workspace
+        workspace, workspace_resolved = await resolve_conversation_workspace(
+            session, payload.workspace, payload.conversation_id
+        )
 
     async def event_generator():
         persist_session = AsyncSessionLocal()
@@ -219,6 +255,66 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 logger.error(f"Intent stage error: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'intent', 'error': f'Intent detection failed: {str(e)[:200]}'})}\n\n"
                 return
+
+            # Step 1.5: Discovery / clarify gate.
+            #
+            # A vague task_request (or one with no workspace selected) must not
+            # silently spawn an agent that writes files into an arbitrary
+            # location. When the gate trips we emit a structured `clarify` SSE
+            # event, finalize the assistant message with the questions, and
+            # return WITHOUT spawning the agent.
+            #
+            # SKIPPED entirely for:
+            #  - multimodal requests (attachments present) — the attachment
+            #    persistence path must never be blocked (test_attachment_store)
+            #  - non task_request intents (task_confirm / chat-with-attachment)
+            if intent == INTENT_TASK_REQUEST and not has_attachments:
+                from shared.intake import evaluate_intake_completeness
+
+                # Corpus = current message + recent user history (mirrors
+                # ConversationEngine._handle_task_request corpus accumulation).
+                corpus_parts = [user_content]
+                try:
+                    hist_res = await persist_session.execute(
+                        select(Message).where(
+                            Message.conversation_id == payload.conversation_id,
+                            Message.role == "user",
+                        ).order_by(Message.created_at.desc()).limit(10)
+                    )
+                    for hmsg in hist_res.scalars().all():
+                        if hmsg.content:
+                            corpus_parts.append(str(hmsg.content))
+                except Exception as hist_err:
+                    logger.debug(f"Clarify gate history fetch skipped: {hist_err}")
+                corpus = " ".join(corpus_parts)
+
+                is_complete, missing_fields = evaluate_intake_completeness(corpus)
+
+                if (not workspace_resolved) or (not is_complete):
+                    questions = _build_clarify_questions(
+                        missing_fields=missing_fields,
+                        workspace_unresolved=not workspace_resolved,
+                    )
+                    reason = (
+                        "I need a few details before I can start building. "
+                        "Please answer the questions below (and pick a workspace), then resend your request."
+                    )
+                    yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+
+                    # Finalize the assistant row so it is never left in
+                    # "streaming" after the generator returns.
+                    if assistant_msg is not None:
+                        lines = [reason, ""]
+                        for i, q in enumerate(questions, 1):
+                            lines.append(f"{i}. {q['question']}")
+                            for opt in q.get("options") or []:
+                                lines.append(f"   - {opt}")
+                        assistant_msg.content = "\n".join(lines)
+                        assistant_msg.status = "completed"
+                        assistant_msg.updated_at = datetime.now(timezone.utc)
+                        assistant_msg.token_count = len(assistant_msg.content) // 4 + len(user_content) // 4
+                    await persist_session.commit()
+                    return
 
             # Step 2: Start agent with real tool execution
             try:

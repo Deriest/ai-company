@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./styles/tailwind.css";
 import { useBoot } from "./hooks/useBoot";
+import { BootSplash } from "./components/BootSplash";
 import { AppShell } from "./components/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WorkspaceView } from "./components/WorkspaceView";
@@ -37,8 +38,13 @@ export function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
+  const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const [showFileTree, setShowFileTree] = useState(true);
   const [newSessionSignal, setNewSessionSignal] = useState(0);
+  // Boot gate: the profile GET can fail when it races the still-booting engine.
+  // Once boot completes we re-check once so returning users never land in
+  // onboarding just because their profile fetch fired too early.
+  const profileRetryRef = useRef(false);
 
   // Load profile on mount
   useEffect(() => {
@@ -119,11 +125,28 @@ const boot = useBoot({
       window.aic?.storeSet?.("projectRoot", null);
       window.aic?.storeSet?.("projectName", null);
     }
+    // Bump so every ProjectPicker instance (AppShell rail + Command Center)
+    // reloads the active project and reflects the switch immediately.
+    setProjectRefreshKey((k) => k + 1);
   }, []);
 
   const handleFileSelect = useCallback(async (path: string) => {
     await window.aic?.openPath?.(path);
   }, []);
+
+  // Just-refreshed early profile check: the mount-time profileApi.get() can
+  // fail when it races the still-booting engine. Once the engine is healthy,
+  // re-check once so a returning user with a slow backend never falls through
+  // to onboarding. Guarded so a genuinely-missing profile just shows onboarding.
+  useEffect(() => {
+    if (boot.bootPhase === "ready" && profile === null && !profileRetryRef.current) {
+      profileRetryRef.current = true;
+      profileApi.get().then((p) => {
+        if (p) setProfile(p);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    }
+  }, [boot.bootPhase, profile]);
 
   // Loading
   if (loading) {
@@ -131,6 +154,20 @@ const boot = useBoot({
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading…</div>
       </div>
+    );
+  }
+
+  // Boot gate — block every screen until the local engine is healthy. On a
+  // hard engine error the splash becomes an error panel with Retry/Open log
+  // instead of a dead-end spinner.
+  if (boot.bootPhase !== "ready") {
+    return (
+      <BootSplash
+        phase={boot.bootPhase}
+        detail={boot.bootDetail}
+        backendStatus={boot.backendStatus}
+        onRetry={boot.retryBoot}
+      />
     );
   }
 
@@ -197,6 +234,7 @@ const boot = useBoot({
         setSettingsTab={setSettingsTab as unknown as (tab: string) => void}
         profile={profile}
         projectRoot={projectRoot}
+        projectRefreshKey={projectRefreshKey}
         onFileSelect={handleFileSelect}
         onProjectChange={handleProjectChange}
       >
@@ -205,7 +243,16 @@ const boot = useBoot({
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
             <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-              <ChatView health={boot.health} currentProvider={boot.currentProvider} view={view} newSessionSignal={newSessionSignal} />
+              <ChatView
+                health={boot.health}
+                currentProvider={boot.currentProvider}
+                view={view}
+                newSessionSignal={newSessionSignal}
+                projectRoot={projectRoot}
+                projectName={projectName}
+                projectRefreshKey={projectRefreshKey}
+                onProjectChange={handleProjectChange}
+              />
             </div>
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {/* Per-view boundary: a render error in one view shows a

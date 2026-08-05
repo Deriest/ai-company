@@ -59,8 +59,8 @@ export const conversationsApi = {
     return apiClient.get<ConversationRecord[]>(`/conversations${qs}`);
   },
 
-  async create(title = "New Conversation", folder_id?: string, tags: string[] = []): Promise<ConversationRecord> {
-    return apiClient.post<ConversationRecord>("/conversations", { title, folder_id, tags });
+  async create(title = "New Conversation", folder_id?: string, tags: string[] = [], project_id?: string): Promise<ConversationRecord> {
+    return apiClient.post<ConversationRecord>("/conversations", { title, folder_id, tags, project_id });
   },
 
   async get(id: string): Promise<ConversationRecord> {

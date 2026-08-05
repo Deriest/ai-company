@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Cpu, Download, FolderOpen, Database, RotateCcw,
+  Cpu, Download, FolderOpen, Database, RotateCcw, KeyRound,
 } from 'lucide-react'
 import { Card, PageHeader } from './kit'
 import { cn } from '../lib/utils'
 import { GeneralTab } from './auth/AccountSettings'
 import { ProviderSetup } from './auth/ProviderSetup'
+import { GithubTokenField } from './GithubTokenField'
 import { profileApi, type LocalProfile } from '../lib/api/profile'
 import { providerManageApi, type EnvConfig } from '../lib/api/provider_manage'
 import { providersApi, type ProviderRecord, type ModelInfo } from '../lib/api/providers'
@@ -40,17 +41,22 @@ function WorkspaceTab({ onProjectRootChange }: { onProjectRootChange?: (root: st
     } catch {}
   }, [])
 
-  const handleSave = async () => {
+const handleSave = async () => {
     try { 
       await profileApi.update({ projectRoot: root })
       localStorage.setItem('aic-ade-workspace', JSON.stringify({ autoOpen, rememberSession, sessionName }))
       // BUG-6: Propagate the project root to the IPC store and App-level state
-      // so the workspace/file tree pick it up immediately (mirrors ProjectPicker).
+      // so the workspace/file tree pick up it immediately (mirrors ProjectPicker).
       await window.aic?.storeSet?.('projectRoot', root)
       onProjectRootChange?.(root)
       setSaved(true); setTimeout(() => setSaved(false), 2000) 
     }
     catch { /* ignore */ }
+  }
+
+  const handleBrowse = async () => {
+    const dir = await window.aic?.selectDirectory?.()
+    if (dir) setRoot(dir)
   }
 
   return (
@@ -62,11 +68,32 @@ function WorkspaceTab({ onProjectRootChange }: { onProjectRootChange?: (root: st
         <div className="space-y-4">
           <div>
             <label className="text-sm text-muted-foreground">Default Project Root</label>
-            <input
-              type="text" value={root} onChange={(e) => setRoot(e.target.value)}
-              placeholder="/home/user/projects"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground font-mono text-sm outline-none focus:border-primary"
-            />
+            <div className="mt-1 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 transition-colors focus-within:border-primary">
+              <FolderOpen className="size-4 shrink-0 text-muted-foreground/60" />
+              <span className={cn("min-w-0 flex-1 truncate font-mono text-sm", root ? "text-foreground" : "text-muted-foreground/50")}>
+                {root || 'No folder selected'}
+              </span>
+              <button
+                type="button"
+                onClick={handleBrowse}
+                className="shrink-0 rounded-md bg-muted px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/70"
+              >
+                Browse…
+              </button>
+              {root && (
+                <button
+                  type="button"
+                  onClick={() => setRoot('')}
+                  className="shrink-0 text-[11px] text-muted-foreground/60 transition-colors hover:text-destructive"
+                  title="Clear the default project root"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground/60">
+              Pick the folder where dispatcher agents create projects — instead of the app data directory.
+            </p>
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -409,10 +436,81 @@ function EngineConfigSection({ refreshKey = 0 }: { refreshKey?: number }) {
 
 /* ─── Providers Tab ─── */
 
+function GithubTokenCard() {
+  const [value, setValue] = useState("")
+  const [hasStored, setHasStored] = useState(false)
+  const [cleared, setCleared] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    profileApi.get().then(p => {
+      if (p?.github_token) setHasStored(true)
+    }).catch(() => {})
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      const payload: { github_token?: string | null } = {}
+      if (value.trim()) {
+        payload.github_token = value.trim()
+      } else if (cleared) {
+        payload.github_token = null
+      }
+      if (Object.keys(payload).length > 0) {
+        await profileApi.update(payload as { github_token: string | null })
+        setHasStored(Boolean(payload.github_token) && payload.github_token !== null)
+        setValue("")
+        setCleared(false)
+        setMsg({ kind: 'success', text: payload.github_token ? 'GitHub token saved' : 'GitHub token removed' })
+      } else {
+        setMsg({ kind: 'success', text: 'No changes — token kept as stored' })
+      }
+    } catch (e) {
+      setMsg({ kind: 'error', text: 'Failed: ' + (e instanceof Error ? e.message : String(e)) })
+    }
+    setSaving(false)
+  }
+
+  return (
+    <Card className="p-6">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <KeyRound className="size-4 text-muted-foreground" /> GitHub Integration
+      </h3>
+      <GithubTokenField
+        id="ghp-settings"
+        value={value}
+        onChange={(v) => { setValue(v); setCleared(false) }}
+        onClear={() => { setValue(""); setCleared(true) }}
+        hasStored={hasStored}
+        disabled={saving}
+      />
+      {msg && (
+        <p className={cn('mt-2 text-xs', msg.kind === 'error' ? 'text-destructive' : 'text-success')}>{msg.text}</p>
+      )}
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save Token'}
+        </button>
+        <span className="text-[11px] text-muted-foreground/60">
+          {hasStored && !value ? 'A token is already stored.' : value ? 'Will overwrite the stored token.' : 'Optional — leave blank to keep.'}
+        </span>
+      </div>
+    </Card>
+  )
+}
+
 function ProvidersTab() {
   const [providersVersion, setProvidersVersion] = useState(0)
   return (
     <div className="space-y-6 max-w-4xl">
+      <GithubTokenCard />
       <ProviderSetup mode="settings" onProviderSaved={() => setProvidersVersion(v => v + 1)} />
       <EngineConfigSection refreshKey={providersVersion} />
     </div>

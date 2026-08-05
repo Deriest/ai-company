@@ -411,97 +411,24 @@ class MasterOrchestrator:
         return None
 
     async def _run_dispatch(self, graph_id: str, task: Task) -> dict:
-        """Run Dispatcher with REAL execution via runtime executor.
+        """Run Dispatcher with REAL execution via the DispatcherEngine.
 
-        Instead of simulating, this delegates each task node to
-        runtime/executor.py's execute_task() for actual worker execution.
+        The engine owns the scheduling loop and per-node execution (one source
+        of truth). This method delegates instead of re-implementing the loop.
         """
         from dispatcher.engine import DispatcherEngine
-        from dispatcher.models import DispatchResult, TaskExecution
-        from datetime import datetime, timezone
 
         engine = DispatcherEngine(self.session)
+        result = await engine.dispatch(graph_id, project_id=task.project_id)
 
-        # Load the task graph
-        graph_result = await self.session.execute(
-            select(TaskGraphModel).where(TaskGraphModel.id == graph_id)
-        )
-        graph_orm = graph_result.scalar_one_or_none()
-        if not graph_orm:
+        if result.result is None:
             return {"success_rate": 0.0, "execution_id": "", "status": "error"}
 
-        execution_id = f"EXEC-{uuid.uuid4().hex[:12]}"
-        nodes = graph_orm.nodes or []
-        execution_order = graph_orm.execution_order or [[n.get("node_id", "") for n in nodes]]
-        task_results = {}
-        execution_log = []
-
-        # Execute each group in order
-        for group in execution_order:
-            for node_id in group:
-                node_data = next(
-                    (n for n in nodes if n.get("node_id") == node_id), None
-                )
-                if not node_data:
-                    continue
-
-                started = datetime.now(timezone.utc)
-                await self._publish("pipeline.worker.started", task.id, {
-                    "node_id": node_id,
-                    "worker_type": node_data.get("worker_type", "backend"),
-                    "title": node_data.get("title", ""),
-                })
-
-                # Create a sub-task for this node and execute it
-                result = await self._execute_node(task, node_data, execution_id)
-
-                completed = datetime.now(timezone.utc)
-                task_results[node_id] = TaskExecution(
-                    node_id=node_id,
-                    status="completed" if result.get("success") else "failed",
-                    result=result,
-                    error=result.get("error"),
-                    attempts=1,
-                    started_at=started,
-                    completed_at=completed,
-                )
-
-                execution_log.append({
-                    "node_id": node_id,
-                    "action": "execute",
-                    "status": "completed" if result.get("success") else "failed",
-                    "duration": str(completed - started),
-                    "timestamp": completed.isoformat(),
-                })
-
-                await self._publish("pipeline.worker.completed", task.id, {
-                    "node_id": node_id,
-                    "success": result.get("success", False),
-                    "worker_type": node_data.get("worker_type", "backend"),
-                })
-
-        # Calculate success rate
-        total = len(task_results)
-        succeeded = sum(1 for t in task_results.values() if t.status == "completed")
-        success_rate = succeeded / total if total > 0 else 0.0
-
-        # Persist dispatch session
-        dispatch_session = DispatchSession(
-            id=execution_id,
-            graph_id=graph_id,
-            execution_log=execution_log,
-            total_duration=str(datetime.now(timezone.utc)),
-            success_rate=success_rate,
-            status="completed" if success_rate > 0.5 else "partial",
-        )
-        self.session.add(dispatch_session)
-        await self.session.flush()
-
-        logger.info(f"Dispatch complete: {execution_id}, success_rate={success_rate:.0%}")
+        dispatch_result = result.result
         return {
-            "execution_id": execution_id,
-            "success_rate": success_rate,
-            "status": dispatch_session.status,
+            "execution_id": dispatch_result.execution_id,
+            "success_rate": dispatch_result.success_rate,
+            "status": dispatch_result.status,
         }
 
     async def _execute_node(self, parent_task: Task, node_data: dict, execution_id: str) -> dict:

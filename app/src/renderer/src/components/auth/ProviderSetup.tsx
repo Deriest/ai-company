@@ -240,6 +240,7 @@ function FREProviderSetup() {
   const [thinkerModel, setThinkerModel] = useState<string>("");
   const [crafterModel, setCrafterModel] = useState<string>("");
   const [sprinterModel, setSprinterModel] = useState<string>("");
+  const [visionModel, setVisionModel] = useState<string>("");
   const [applyingEngine, setApplyingEngine] = useState(false);
   const [engineMsg, setEngineMsg] = useState("");
 
@@ -252,6 +253,11 @@ function FREProviderSetup() {
     if (id.includes("big-pickle")) return false;
     return true;
   });
+
+  // Vision tier — only models the backend (or the frontend heuristic) marks
+  // as vision-capable. Rendering the same filter ChatView uses so the fetched
+  // list never blanks out a usable vision model.
+  const visionModels = validModels.filter(m => m.capabilities?.vision);
 
   const testConnection = async () => {
     setStatus("testing");
@@ -304,6 +310,7 @@ function FREProviderSetup() {
         thinker: thinkerModel,
         crafter: crafterModel,
         sprinter: sprinterModel,
+        vision: visionModel,
       });
 
       // BUG-03 FIX: Also persist model assignments to worker_runtime table
@@ -375,6 +382,18 @@ function FREProviderSetup() {
                   {validModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
                 </select>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-info w-16">Vision</span>
+                <select value={visionModel} onChange={e => setVisionModel(e.target.value)} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono">
+                  <option value="">Select...</option>
+                  {visionModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                </select>
+              </div>
+              {visionModels.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/70">
+                  No vision-capable models detected for this provider. Image attachments need a Vision tier model.
+                </p>
+              )}
             </>
           )}
         </div>

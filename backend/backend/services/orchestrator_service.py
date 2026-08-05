@@ -20,7 +20,6 @@ from backend.models.orchestration import (
     WorkflowDefinition, Checkpoint,
 )
 from backend.services.worker_runtime_service import worker_runtime_service
-from backend.services.chat_service import chat_service
 
 logger = logging.getLogger(__name__)
 
@@ -557,7 +556,13 @@ class OrchestratorService:
 
     @staticmethod
     async def _execute_task_body(db: AsyncSession, session: OrchestrationSession, task: OrchestrationTask):
-        """The actual task execution logic (called by _run_with_retry_and_timeout)."""
+        """The actual task execution logic (called by _run_with_retry_and_timeout).
+
+        REAL tool-capable execution: creates a child Task and runs it through
+        ``runtime.executor.execute_task`` (the same FSM as the engineering
+        pipeline) so the orchestrator's workers actually WRITE FILES instead of
+        emitting chat text via a plain chat_completion call.
+        """
         worker = await worker_runtime_service.get_worker(db, task.worker_role)
         if not worker or not worker.is_enabled:
             task.status = "skipped"
@@ -576,24 +581,100 @@ class OrchestratorService:
             prompt_parts.append(f"Task input: {task_input}")
         full_prompt = "\n\n".join(prompt_parts) if prompt_parts else task.title
 
-        result = await chat_service.chat_completion(
-            db=db,
-            conversation_id=session.conversation_id,
-            messages=[{"role": "user", "content": full_prompt}],
-            provider_id=worker.provider_id,
-            model_id=worker.model_id,
-            temperature=worker.temperature,
-            top_p=worker.top_p,
-            # FIX: chat_completion's signature is max_tokens=, not max_output_tokens=.
-            # Passing max_output_tokens raised TypeError and killed every batch task.
-            max_tokens=worker.max_output_tokens,
-            system_prompt=worker.system_prompt,
-        )
+        from runtime.executor import execute_task
+        from storage.models import Task as TaskModel, TaskStatus, TaskType
 
-        task.output_context = {"response": content_to_text(result.get("content", "")), "message_id": result.get("id", "")}
-        shared[f"task_{task.worker_role}_output"] = content_to_text(result.get("content", ""))
+        project_id = await OrchestratorService._resolve_orchestration_project(db, session)
+        if not project_id:
+            task.status = "failed"
+            task.error_message = "No project available to execute orchestration task"
+            await db.commit()
+            return
+
+        # Create a child task so execute_task has a real Task row to drive.
+        child = TaskModel(
+            project_id=project_id,
+            title=task.title,
+            description=full_prompt,
+            type=TaskType.FEATURE.value,
+            status=TaskStatus.CREATED.value,
+            worker_type=task.worker_role,
+            approval_required=False,
+            progress=0,
+            context={
+                "source": "orchestration",
+                "conversation_id": session.conversation_id,
+                "phase_semantics": {},
+                "execution_level": "STANDARD",
+            },
+        )
+        db.add(child)
+        await db.flush()
+
+        try:
+            result = await execute_task(db, child)
+            await db.commit()
+        except Exception as e:
+            logger.error(json.dumps({
+                "event": "orchestration_task_execution_error",
+                "task_id": task.id,
+                "error": str(e),
+            }))
+            try:
+                child.status = TaskStatus.FAILED.value
+                child.error_message = str(e)
+                await db.flush()
+            except Exception:
+                pass
+            result = {"success": False, "error": str(e)}
+
+        output_text = json.dumps(result, default=str)
+        task.output_context = {"response": output_text[:4000], "task_id": child.id}
+        shared[f"task_{task.worker_role}_output"] = output_text[:4000]
         session.shared_context = shared
         await db.commit()
+
+    @staticmethod
+    async def _resolve_orchestration_project(
+        db: AsyncSession, session: OrchestrationSession
+    ) -> Optional[str]:
+        """Resolve a project id for orchestration child tasks.
+
+        Priority: conversation.project_id → active local profile project →
+        first existing project → newly created sandbox project.
+        """
+        from storage.models import Conversation, Project
+        try:
+            conv = await db.get(Conversation, session.conversation_id)
+            if conv and conv.project_id:
+                return conv.project_id
+        except Exception:
+            pass
+
+        try:
+            from backend.models.local_profile import LocalProfile
+            prof = (await db.execute(select(LocalProfile).limit(1))).scalar_one_or_none()
+            if prof and prof.active_project_id:
+                return prof.active_project_id
+        except Exception:
+            pass
+
+        res = await db.execute(select(Project).limit(1))
+        proj = res.scalar_one_or_none()
+        if proj:
+            return proj.id
+
+        import uuid as _uuid
+        project = Project(
+            id=f"PROJECT-{_uuid.uuid4().hex[:12]}",
+            name="Orchestration Project",
+            slug=f"orch-{_uuid.uuid4().hex[:12]}",
+            description="Auto-created for orchestration execution",
+            owner_id=None,
+        )
+        db.add(project)
+        await db.flush()
+        return project.id
 
     # ── Condition Evaluation ───────────────────────────────────
 

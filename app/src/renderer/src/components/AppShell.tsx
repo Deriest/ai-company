@@ -38,6 +38,7 @@ export function AppShell({
   profile,
   setSettingsTab,
   projectRoot,
+  projectRefreshKey = 0,
   onFileSelect,
   onProjectChange,
 }: {
@@ -47,6 +48,7 @@ export function AppShell({
   profile?: LocalProfile | null;
   setSettingsTab?: (tab: string) => void;
   projectRoot?: string | null;
+  projectRefreshKey?: number;
   onFileSelect?: (path: string) => void;
   onProjectChange?: (project: ProjectRecord | null) => void;
 }) {
@@ -114,7 +116,11 @@ export function AppShell({
           </nav>
 
           <div className="border-t border-sidebar-border px-2 py-2">
-            <ProjectPicker onProjectChange={onProjectChange} />
+            <ProjectPicker
+              onProjectChange={onProjectChange}
+              refreshKey={projectRefreshKey}
+              fallbackPath={projectRoot || undefined}
+            />
           </div>
 
           {projectRoot && (

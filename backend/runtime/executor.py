@@ -80,9 +80,18 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
 
     proj_res = await session.execute(select(Project).where(Project.id == task.project_id))
     project_obj = proj_res.scalar_one_or_none()
-    raw_repo_path = str(project_obj.repo_path) if project_obj and project_obj.repo_path else "."
-    effective_repo_path = raw_repo_path if (raw_repo_path != "." and os.path.exists(raw_repo_path)) else "."
-    project_structure = inspect_project_structure(effective_repo_path) if effective_repo_path != "." else {}
+    # Workspace resolution: prefer the project repo_path, else fall back to a
+    # per-conversation/per-task sandbox under DATA_DIR/workspaces — NEVER the
+    # process cwd ("."). This keeps generated files out of an arbitrary working
+    # directory when no project is linked.
+    from shared.workspace import sandbox_workspace_dir
+    raw_repo_path = str(project_obj.repo_path) if project_obj and project_obj.repo_path else ""
+    if raw_repo_path:
+        effective_repo_path = raw_repo_path
+    else:
+        scope_id = (task.context or {}).get("conversation_id") or task.id
+        effective_repo_path = sandbox_workspace_dir(scope_id)
+    project_structure = inspect_project_structure(effective_repo_path)
 
     # 2. Resolve Smart Triage & Execution Level
     ctx = task.context or {}
@@ -320,6 +329,10 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 "plugins": plugin_contexts,
                 "phase": phase,
                 "execution_level": execution_level,
+                # Optional task-level model tier override (e.g. "vision") — when
+                # set, workers use it instead of their registry tier so a task
+                # can be launched with vision capability (see workers/base.py).
+                "model_tier": ctx.get("model_tier"),
             }
 
             # A6: Build unified context from pipeline sources
@@ -523,6 +536,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "project_structure": project_structure,
                         "phase": "implementation",
                         "execution_level": execution_level,
+                        "model_tier": ctx.get("model_tier"),
                     }
                     r_res = await r_worker.run_with_timeout(repair_task_ctx, timeout=120)
                     if r_res.output and not getattr(r_res, "used_fallback", False):
@@ -541,6 +555,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "repo_path": ".",
                         "phase": "verification",
                         "execution_level": execution_level,
+                        "model_tier": ctx.get("model_tier"),
                     }
                     qa_res = await qa_worker.run_with_timeout(qa_task_ctx, timeout=120)
                     if qa_res.success:

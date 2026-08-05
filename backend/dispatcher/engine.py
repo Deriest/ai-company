@@ -1,14 +1,21 @@
 """Engineering Dispatcher — Core Orchestrator.
 
 Orchestrates worker execution according to the Task Graph.
+
+The dispatcher performs REAL execution: every scheduled node is turned into a
+child Task and run through ``runtime.executor.execute_task`` (the same FSM the
+rest of the platform uses). Previously this module simulated completion by
+marking nodes "completed" without executing anything — that stub convinced the
+frontend the dispatcher "does everything" while no worker ever ran.
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from storage.models import TaskGraphModel
+from storage.models import TaskGraphModel, Task, TaskStatus
 from dispatcher.config import dispatcher_config
 from dispatcher.states import DispatcherState
 from dispatcher.models import DispatchResult, TaskExecution, WorkerAssignment
@@ -43,14 +50,19 @@ class DispatcherEngine:
     async def dispatch(
         self,
         graph_id: str,
+        project_id: str | None = None,
     ) -> DispatcherResult:
-        """Dispatch tasks from a Task Graph.
+        """Dispatch tasks from a Task Graph with REAL execution.
 
         Args:
             graph_id: Task Graph ID
+            project_id: Optional project to attach child tasks to. When omitted
+                the engine tries to resolve one from the graph's plan chain, and
+                finally creates a sandbox project so execution always has a
+                home.
 
         Returns:
-            DispatcherResult with execution state
+            DispatcherResult with per-node execution state
         """
         if not dispatcher_config.enabled:
             return DispatcherResult(
@@ -73,6 +85,10 @@ class DispatcherEngine:
         # Parse graph data
         nodes = graph_model.nodes or []
         execution_order = graph_model.execution_order or []
+        if not execution_order:
+            # Degenerate/legacy graphs without an explicit order run all nodes
+            # as one dependency group.
+            execution_order = [[n.get("node_id", "") for n in nodes]]
 
         if not nodes:
             return DispatcherResult(
@@ -103,10 +119,16 @@ class DispatcherEngine:
             )
             assignments.append(assignment)
 
+        # Resolve the project for child tasks (required by the Task table).
+        resolved_project_id = project_id or await self._resolve_project_id(graph_model)
+        if not resolved_project_id:
+            resolved_project_id = await self._ensure_sandbox_project()
+
         # Schedule tasks
         scheduled = TaskScheduler.schedule_tasks(execution_order, task_results)
 
-        # Execute tasks in order
+        # Execute tasks in dependency order — one child Task per node, run
+        # through the real runtime executor FSM.
         execution_log = []
         for group in scheduled:
             for node_id in group:
@@ -114,16 +136,17 @@ class DispatcherEngine:
                     continue
 
                 execution = task_results[node_id]
-                execution.status = "running"
-                execution.started_at = datetime.now(timezone.utc)
-
-                # Get assignment for this node
+                node_data = next(
+                    (n for n in nodes if n.get("node_id") == node_id), {}
+                )
                 assignment = next(
                     (a for a in assignments if a.node_id == node_id),
                     None
                 )
 
-                # Log execution start
+                execution.status = "running"
+                execution.started_at = datetime.now(timezone.utc)
+
                 execution_log.append({
                     "node_id": node_id,
                     "worker_id": assignment.worker_id if assignment else "unknown",
@@ -131,18 +154,48 @@ class DispatcherEngine:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
 
-                # Simulate execution with proper status tracking
-                # In production, this would dispatch to actual workers
-                execution.status = "completed"
-                execution.attempts = 1
-                execution.completed_at = datetime.now(timezone.utc)
-
-                # Log execution completion
-                execution_log.append({
+                await self._publish_worker_event("pipeline.worker.started", {
                     "node_id": node_id,
-                    "worker_id": assignment.worker_id if assignment else "unknown",
-                    "action": "completed",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "worker_type": node_data.get("worker_type", "backend"),
+                    "title": node_data.get("title", ""),
+                })
+
+                try:
+                    run_result = await self._execute_node(
+                        node_data,
+                        execution_id_prefix=graph_id,
+                        project_id=resolved_project_id,
+                    )
+                    execution.status = "completed" if run_result.get("success") else "failed"
+                    execution.result = run_result
+                    execution.error = run_result.get("error")
+                    execution.attempts = 1
+                    execution.completed_at = datetime.now(timezone.utc)
+                    execution_log.append({
+                        "node_id": node_id,
+                        "worker_id": assignment.worker_id if assignment else "unknown",
+                        "action": "completed" if execution.status == "completed" else "failed",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "error": run_result.get("error"),
+                    })
+                except Exception as e:
+                    execution.status = "failed"
+                    execution.error = str(e)
+                    execution.attempts = 1
+                    execution.completed_at = datetime.now(timezone.utc)
+                    logger.error(f"Dispatcher node {node_id} failed: {e}")
+                    execution_log.append({
+                        "node_id": node_id,
+                        "worker_id": assignment.worker_id if assignment else "unknown",
+                        "action": "error",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "error": str(e),
+                    })
+
+                await self._publish_worker_event("pipeline.worker.completed", {
+                    "node_id": node_id,
+                    "success": execution.status == "completed",
+                    "worker_type": node_data.get("worker_type", "backend"),
                 })
 
         # Build dispatch result
@@ -179,18 +232,133 @@ class DispatcherEngine:
                 "graph_id": graph_id,
                 "total_tasks": len(nodes),
                 "completed_tasks": completed,
+                "failed_tasks": len(nodes) - completed,
                 "success_rate": dispatch_result.success_rate,
             },
         )
 
+    async def _execute_node(
+        self,
+        node_data: dict,
+        execution_id_prefix: str,
+        project_id: str,
+    ) -> dict:
+        """Create a child Task for a graph node and execute it for real.
+
+        Mirrors master_orchestrator._execute_node:507-559 — the child task runs
+        through ``runtime.executor.execute_task`` (FSM: discovery → investigate
+        → planning → implementation → verification → closeout) with the node's
+        workers writing actual files.
+        """
+        from runtime.executor import execute_task
+
+        node_id = node_data.get("node_id", "unknown")
+        title = node_data.get("title", f"Subtask {node_id}")
+        description = node_data.get("description", "")
+        task_type = node_data.get("task_type", "feature")
+        worker_type = node_data.get("worker_type", "coding")
+
+        child_task = Task(
+            project_id=project_id,
+            # parent_task_id intentionally left unset — the graph node is the
+            # source of truth, not a single parent task.
+            title=title,
+            description=description,
+            type=task_type,
+            status=TaskStatus.CREATED.value,
+            worker_type=worker_type,
+            approval_required=False,
+            progress=0,
+            context={
+                "source": "dispatcher_dispatch",
+                "graph_id": execution_id_prefix,
+                "node_id": node_id,
+                "graph_node": node_data,
+                "execution_level": "STANDARD",
+                "phase_semantics": {},
+            },
+        )
+        self.session.add(child_task)
+        await self.session.flush()
+
+        try:
+            result = await execute_task(self.session, child_task)
+            await self.session.commit()
+            return result
+        except Exception as e:
+            logger.error(f"Node execution failed: {node_id}: {e}")
+            child_task.status = TaskStatus.FAILED.value
+            child_task.error_message = str(e)
+            await self.session.flush()
+            return {"success": False, "error": str(e)}
+
+    async def _resolve_project_id(self, graph_model: TaskGraphModel) -> str | None:
+        """Resolve a project id from the graph's pipeline chain.
+
+        Graph → Plan → Brief → DiscoverySession. The discovery session's
+        conversation_id historically points at the originating Task, so we can
+        walk back to that task's project_id.
+        """
+        try:
+            from storage.models import EngineeringPlan, EngineeringBrief, DiscoverySession
+            plan = await self.session.get(EngineeringPlan, graph_model.plan_id)
+            if plan:
+                brief = await self.session.get(EngineeringBrief, plan.brief_id)
+                if brief:
+                    ds = await self.session.get(DiscoverySession, brief.discovery_session_id)
+                    if ds:
+                        parent = (
+                            await self.session.execute(
+                                select(Task).where(Task.id == ds.conversation_id).limit(1)
+                            )
+                        ).scalar_one_or_none()
+                        if parent and parent.project_id:
+                            return parent.project_id
+        except Exception as e:
+            logger.warning(f"Dispatch project resolution failed: {e}")
+        return None
+
+    async def _ensure_sandbox_project(self) -> str:
+        """Create a sandbox project so task execution always has a home."""
+        from storage.models import Project
+        project = Project(
+            id=f"PROJECT-{uuid.uuid4().hex[:12]}",
+            name="Dispatcher Sandbox",
+            slug=f"dispatch-{uuid.uuid4().hex[:12]}",
+            description="Auto-created for dispatcher execution",
+            owner_id=None,
+        )
+        self.session.add(project)
+        await self.session.flush()
+        return project.id
+
+    async def _publish_worker_event(self, event_type: str, data: dict) -> None:
+        """Best-effort publish of worker lifecycle events (EventBus + WS)."""
+        try:
+            from events.bus import bus
+            await bus.publish(event_type, data)
+        except Exception as e:
+            logger.debug(f"EventBus publish failed ({event_type}): {e}")
+        try:
+            from backend.routes.websocket import broadcast_task_event
+            await broadcast_task_event(event_type, data.get("node_id", ""), data)
+        except Exception:
+            pass
+
     def _build_dispatch_message(self, result: DispatchResult, total_tasks: int) -> str:
-        """Build user-facing dispatch message."""
+        """Build user-facing dispatch message from REAL per-node results."""
         completed = sum(1 for e in result.task_results.values() if e.status == "completed")
+        failed = sum(1 for e in result.task_results.values() if e.status == "failed")
 
         lines = [
-            "**Execution Complete**\n",
+            "**Dispatch Finished**",
             f"- Tasks: {completed}/{total_tasks} completed",
             f"- Success rate: {result.success_rate:.0%}",
-            "\nReply **yes / go ahead** to verify results.",
         ]
+        if failed:
+            failed_nodes = [
+                n for n, e in result.task_results.items() if e.status == "failed"
+            ]
+            lines.append(f"- Failed nodes: {', '.join(failed_nodes[:5])}")
+        lines.append("\nReview the per-node results for details.")
         return "\n".join(lines)

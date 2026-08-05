@@ -1,11 +1,77 @@
 """Simple tool execution for workers — OpenCode-style real file/shell/search operations."""
 import os
+import re
+import signal
 import asyncio
 import glob as glob_mod
 from dataclasses import dataclass, field
 from typing import Optional
 
 from backend.services.path_utils import resolve_workspace_path
+
+# Command contains a shell background token: a standalone `&` (not `&&`, `&>`,
+# `2>&1`), or an explicit `nohup` / `setsid`. Backgrounded commands keep the
+# output pipe write-ends open after the shell exits, which makes
+# proc.communicate() hang forever — so they are detached instead.
+_BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
+
+
+def _close_proc_pipes(proc) -> None:
+    """Close stdout/stderr pipes so orphaned writers hit EPIPE instead of
+    holding the asyncio transports open forever."""
+    if proc is None:
+        return
+    for stream in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
+        if stream is None:
+            continue
+        close = getattr(stream, "close", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception:
+            pass
+
+
+async def _kill_process_group(proc) -> None:
+    """Kill the whole process group (shell + any backgrounded children) and reap.
+
+    The shell is spawned with ``start_new_session=True``, so every descendant
+    lands in one process group. Killing the group (SIGKILL) reaps backgrounded
+    children that ``proc.kill()`` alone would orphan.
+    """
+    if proc is None:
+        return
+    try:
+        if proc.returncode is None:
+            pgid = os.getpgid(proc.pid)
+            if pgid > 1:
+                os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        await proc.wait()
+    except Exception:
+        pass
+
+
+def _surface_port_in_use(command: str, error: str) -> str:
+    """Surface a port-in-use failure explicitly so the LLM does not loop on a
+    poisoned port."""
+    if not error:
+        return error
+    err_lower = error.lower()
+    if "address already in use" in err_lower or (
+        "oserror" in err_lower and "bind" in err_lower and "address" in err_lower
+    ):
+        return (
+            f"Port already in use (Address already in use). Choose a different "
+            f"port or stop the existing server. Raw: {error}"
+        )
+    return error
 
 @dataclass
 class ToolResult:
@@ -120,46 +186,69 @@ class WorkerToolExecutor:
         except Exception as e:
             return ToolResult(tool="search_files", success=False, output="", error=str(e))
     
-    async def run_shell(self, command: str, timeout: int = 30) -> ToolResult:
-        """Execute shell command."""
+    async def run_shell(self, command: str, timeout: int = 30, cwd: str | None = None) -> ToolResult:
+        """Execute shell command.
+
+        Background commands (containing `&` / `nohup` / `setsid`) are detached:
+        output is redirected to DEVNULL and the command returns immediately so a
+        long-running server (e.g. `python -m http.server 8080 &`) never holds
+        the output pipes open — which would otherwise hang proc.communicate()
+        forever. Foreground commands keep the existing behavior.
+        """
         proc = None
+        is_background = bool(_BG_TOKEN_RE.search(command or ""))
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self.workspace_root,
+                stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                cwd=cwd or self.workspace_root,
+                # Own session/process group so a timeout can kill the shell AND
+                # any backgrounded children with one SIGKILL to the group.
+                start_new_session=True,
             )
+
+            if is_background:
+                # Detached: the shell exits immediately after backgrounding the
+                # real command (DEVNULL means no pipe fds to inherit). Reap the
+                # shell transport without waiting on the backgrounded child.
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+                _close_proc_pipes(proc)
+                return ToolResult(
+                    tool="run_shell",
+                    success=True,
+                    output="Started in background (detached). Command keeps running independently.",
+                    metadata={"command": command, "background": True, "exit_code": 0},
+                )
+
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            output = stdout.decode('utf-8', errors='replace')[:10000]
-            error = stderr.decode('utf-8', errors='replace')[:5000] if stderr else None
+            _close_proc_pipes(proc)
+            output = stdout.decode('utf-8', errors='replace')[:10000] if stdout else ""
+            error = stderr.decode('utf-8', errors='replace')[:5000] if stderr else ""
+            error = _surface_port_in_use(command, error)
             return ToolResult(
-                tool="run_shell", 
-                success=proc.returncode == 0, 
+                tool="run_shell",
+                success=proc.returncode == 0,
                 output=output,
-                error=error if proc.returncode != 0 else None,
+                error=error if (proc.returncode != 0 and error) else None,
                 metadata={"command": command, "exit_code": proc.returncode}
             )
         except asyncio.TimeoutError:
-            # FIX: kill the orphaned subprocess so it does not keep running.
-            if proc is not None:
-                try:
-                    proc.kill()
-                    await proc.wait()
-                except Exception:
-                    pass
+            # Kill the whole process group — the shell AND any children that
+            # inherited the pipe write-ends — then close the pipes.
+            await _kill_process_group(proc)
+            _close_proc_pipes(proc)
             return ToolResult(tool="run_shell", success=False, output="", error=f"Command timed out after {timeout}s")
         except asyncio.CancelledError:
-            # FIX: kill the subprocess on cancellation so the shell command is
-            # stopped instantly instead of running until the full timeout.
-            if proc is not None:
-                try:
-                    proc.kill()
-                    await proc.wait()
-                except Exception:
-                    pass
+            await _kill_process_group(proc)
+            _close_proc_pipes(proc)
             raise
         except Exception as e:
+            await _kill_process_group(proc)
+            _close_proc_pipes(proc)
             return ToolResult(tool="run_shell", success=False, output="", error=str(e))
 
     async def mcp_call(self, tool_name: str, arguments: dict) -> ToolResult:

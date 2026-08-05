@@ -51,6 +51,10 @@ async def _llm_or_fallback(worker, user_prompt, tier, temperature, purpose, fall
             model_cfg = get_model_config(agent_id)
             if model_cfg.get("temperature") is not None:
                 temperature = model_cfg["temperature"]
+            # Task-level model_tier override (e.g. "vision") wins over the
+            # agent's registry tier so a task can be launched with vision.
+            if task_context and task_context.get("model_tier"):
+                model_cfg["tier"] = task_context["model_tier"]
             if model_cfg.get("tier"):
                 # ModelTier enum or string both accepted by provider.chat
                 tier_map = {
@@ -58,10 +62,13 @@ async def _llm_or_fallback(worker, user_prompt, tier, temperature, purpose, fall
                     "crafter": ModelTier.CRAFTER,
                     "sprinter": ModelTier.SPRINTER,
                     "system": ModelTier.SPRINTER,
+                    "vision": ModelTier.VISION,
                 }
                 t = model_cfg["tier"]
                 if isinstance(t, str) and t in tier_map:
                     tier = tier_map[t]
+                elif isinstance(t, ModelTier):
+                    tier = t
                 else:
                     tier = t
         except ImportError:
@@ -70,7 +77,22 @@ async def _llm_or_fallback(worker, user_prompt, tier, temperature, purpose, fall
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
+    # Vision hook: when the task context carries an image (image_url or
+    # image_data_url), build OpenAI multimodal parts instead of a plain string
+    # so a vision-tier worker can actually analyze the image.
+    image_data_url = None
+    if task_context:
+        image_data_url = task_context.get("image_data_url") or task_context.get("image_url")
+    if image_data_url:
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        })
+    else:
+        messages.append({"role": "user", "content": user_prompt})
 
     timeout = int(model_cfg.get("timeout") or 120)
     try:
@@ -143,16 +165,24 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
             model_cfg = get_model_config(agent_id)
             if model_cfg.get("temperature") is not None:
                 temperature = model_cfg["temperature"]
+            # Task-level model_tier override (e.g. "vision") wins over the
+            # agent's registry tier so a task can be launched with vision.
+            if task_context and task_context.get("model_tier"):
+                model_cfg["tier"] = task_context["model_tier"]
             if model_cfg.get("tier"):
+                # ModelTier enum or string both accepted by provider.chat
                 tier_map = {
                     "thinker": ModelTier.THINKER,
                     "crafter": ModelTier.CRAFTER,
                     "sprinter": ModelTier.SPRINTER,
                     "system": ModelTier.SPRINTER,
+                    "vision": ModelTier.VISION,
                 }
                 t = model_cfg["tier"]
                 if isinstance(t, str) and t in tier_map:
                     tier = tier_map[t]
+                elif isinstance(t, ModelTier):
+                    tier = t
                 else:
                     tier = t
         except ImportError:
@@ -161,7 +191,22 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_prompt})
+    # Vision hook: when the task context carries an image (image_url or
+    # image_data_url), build OpenAI multimodal parts instead of a plain string
+    # so a vision-tier worker can actually analyze the image.
+    image_data_url = None
+    if task_context:
+        image_data_url = task_context.get("image_data_url") or task_context.get("image_url")
+    if image_data_url:
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        })
+    else:
+        messages.append({"role": "user", "content": user_prompt})
 
     tools_schema = tool_executor.to_openai_schema()
 
@@ -250,8 +295,22 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
                 else:
                     tool_method = getattr(tool_executor, fn_name, None)
                     if tool_method:
-                        tc_result = await tool_method(**fn_args)
-                        result_content = tc_result.output if hasattr(tc_result, "output") else str(tc_result)
+                        # FIX: bound every tool call so a hanging tool (e.g. a
+                        # shell command that backgrounds a process and holds the
+                        # pipe open) can never stall the worker loop forever.
+                        # The wait_for cancellation triggers the tool's own
+                        # process-group kill on timeout.
+                        try:
+                            tc_result = await asyncio.wait_for(
+                                tool_method(**fn_args), timeout=120
+                            )
+                        except asyncio.TimeoutError:
+                            result_content = (
+                                f"Tool '{fn_name}' timed out after 120s "
+                                f"(possible backgrounded process holding the pipe open)"
+                            )
+                        else:
+                            result_content = tc_result.output if hasattr(tc_result, "output") else str(tc_result)
                     else:
                         result_content = f"Error: unknown tool '{fn_name}'"
 
@@ -377,6 +436,8 @@ class PMWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
+            # THINKER role: PM produces requirements — read-only tools only,
+            # never write_file or shell (role/tool enforcement).
             allowed_tools=["read_file", "explore", "search"],
         )
         template = (
@@ -803,7 +864,9 @@ class SecurityWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["read_file", "search", "shell"],
+            # THINKER role: security reviews code — read-only tools only, never
+            # write_file or shell (role/tool enforcement).
+            allowed_tools=["read_file", "search"],
         )
         template = (
             f"# Security Analysis\n\n## Task: {title}\n\n"
@@ -841,7 +904,10 @@ class DocumentationWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["read_file", "write_file"],
+            # THINKER role: documentation reads actual files and writes the
+            # deliverable through the pipeline — read-only tool access here,
+            # never shell (role/tool enforcement).
+            allowed_tools=["read_file", "explore", "search"],
         )
         template = (
             f"# Documentation\n\n## Task: {title}\n\n"
@@ -953,7 +1019,9 @@ class PerformanceWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["read_file", "shell"],
+            # THINKER role: performance analyzes and reports — read-only tools
+            # only, never write_file or shell (role/tool enforcement).
+            allowed_tools=["read_file"],
         )
         template = (
             f"# Performance Analysis\n\n## Task: {title}\n\n"
@@ -1035,7 +1103,13 @@ class DesignerWorker(BaseWorker):
         from workers.tools import ToolExecutor
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
-        tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("designer", tn))
+        # THINKER role: designer produces specs — read-only tools only, never
+        # write_file/shell (role/tool enforcement).
+        tool_executor = ToolExecutor(
+            workspace_root=repo_path,
+            permission_checker=lambda tn: check_tool_permission("designer", tn),
+            allowed_tools=["explore", "read_file", "search"],
+        )
         content, meta, tool_calls = await _llm_with_tools(self,
             f"Design spec for: {title}\n{description}",
             _CRAFTER, 0.4, "designer", template, task_context=task_context, tool_executor=tool_executor)
@@ -1059,7 +1133,13 @@ class GovernorWorker(BaseWorker):
         from workers.tools import ToolExecutor
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
-        tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("rex", tn))
+        # THINKER role: Rex audits/inspects deliverables — read-only tools only,
+        # never write_file or shell (role/tool enforcement).
+        tool_executor = ToolExecutor(
+            workspace_root=repo_path,
+            permission_checker=lambda tn: check_tool_permission("rex", tn),
+            allowed_tools=["explore", "read_file", "search"],
+        )
         content, meta, tool_calls = await _llm_with_tools(self,
             f"Governance audit: {title}\n{description}",
             _SPRINTER, 0.2, "governor", template, task_context=task_context, tool_executor=tool_executor)

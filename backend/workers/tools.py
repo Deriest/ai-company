@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import os
+import re
+import signal
 import socket
 import time
 import logging
@@ -22,6 +24,70 @@ from typing import Optional, Any
 from backend.services.path_utils import resolve_workspace_path
 
 logger = logging.getLogger("aic.workers.tools")
+
+# Command contains a shell background token: a standalone `&` (not `&&`, `&>`,
+# `2>&1`), or an explicit `nohup` / `setsid`. Backgrounded commands keep the
+# output pipe write-ends open after the shell exits, which makes
+# proc.communicate() hang forever — so they are detached instead.
+_BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
+
+
+def _close_proc_pipes(proc) -> None:
+    """Close stdout/stderr pipes so orphaned writers hit EPIPE instead of
+    holding the asyncio transports open forever."""
+    if proc is None:
+        return
+    for stream in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
+        if stream is None:
+            continue
+        close = getattr(stream, "close", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception:
+            pass
+
+
+async def _kill_process_group(proc) -> None:
+    """Kill the whole process group (shell + any backgrounded children) and reap.
+
+    The shell is spawned with ``start_new_session=True``, so every descendant
+    lands in one process group. Killing the group (SIGKILL) reaps backgrounded
+    children that ``proc.kill()`` alone would orphan.
+    """
+    if proc is None:
+        return
+    try:
+        if proc.returncode is None:
+            pgid = os.getpgid(proc.pid)
+            if pgid > 1:
+                os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        await proc.wait()
+    except Exception:
+        pass
+
+
+def _surface_port_in_use(command: str, error: str) -> str:
+    """Surface a port-in-use failure explicitly so the LLM does not loop on a
+    poisoned port."""
+    if not error:
+        return error
+    err_lower = error.lower()
+    if "address already in use" in err_lower or (
+        "oserror" in err_lower and "bind" in err_lower and "address" in err_lower
+    ):
+        return (
+            f"Port already in use (Address already in use). Choose a different "
+            f"port or stop the existing server. Raw: {error}"
+        )
+    return error
 
 
 # ── SSRF guard for web_fetch ─────────────────────────────
@@ -344,55 +410,88 @@ class ToolExecutor:
         start = time.monotonic()
 
         work_dir = cwd or self.workspace_root or "."
+        proc = None
+        is_background = bool(_BG_TOKEN_RE.search(command or ""))
+        raw_output = ""
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
                 cwd=work_dir,
+                # Own session/process group so a timeout can kill the shell AND
+                # any backgrounded children with one SIGKILL to the group.
+                start_new_session=True,
             )
 
-            # Stream output
-            output_lines = []
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                raw_output = stdout.decode("utf-8", errors="replace") if stdout else ""
-                output_lines = raw_output.split("\n")
-
-                # Emit shell output in chunks for streaming display
-                chunk_size = 500
-                for i in range(0, len(raw_output), chunk_size):
-                    chunk = raw_output[i:i + chunk_size]
-                    await self._emit("shell_output", {
-                        "command": command,
-                        "chunk": chunk,
-                        "status": "running",
-                    })
-
-            except asyncio.TimeoutError:
-                proc.kill()
-                raw_output = f"Command timed out after {timeout}s"
+            if is_background:
+                # Detached: the shell exits immediately after backgrounding the
+                # real command (DEVNULL means no pipe fds to inherit). Reap the
+                # shell transport without waiting on the backgrounded child.
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+                _close_proc_pipes(proc)
+                raw_output = "Started in background (detached). Command keeps running independently."
+                exit_code = 0
                 output_lines = [raw_output]
+                await self._emit("shell_output", {
+                    "command": command,
+                    "chunk": "",
+                    "exit_code": exit_code,
+                    "status": "completed",
+                })
+            else:
+                # Stream output
+                output_lines = []
+                try:
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                    raw_output = stdout.decode("utf-8", errors="replace") if stdout else ""
+                    output_lines = raw_output.split("\n")
 
-            exit_code = proc.returncode or 0
+                    # Emit shell output in chunks for streaming display
+                    chunk_size = 500
+                    for i in range(0, len(raw_output), chunk_size):
+                        chunk = raw_output[i:i + chunk_size]
+                        await self._emit("shell_output", {
+                            "command": command,
+                            "chunk": chunk,
+                            "status": "running",
+                        })
 
-            # Final shell output
-            await self._emit("shell_output", {
-                "command": command,
-                "chunk": "",
-                "exit_code": exit_code,
-                "status": "completed" if exit_code == 0 else "error",
-            })
+                except asyncio.TimeoutError:
+                    # Kill the whole process group and close the pipes.
+                    await _kill_process_group(proc)
+                    raw_output = f"Command timed out after {timeout}s"
+                    output_lines = [raw_output]
+                except asyncio.CancelledError:
+                    await _kill_process_group(proc)
+                    raise
+                finally:
+                    _close_proc_pipes(proc)
+
+                exit_code = proc.returncode or 0
+
+                # Final shell output
+                await self._emit("shell_output", {
+                    "command": command,
+                    "chunk": "",
+                    "exit_code": exit_code,
+                    "status": "completed" if exit_code == 0 else "error",
+                })
 
             tc.result = {
                 "command": command,
                 "exit_code": exit_code,
                 "output_lines": len(output_lines),
+                "background": is_background,
             }
+            raw_output = _surface_port_in_use(command, raw_output)
             tc.output = raw_output[:10000]
             tc.status = "completed" if exit_code == 0 else "error"
             if exit_code != 0:
-                tc.error = f"Exit code: {exit_code}"
+                tc.error = _surface_port_in_use(command, raw_output) or f"Exit code: {exit_code}"
 
         except Exception as e:
             tc.status = "error"

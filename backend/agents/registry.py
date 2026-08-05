@@ -59,7 +59,10 @@ class ToolPermissions:
 @dataclass
 class ModelPolicy:
     """LLM provider/model routing per agent."""
-    tier: str  # thinker | crafter | sprinter | system
+    # thinker | crafter | sprinter | system | vision
+    # "vision" is allowed as a task-level override (launch a worker with vision
+    # capability) — the tier flows verbatim through get_model_config.
+    tier: str
     temperature: float = 0.3
     timeout: int = 120
     max_retries: int = 1

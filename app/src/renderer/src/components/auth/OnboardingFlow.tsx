@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { profileApi, type LocalProfile } from "../../lib/api/profile";
 import { ProviderSetup } from "./ProviderSetup";
+import { GithubTokenField } from "../GithubTokenField";
+import { Card } from "../kit";
 
 interface Props {
   onComplete: (profile: LocalProfile) => void;
@@ -9,6 +11,7 @@ interface Props {
 export function OnboardingFlow({ onComplete }: Props) {
   const [step, setStep] = useState<"name" | "provider">("name");
   const [displayName, setDisplayName] = useState("");
+  const [githubToken, setGithubToken] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -28,6 +31,16 @@ export function OnboardingFlow({ onComplete }: Props) {
   };
 
   const handleContinue = async () => {
+    // Optional GitHub token — only sent when the user actually filled it in.
+    // Never blocks the skip path.
+    const token = githubToken.trim();
+    if (token) {
+      try {
+        await profileApi.update({ github_token: token });
+      } catch {
+        /* non-blocking — the token is optional */
+      }
+    }
     const p = await profileApi.get();
     if (p) onComplete(p);
   };
@@ -74,11 +87,21 @@ export function OnboardingFlow({ onComplete }: Props) {
           <p className="text-sm text-muted-foreground mt-1">Configure an AI provider to get started</p>
         </div>
         <ProviderSetup mode="fre" />
-        <div className="mt-6 text-center">
+        <Card className="mt-4 p-4">
+          <GithubTokenField
+            id="ghp-onboarding"
+            value={githubToken}
+            onChange={setGithubToken}
+          />
+        </Card>
+        <div className="mt-6 text-center space-y-2">
           <button onClick={handleContinue}
             className="rounded-lg bg-cyan-500 px-6 py-3 font-medium text-black hover:bg-cyan-400">
             Continue to Dashboard →
           </button>
+          <p className="text-[11px] text-muted-foreground/60">
+            GitHub token is optional — you can add it later in Settings → Providers.
+          </p>
         </div>
       </div>
     </div>

@@ -1,6 +1,13 @@
 """Engineering Dispatcher — Worker Selection.
 
 Selects optimal workers for task execution.
+
+WORKER_CAPABILITIES / WORKER_TIERS are aligned with the canonical worker
+registry in workers/base.py (WORKER_REGISTRY) as the single source of truth for
+roles. Every canonical role (hermes, rex, pm, research, designer,
+documentation, architect, backend, frontend, qa, performance, database, nexus,
+flint, security, coding) plus the documented extension aliases (devops,
+deployment, debugger) is present.
 """
 
 import logging
@@ -9,30 +16,50 @@ from dispatcher.models import WorkerAssignment
 logger = logging.getLogger("aic.dispatcher.worker_selector")
 
 
-# Worker capabilities
+# Worker capabilities — covers every WORKER_REGISTRY role in workers/base.py.
 WORKER_CAPABILITIES = {
+    "hermes": ["dispatch", "routing", "intent", "orchestration", "status"],
+    "pm": ["planning", "requirements", "specification", "roadmap", "project_management"],
+    "research": ["research", "analysis", "investigate", "feasibility", "benchmark"],
+    "architect": ["architecture", "design", "planning", "system_design"],
+    "designer": ["ui", "ux", "design", "component", "css"],
     "backend": ["coding", "api", "database", "auth", "testing"],
     "frontend": ["coding", "ui", "css", "component", "testing"],
+    "database": ["database", "migration", "schema", "query"],
     "qa": ["testing", "integration", "e2e", "review"],
     "security": ["security", "auth", "audit", "review"],
+    "performance": ["performance", "optimization", "profiling", "benchmark"],
     "documentation": ["documentation", "readme", "guide"],
+    "nexus": ["integration", "webhook", "middleware", "infrastructure"],
+    "flint": ["deployment", "infrastructure", "docker", "ci"],
+    "rex": ["governance", "compliance", "audit", "review"],
+    "coding": ["coding", "implementation", "fullstack", "feature"],
     "devops": ["infrastructure", "docker", "ci", "deployment"],
-    "architect": ["architecture", "design", "planning"],
-    "database": ["database", "migration", "schema", "query"],
+    "deployment": ["deployment", "docker", "ci"],
+    "debugger": ["debugging", "bugfix", "troubleshooting"],
 }
 
-# Worker tier mapping
+# Worker tier mapping — mirrors workflow/fsm.py PHASE_WORKERS tiers.
 WORKER_TIERS = {
-    "architect": "thinker",
+    "hermes": "system",
     "pm": "thinker",
     "research": "thinker",
+    "architect": "thinker",
+    "rex": "thinker",
+    "designer": "crafter",
     "backend": "crafter",
     "frontend": "crafter",
     "database": "crafter",
+    "coding": "crafter",
     "security": "crafter",
+    "nexus": "crafter",
+    "flint": "crafter",
+    "devops": "crafter",
+    "deployment": "crafter",
+    "debugger": "crafter",
     "qa": "sprinter",
+    "performance": "sprinter",
     "documentation": "sprinter",
-    "devops": "sprinter",
 }
 
 

@@ -10,11 +10,22 @@ export interface UseBootOptions {
   restoreRef: React.MutableRefObject<((stored: RestoredState) => void) | undefined>;
 }
 
+export interface BackendStatusInfo {
+  status: "stopped" | "starting" | "healthy" | "error";
+  error?: string | null;
+  port: number;
+  logFile?: string;
+}
+
 export interface BootState {
   bootPhase: BootPhase;
   bootDetail: string;
   setBootPhase: React.Dispatch<React.SetStateAction<BootPhase>>;
   setBootDetail: React.Dispatch<React.SetStateAction<string>>;
+  /** Last known sidecar status from the main process (drives the splash/error UI). */
+  backendStatus: BackendStatusInfo | null;
+  /** Re-run the boot sequence (used by the splash "Retry" button). */
+  retryBoot: () => void;
   updateState: UpdateStateDto | null;
   updateDialogOpen: boolean;
   setUpdateDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -48,6 +59,8 @@ export function useBoot(opts: UseBootOptions): BootState {
 
   const [bootPhase, setBootPhase] = useState<BootPhase>("launching");
   const [bootDetail, setBootDetail] = useState("Starting local engine…");
+  const [backendStatus, setBackendStatus] = useState<BackendStatusInfo | null>(null);
+  const [bootAttempt, setBootAttempt] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateStateDto | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [health, setHealth] = useState<"unknown" | "ok" | "bad">("unknown");
@@ -72,6 +85,16 @@ export function useBoot(opts: UseBootOptions): BootState {
 
   const currentProvider = useMemo(() => activeProvider(providers), [providers]);
   const modelLabel = useMemo(() => formatModelLabel(currentProvider), [currentProvider]);
+
+  /** Splash "Retry" — reset transient boot state and re-run the whole sequence. */
+  const retryBoot = useCallback(() => {
+    setBootPhase("launching");
+    setBootDetail("Launching local engineering engine…");
+    setHealth("unknown");
+    setHealthDetail("checking…");
+    setBackendStatus(null);
+    setBootAttempt((n) => n + 1);
+  }, []);
 
   const refreshProviders = useCallback(async () => {
     if (!token) return;
@@ -104,22 +127,36 @@ export function useBoot(opts: UseBootOptions): BootState {
     (async () => {
       setBootPhase("launching");
       setBootDetail("Launching local engineering engine…");
+      setBackendStatus(null);
 
-      // Wait for main-process sidecar when available
+      // Wait for main-process sidecar when available. A hard "error" status
+      // (missing python, spawn failure, health timeout) stops the boot and
+      // surfaces an actionable error screen instead of hanging on "Loading…".
       if (window.aic?.getBackendStatus) {
+        let lastStatus: BackendStatusInfo | null = null;
         for (let i = 0; i < 40; i++) {
           try {
             const st = await window.aic.getBackendStatus();
+            lastStatus = st;
+            setBackendStatus(st);
             if (st.status === "healthy") break;
             if (st.status === "error") {
+              setBootPhase("error");
               setBootDetail(st.error || "Engine failed to start");
-            } else {
-              setBootDetail(i < 4 ? "Launching local engineering engine…" : "Waiting for engine health…");
+              return;
             }
+            setBootDetail(i < 4 ? "Launching local engineering engine…" : "Waiting for engine health…");
           } catch {
             /* keep polling */
           }
           await new Promise((r) => setTimeout(r, 250));
+        }
+        // Renderer-side safety net: the main process health poll (15s) may not
+        // have flipped to "error" yet when we give up (10s) — surface it.
+        if (!lastStatus || lastStatus.status !== "healthy") {
+          setBootPhase("error");
+          setBootDetail(lastStatus?.error || "Local engine did not become healthy within 10 seconds");
+          return;
         }
       }
 
@@ -209,7 +246,7 @@ export function useBoot(opts: UseBootOptions): BootState {
       setBootPhase("error");
       setBootDetail(e instanceof Error ? e.message : String(e));
     });
-  }, [engineUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [engineUrl, bootAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Update listeners ───────────────────────────────────────────
   useEffect(() => {
@@ -269,6 +306,8 @@ export function useBoot(opts: UseBootOptions): BootState {
     bootDetail,
     setBootPhase,
     setBootDetail,
+    backendStatus,
+    retryBoot,
     updateState,
     updateDialogOpen,
     setUpdateDialogOpen,

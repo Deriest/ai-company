@@ -245,6 +245,16 @@ MIGRATIONS = [
         """,
         "down": "SELECT 1",
     },
+    {
+        "version": "019",
+        "name": "add_github_token_to_local_profile",
+        "description": "Add encrypted github_token column to local_profile (GitHub personal token for setup/settings, stored via backend.services.crypto Fernet)",
+        # Matches the 010/011 pattern: simple nullable VARCHAR ADD COLUMN. The
+        # plaintext is never stored — the route encrypts before writing, and the
+        # /profile API masks reads as "***".
+        "up": "ALTER TABLE local_profile ADD COLUMN github_token VARCHAR",
+        "down": "SELECT 1",
+    },
 ]
 
 

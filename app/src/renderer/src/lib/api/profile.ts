@@ -5,6 +5,7 @@ export interface LocalProfile {
   displayName: string;
   deviceId: string;
   projectRoot?: string;
+  github_token?: string | null;
   appVersion: string;
   onboardingCompleted: boolean;
   createdAt: string | null;
@@ -25,7 +26,7 @@ export const profileApi = {
     return apiClient.post('/profile', { displayName });
   },
 
-  async update(data: { displayName?: string; appVersion?: string; projectRoot?: string }): Promise<LocalProfile> {
+  async update(data: { displayName?: string; appVersion?: string; projectRoot?: string; github_token?: string | null }): Promise<LocalProfile> {
     return apiClient.patch('/profile', data);
   },
 
