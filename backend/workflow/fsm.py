@@ -34,7 +34,9 @@ EXECUTION_PHASES = ["discovery", "investigate", "planning", "implementation", "v
 
 PHASE_WORKERS: dict[str, list[dict]] = {
     "discovery": [
-        {"worker": "hermes", "tier": "system"},
+        # NOTE: hermes is intentionally NOT a phase worker — its execute() is a
+        # routing stub and real clarification now lives in the /chat/execute
+        # DiscoveryEngine gate. The role stays in WORKER_REGISTRY for routing.
         {"worker": "pm", "tier": "thinker"},
     ],
     "investigate": [
@@ -135,7 +137,7 @@ def _get_normal_workers_for_phase(phase: str, target_worker: str) -> list[str]:
     all_workers = [entry["worker"] for entry in plan]
 
     if p == "discovery":
-        return ["hermes", "pm"]
+        return ["pm"]
 
     if p == "investigate":
         return ["pm", "research"]
@@ -204,7 +206,7 @@ def allowed_workers_for_phase(
             return merged
 
     if p == "discovery":
-        return ["hermes", "pm"]
+        return ["pm"]
 
     if p == "investigate":
         # Research is reachable for all task types that need investigation

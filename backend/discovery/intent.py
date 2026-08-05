@@ -156,6 +156,19 @@ class IntentClassifier:
         from shared.intent_patterns import classify_intent
         return classify_intent(lower)
 
+    @staticmethod
+    def _sanitize_content_for_domain_classification(content: str) -> str:
+        """Strip file paths, URLs, folder names from content before domain classification."""
+        import re
+        
+        sanitized = re.sub(r"(?:/[^\s\"'<>|?*]+)+/?", "", content, flags=re.I)
+        sanitized = re.sub(r"[A-Za-z]:[\\\/][^\s\"'<>|?*]+", "", sanitized, flags=re.I)
+        sanitized = re.sub(r"https?://\S+", "", sanitized, flags=re.I)
+        sanitized = re.sub(r'"[^"]*"', "", sanitized)
+        sanitized = re.sub(r"'[^']*'", "", sanitized)
+        
+        return sanitized.strip()
+    
     @classmethod
     def _classify_domain(cls, lower: str, words: list) -> tuple[str, float]:
         """Classify engineering domain from task request.
@@ -163,11 +176,14 @@ class IntentClassifier:
         Returns (domain_name, confidence).
         """
         matches: list[tuple[str, float]] = []
-
+        
+        # Sanitize content first to prevent path/URL keyword pollution
+        cleaned = cls._sanitize_content_for_domain_classification(lower)
+        
         for domain, _context, pattern in DOMAIN_PATTERNS:
-            if pattern.search(lower):
+            if pattern.search(cleaned):
                 # Calculate confidence based on match specificity
-                match_count = len(pattern.findall(lower))
+                match_count = len(pattern.findall(cleaned))
                 confidence = min(0.95, 0.70 + (match_count * 0.05))
                 matches.append((domain, confidence))
 

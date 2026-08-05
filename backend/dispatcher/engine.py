@@ -9,6 +9,7 @@ marking nodes "completed" without executing anything — that stub convinced the
 frontend the dispatcher "does everything" while no worker ever ran.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -127,14 +128,18 @@ class DispatcherEngine:
         # Schedule tasks
         scheduled = TaskScheduler.schedule_tasks(execution_order, task_results)
 
-        # Execute tasks in dependency order — one child Task per node, run
-        # through the real runtime executor FSM.
+        # Execute tasks in dependency order. Nodes within a dependency group
+        # are independent and run CONCURRENTLY (each on its own session so the
+        # runtime executor's FSM never shares an AsyncSession across coroutines).
+        # If any node in a group fails, dispatch FAILS FAST: later dependency
+        # groups are marked skipped and are never executed.
         execution_log = []
-        for group in scheduled:
-            for node_id in group:
-                if node_id not in task_results:
-                    continue
+        for group_index, group in enumerate(scheduled):
+            pending_node_ids = [nid for nid in group if nid in task_results]
+            if not pending_node_ids:
+                continue
 
+            async def _run_node(node_id: str):
                 execution = task_results[node_id]
                 node_data = next(
                     (n for n in nodes if n.get("node_id") == node_id), {}
@@ -161,7 +166,7 @@ class DispatcherEngine:
                 })
 
                 try:
-                    run_result = await self._execute_node(
+                    run_result = await self._execute_node_in_new_session(
                         node_data,
                         execution_id_prefix=graph_id,
                         project_id=resolved_project_id,
@@ -197,6 +202,31 @@ class DispatcherEngine:
                     "success": execution.status == "completed",
                     "worker_type": node_data.get("worker_type", "backend"),
                 })
+                return node_id, execution.status
+
+            results = await asyncio.gather(
+                *(_run_node(nid) for nid in pending_node_ids)
+            )
+
+            failed_node_ids = [nid for nid, status in results if status == "failed"]
+            if failed_node_ids:
+                # Fail-stop: mark every node in later dependency groups skipped.
+                for later_group in scheduled[group_index + 1:]:
+                    for later_id in later_group:
+                        if later_id not in task_results:
+                            continue
+                        later_exec = task_results[later_id]
+                        later_exec.status = "skipped"
+                        later_exec.error = "Skipped: upstream node failed"
+                        later_exec.completed_at = datetime.now(timezone.utc)
+                        execution_log.append({
+                            "node_id": later_id,
+                            "worker_id": "unknown",
+                            "action": "skipped",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "error": "Skipped: upstream node failed",
+                        })
+                break
 
         # Build dispatch result
         dispatch_result = DispatchResult(
@@ -237,11 +267,38 @@ class DispatcherEngine:
             },
         )
 
+    async def _execute_node_in_new_session(
+        self,
+        node_data: dict,
+        execution_id_prefix: str,
+        project_id: str,
+    ) -> dict:
+        """Execute a graph node on a DEDICATED session.
+
+        Nodes within a dependency group run concurrently via asyncio.gather;
+        each needs its own AsyncSession (the runtime executor's FSM performs
+        many interleaved awaits and must never share a session across
+        coroutines). The session is derived from the dispatcher's own session
+        bind so it targets the same database.
+        """
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+        factory = async_sessionmaker(
+            bind=self.session.bind, class_=AsyncSession, expire_on_commit=False
+        )
+        async with factory() as node_session:
+            return await self._execute_node(
+                node_data,
+                execution_id_prefix=execution_id_prefix,
+                project_id=project_id,
+                session=node_session,
+            )
+
     async def _execute_node(
         self,
         node_data: dict,
         execution_id_prefix: str,
         project_id: str,
+        session: AsyncSession | None = None,
     ) -> dict:
         """Create a child Task for a graph node and execute it for real.
 
@@ -249,6 +306,10 @@ class DispatcherEngine:
         through ``runtime.executor.execute_task`` (FSM: discovery → investigate
         → planning → implementation → verification → closeout) with the node's
         workers writing actual files.
+
+        ``session`` defaults to the dispatcher's own session; pass a dedicated
+        session when executing a dependency group concurrently so independent
+        nodes never share an AsyncSession.
         """
         from runtime.executor import execute_task
 
@@ -278,18 +339,19 @@ class DispatcherEngine:
                 "phase_semantics": {},
             },
         )
-        self.session.add(child_task)
-        await self.session.flush()
+        session = session or self.session
+        session.add(child_task)
+        await session.flush()
 
         try:
-            result = await execute_task(self.session, child_task)
-            await self.session.commit()
+            result = await execute_task(session, child_task)
+            await session.commit()
             return result
         except Exception as e:
             logger.error(f"Node execution failed: {node_id}: {e}")
             child_task.status = TaskStatus.FAILED.value
             child_task.error_message = str(e)
-            await self.session.flush()
+            await session.flush()
             return {"success": False, "error": str(e)}
 
     async def _resolve_project_id(self, graph_model: TaskGraphModel) -> str | None:

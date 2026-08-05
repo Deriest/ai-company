@@ -918,7 +918,10 @@ class ProviderManager:
           crafter  error -> thinker  -> sprinter
           sprinter error -> crafter  -> thinker
         """
-        provider = self.get_active()
+        # H2: route through keyed-provider resolution so a registered provider
+        # with an empty API key (e.g. env router) does not produce
+        # "Illegal header value b'Bearer '" — fall through to a keyed provider.
+        provider = self.get_active_with_key()
         if not provider:
             raise LLMError("No LLM provider configured")
 
@@ -933,9 +936,12 @@ class ProviderManager:
                 last_error = e
                 logger.warning(f"Tier {t} failed on provider '{provider.config.name}': {e}. Retrying with next tier in chain.")
 
-        # Fallback to secondary provider if configured
-        if self._active:
-            cfg = self._configs.get(self._active)
+        # Fallback to secondary provider if configured (relative to the
+        # provider actually used — which may differ from self._active when
+        # the active provider has no usable API key).
+        used_name = getattr(provider.config, "name", None) or self._active
+        if used_name:
+            cfg = self._configs.get(used_name)
             if cfg and cfg.fallback_provider:
                 fallback = self._providers.get(cfg.fallback_provider)
                 if fallback:
@@ -958,7 +964,9 @@ class ProviderManager:
           crafter  error -> thinker  -> sprinter
           sprinter error -> crafter  -> thinker
         """
-        provider = self.get_active()
+        # H2: route through keyed-provider resolution so a registered provider
+        # with an empty API key does not produce "Illegal header value b'Bearer '"
+        provider = self.get_active_with_key()
         if not provider:
             yield {"type": "error", "error": "No LLM provider configured"}
             return
@@ -976,9 +984,10 @@ class ProviderManager:
             if not has_error:
                 return
 
-        # Fallback to secondary provider
-        if self._active:
-            cfg = self._configs.get(self._active)
+        # Fallback to secondary provider (relative to the provider actually used)
+        used_name = getattr(provider.config, "name", None) or self._active
+        if used_name:
+            cfg = self._configs.get(used_name)
             if cfg and cfg.fallback_provider:
                 fallback = self._providers.get(cfg.fallback_provider)
                 if fallback:

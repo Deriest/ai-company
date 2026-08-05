@@ -198,7 +198,13 @@ const boot = useBoot({
             initialTab={settingsTab}
             updateDialogOpen={boot.updateDialogOpen}
             onUpdateDialogOpenChange={boot.setUpdateDialogOpen}
-            onProfileUpdated={setProfile}
+            onProfileUpdated={(updated) =>
+              // FE-H2: PATCH /profile returns only a partial profile
+              // ({id, displayName, onboardingCompleted, githubToken}) — merge it
+              // over the full profile instead of replacing it, so
+              // deviceId/appVersion/createdAt survive the update.
+              setProfile(prev => (prev ? { ...prev, ...updated } : updated))
+            }
             onProjectRootChange={(root) => {
               // BUG-6: Workspace "Default Project Root" save must propagate to
               // App-level state and the IPC store.

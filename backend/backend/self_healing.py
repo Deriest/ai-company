@@ -18,6 +18,11 @@ from storage.models import Lease, LeaseStatus, Message, Task, Worker, WorkerStat
 
 logger = logging.getLogger("aic.self_healing")
 
+# Strong references to fire-and-forget re-dispatch tasks. asyncio.create_task
+# without a reference can be garbage-collected mid-flight, silently dropping the
+# coroutine; the set prevents GC until each task completes.
+_self_healing_tasks: set = set()
+
 # Phases that indicate work was interrupted mid-flight (server kill / crash).
 STALE_IN_PROGRESS = (
     "planning",
@@ -133,7 +138,11 @@ class SelfHealingEngine:
                     for t in created:
                         tid = str(t.id)
                         redispatched.append(tid)
-                        asyncio.create_task(_dispatch_created_task(tid))
+                        # L7: hold a strong reference so the task is not
+                        # garbage-collected before it completes.
+                        task_ref = asyncio.create_task(_dispatch_created_task(tid))
+                        _self_healing_tasks.add(task_ref)
+                        task_ref.add_done_callback(_self_healing_tasks.discard)
                         repairs.append(f"Re-dispatched task {tid[:8]}")
                 else:
                     await self.session.commit()

@@ -93,7 +93,10 @@ export function BootSplash({ phase, detail, backendStatus, onRetry }: {
   backendStatus?: BackendStatusInfo | null;
   onRetry?: () => void;
 }) {
-  const isError = phase === "error" || backendStatus?.status === "error";
+  // M3: bootPhase is the authoritative error signal. backendStatus.status can
+  // still read "error" during the retry grace period (stale pre-restart state),
+  // so keying on it would flash the error panel while the engine restarts.
+  const isError = phase === "error";
   const message = detail || PHASE_FALLBACK[phase] || "Starting…";
 
   if (isError) {

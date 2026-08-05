@@ -734,7 +734,7 @@ class ReviewWorker(BaseWorker):
         from workers.tools import ToolExecutor
         from backend.services.tool_permissions import check_tool_permission
         repo_path = task_context.get("repo_path", "")
-        tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("review", tn))
+        tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("review", tn), allowed_tools=["read_file", "explore", "search"])  # FIX 7: read-only reviewer
         content, meta, tool_calls = await _llm_with_tools(self, prompt, _THINKER, 0.3, "review", template, task_context=task_context, tool_executor=tool_executor)
         return _result_from_llm(content, meta, tool_calls=tool_calls)
 
@@ -748,14 +748,17 @@ class TestingWorker(BaseWorker):
 
     async def execute(self, task_context: dict) -> WorkerResult:
         import os
+        from backend.workspace_manager import get_task_workspace_dir
         task_id = task_context.get("task_id", "")
         repo_path = task_context.get("repo_path", ".")
         output_lines = ["# Test Results\n"]
         tests_passed = True
 
         # Check task workspace for deliverables to verify
-        workspace = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "workspace", task_id)
-        if os.path.exists(workspace):
+        workspace = str(get_task_workspace_dir(task_id))
+        # get_task_workspace_dir() auto-creates the dir, so probe for actual
+        # content (an empty workspace falls through to repo-based testing).
+        if os.path.exists(workspace) and os.listdir(workspace):
             # Count deliverable files as basic verification
             deliverables = []
             for root, dirs, files in os.walk(workspace):
@@ -843,7 +846,8 @@ class TestingWorker(BaseWorker):
                 else:
                     output_lines.append("\n**SKIPPED** — npm not found in PATH")
             else:
-                output_lines.append("No test framework detected. Verified workspace deliverables exist.")
+                output_lines.append("\n**SKIPPED** - no test framework detected; verification pending")
+                tests_passed = False  # M5 FIX: honest SKIPPED, not PASSED for a fresh sandbox
 
         return WorkerResult(success=tests_passed, exit_code=0 if tests_passed else 1,
                            output="\n".join(output_lines), error=None if tests_passed else "Verification failed — deliverables incomplete or syntax errors found")
@@ -906,8 +910,8 @@ class DocumentationWorker(BaseWorker):
             permission_checker=_make_permission_checker(self.worker_type),
             # THINKER role: documentation reads actual files and writes the
             # deliverable through the pipeline — read-only tool access here,
-            # never shell (role/tool enforcement).
-            allowed_tools=["read_file", "explore", "search"],
+            # never shell (role/tool enforcement). FIX 5: docs writes README.
+            allowed_tools=["read_file", "write_file", "explore", "search"],
         )
         template = (
             f"# Documentation\n\n## Task: {title}\n\n"
@@ -945,7 +949,7 @@ class DeploymentWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["read_file", "shell"],
+            allowed_tools=["read_file", "write_file", "shell"],
         )
         template = (
             f"# Deployment Validation\n\n## Task: {title}\n\n"

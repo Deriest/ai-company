@@ -2,7 +2,10 @@
 import asyncio
 import logging
 import json
+import os
+import re
 from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -29,11 +32,60 @@ from conversation.engine import (
     INTENT_TASK_CONFIRM, INTENT_STATUS, INTENT_APPROVAL,
     LLMUnavailableError,
 )
+from discovery.states import is_terminal
 from backend.routes.conversations import _dispatch_created_task
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Per-conversation in-process locks serializing the discovery auto-continuation
+# (find-pending → respond → clear-pending). Two concurrent /chat/execute calls
+# on the same conversation must not both consume the same DiscoverySession and
+# both spawn agents. Entries are removed once a lock is released and free.
+_clarify_locks: dict[str, asyncio.Lock] = {}
+
+# Matches an explicit workspace answer in a clarification reply: an absolute
+# filesystem path (Windows drive letter or POSIX "/"-prefixed).
+_WORKSPACE_PATH_RE = re.compile(
+    r"((?:[A-Za-z]:[\\/][^\s\"'<>|?*]+)|(?:/[^\s\"'<>|?*]+))",
+)
+
+_CLARIFY_NUDGE_TEXT = (
+    "I still need your answers to the questions above — "
+    "e.g. what the project should do and which folder to use. "
+    "Please answer and resend."
+)
+
+
+def _get_clarify_lock(conversation_id: str) -> asyncio.Lock:
+    """Get (or create) the per-conversation auto-continuation lock."""
+    lock = _clarify_locks.get(conversation_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _clarify_locks[conversation_id] = lock
+    return lock
+
+
+def _release_clarify_lock(conversation_id: str, lock: asyncio.Lock) -> None:
+    """Drop the lock entry once it is truly free (no waiter re-acquired it)."""
+    if not lock.locked():
+        _clarify_locks.pop(conversation_id, None)
+
+
+def _nudge_questions(workspace_unresolved: bool) -> list[dict]:
+    """Questions re-asked with a nudge when a clarification reply did not
+    resolve the pending discovery session (never spawn on chit-chat)."""
+    questions = []
+    if workspace_unresolved:
+        questions.append(_workspace_question())
+    if not questions:
+        questions.append({
+            "id": "details",
+            "question": "Please answer the questions above and resend your request.",
+            "options": [],
+        })
+    return questions
 
 
 def _build_clarify_questions(missing_fields: list[str], workspace_unresolved: bool) -> list[dict]:
@@ -52,15 +104,7 @@ def _build_clarify_questions(missing_fields: list[str], workspace_unresolved: bo
             questions.append({"id": field, "question": text, "options": []})
 
     if workspace_unresolved:
-        questions.append({
-            "id": "workspace",
-            "question": "Which workspace folder should I create the project in?",
-            "options": [
-                "Create a new project folder",
-                "Select an existing folder",
-                "Use a per-chat sandbox",
-            ],
-        })
+        questions.append(_workspace_question())
 
     if not questions:
         questions.append({
@@ -69,6 +113,302 @@ def _build_clarify_questions(missing_fields: list[str], workspace_unresolved: bo
             "options": [],
         })
     return questions
+
+
+def _workspace_question() -> dict:
+    """The workspace-selection question appended whenever no project repo_path
+    could be resolved (so files never land in an ambiguous location)."""
+    return {
+        "id": "workspace",
+        "question": "Which workspace folder should I create the project in?",
+        "options": [
+            "Create a new project folder",
+            "Select an existing folder",
+            "Use a per-chat sandbox",
+        ],
+    }
+
+
+def _format_discovery_questions(questions) -> list[dict]:
+    """Map DiscoveryEngine ClarificationQuestions to the SSE contract shape:
+    ``{"id": "<slug>", "question": "<text>", "options": ["<opt1>", ...]}``."""
+    return [
+        {"id": str(q.id), "question": q.question, "options": q.options or []}
+        for q in questions
+    ]
+
+
+def _discovery_reason(discovery_result) -> str:
+    """Friendly intro for the clarify event — prefer the discovery engine's own
+    message (first line), fall back to a default."""
+    if discovery_result is not None and discovery_result.message:
+        text = discovery_result.message.strip()
+        if text:
+            first_line = text.splitlines()[0]
+            if first_line and len(first_line) <= 120:
+                return first_line
+    return "I need a few details before I can start building."
+
+
+def _discovery_enrich_prompt(prompt: str, discovery_result) -> str:
+    """Append a compact Discovery Brief summary to the agent prompt so the
+    agent works from the brief when discovery reached is_ready."""
+    brief = getattr(discovery_result, "brief", None)
+    if brief is None:
+        return prompt
+    parts = [prompt]
+    goal = getattr(brief, "engineering_goal", "") or ""
+    if goal:
+        parts.append(f"\n\n[Discovery Brief]\nGoal: {goal}")
+    funcs = getattr(brief, "functional_requirements", None) or []
+    req_texts = []
+    for r in funcs[:6]:
+        if isinstance(r, dict):
+            text = r.get("description") or r.get("id") or ""
+        else:
+            text = str(r)
+        if text:
+            req_texts.append(text)
+    if req_texts:
+        parts.append("Requirements:\n- " + "\n- ".join(req_texts))
+    return "\n".join(parts)
+
+
+def _finalize_clarify_message(assistant_msg, reason: str, questions: list[dict], user_content: str, discovery_session_id: str | None = None) -> None:
+    """Set the assistant row to a completed clarify message (questions as
+    content) and persist the discovery session id in meta so the next message
+    can auto-continue the discovery session."""
+    if assistant_msg is None:
+        return
+    lines = [reason, ""]
+    for i, q in enumerate(questions, 1):
+        lines.append(f"{i}. {q['question']}")
+        for opt in q.get("options") or []:
+            lines.append(f"   - {opt}")
+    assistant_msg.content = "\n".join(lines)
+    assistant_msg.status = "completed"
+    assistant_msg.updated_at = datetime.now(timezone.utc)
+    assistant_msg.token_count = len(assistant_msg.content) // 4 + len(user_content) // 4
+    if discovery_session_id:
+        meta = dict(assistant_msg.meta or {})
+        meta["discovery_session_id"] = discovery_session_id
+        assistant_msg.meta = meta
+
+
+async def _fetch_prior_user_history(conversation_id: str, exclude_message_id: str | None = None, limit: int = 10) -> list[dict]:
+    """Fetch prior user messages for a conversation as
+    ``[{"role": "user", "content": ...}]`` (chronological order)."""
+    query = select(Message).where(
+        Message.conversation_id == conversation_id,
+        Message.role == "user",
+    )
+    if exclude_message_id:
+        query = query.where(Message.id != exclude_message_id)
+    query = query.order_by(Message.created_at.desc()).limit(limit)
+    async with AsyncSessionLocal() as hsession:
+        res = await hsession.execute(query)
+        rows = [str(m.content) for m in res.scalars().all() if m.content]
+    return [{"role": "user", "content": c} for c in reversed(rows)]
+
+
+async def _run_discovery(conversation_id: str, corpus: str, history: list | None = None):
+    """Run the real DiscoveryEngine pipeline in an isolated session.
+
+    ``discover()`` commits internally, so it runs on its own session to avoid
+    interfering with the streaming generator's message persistence.
+    Returns a DiscoveryResult, or None when discovery is disabled / the
+    conversation is gone / an exception occurred.
+    """
+    from storage.models import Conversation
+    from discovery.engine import DiscoveryEngine
+    try:
+        async with AsyncSessionLocal() as dsession:
+            conv = await dsession.get(Conversation, conversation_id)
+            if conv is None:
+                return None
+            engine = DiscoveryEngine(dsession)
+            return await engine.discover(conversation=conv, content=corpus, history=history)
+    except Exception as e:
+        logger.warning(f"Discovery pipeline failed (falling back to static clarify): {e}")
+        return None
+
+
+async def _respond_to_clarification(session_id: str, response: str, history: list | None = None):
+    """Feed a user reply into a pending discovery session.
+
+    Returns a DiscoveryResult, or None when the session is missing / terminal /
+    an exception occurred.
+    """
+    from storage.models import DiscoverySession as DiscoverySessionModel
+    from discovery.engine import DiscoveryEngine
+    from discovery.states import is_terminal
+    try:
+        async with AsyncSessionLocal() as dsession:
+            ds = await dsession.get(DiscoverySessionModel, session_id)
+            if ds is None or is_terminal(ds.status):
+                return None
+            engine = DiscoveryEngine(dsession)
+            return await engine.respond_to_clarification(session_id, response, history)
+    except Exception as e:
+        logger.warning(f"Discovery respond_to_clarification failed (falling through): {e}")
+        return None
+
+
+async def _find_pending_discovery_session(conversation_id: str) -> str | None:
+    """Return the discovery_session_id of the most recent non-terminal discovery
+    session waiting for a clarification response, if any.
+
+    The marker lives in the latest assistant Message.meta["discovery_session_id"].
+    """
+    from storage.models import DiscoverySession as DiscoverySessionModel
+    from discovery.states import is_terminal
+    try:
+        async with AsyncSessionLocal() as s:
+            res = await s.execute(
+                select(Message).where(
+                    Message.conversation_id == conversation_id,
+                    Message.role == "assistant",
+                ).order_by(Message.created_at.desc()).limit(10)
+            )
+            for m in res.scalars().all():
+                meta = m.meta or {}
+                session_id = meta.get("discovery_session_id")
+                if not session_id:
+                    continue
+                ds = await s.get(DiscoverySessionModel, session_id)
+                if ds is not None and not is_terminal(ds.status):
+                    return str(session_id)
+        return None
+    except Exception as e:
+        logger.debug(f"Pending discovery lookup failed: {e}")
+        return None
+
+
+async def _clear_pending_discovery_meta(persist_session, conversation_id: str, session_id: str) -> None:
+    """Remove the discovery_session_id marker from the assistant message that
+    carried it so it cannot re-trigger the auto-continuation."""
+    try:
+        res = await persist_session.execute(
+            select(Message).where(
+                Message.conversation_id == conversation_id,
+                Message.role == "assistant",
+            ).order_by(Message.created_at.desc()).limit(10)
+        )
+        for m in res.scalars().all():
+            meta = m.meta or {}
+            if meta.get("discovery_session_id") == session_id:
+                new_meta = dict(meta)
+                new_meta.pop("discovery_session_id", None)
+                m.meta = new_meta
+                await persist_session.commit()
+                return
+    except Exception as e:
+        logger.debug(f"Clear pending discovery meta failed: {e}")
+
+
+async def _clarification_message_processed(session_id: str, message_id: str) -> bool:
+    """True when this user message id already consumed the clarification.
+
+    Idempotency guard for the auto-continuation: a retried /chat/execute with
+    the same user message must not feed the same DiscoverySession twice.
+    """
+    if not session_id or not message_id:
+        return False
+    from storage.models import DiscoverySession as DiscoverySessionModel
+    try:
+        async with AsyncSessionLocal() as s:
+            ds = await s.get(DiscoverySessionModel, session_id)
+            if ds is None:
+                return False
+            ctx = ds.context or {}
+            return message_id in (ctx.get("processed_message_ids") or [])
+    except Exception as e:
+        logger.debug(f"Clarification idempotency check failed: {e}")
+        return False
+
+
+async def _mark_clarification_processed(session_id: str, message_id: str) -> None:
+    """Record that a user message consumed the clarification (idempotency)."""
+    if not session_id or not message_id:
+        return
+    from storage.models import DiscoverySession as DiscoverySessionModel
+    try:
+        async with AsyncSessionLocal() as s:
+            ds = await s.get(DiscoverySessionModel, session_id)
+            if ds is None:
+                return
+            ctx = dict(ds.context or {})
+            processed = list(ctx.get("processed_message_ids") or [])
+            if message_id not in processed:
+                processed.append(message_id)
+            ctx["processed_message_ids"] = processed
+            ds.context = ctx
+            await s.commit()
+    except Exception as e:
+        logger.debug(f"Clarification idempotency mark failed: {e}")
+
+
+async def _apply_workspace_answer(persist_session, conversation_id: str, reply: str) -> str | None:
+    """Honor an explicit workspace answer in a clarification reply.
+
+    Returns:
+      - ``"sandbox"`` when the user chose the per-chat sandbox ("...sandbox...")
+      - the absolute path when the reply pins a filesystem path (a Project row
+        is created/reused and ``conversation.project_id`` is set)
+      - ``None`` when the reply does not answer the workspace question — the
+        caller keeps the clarify path instead of silently using the sandbox.
+    """
+    from storage.models import Conversation, Project
+
+    lower = (reply or "").lower().strip()
+    if "sandbox" in lower:
+        return "sandbox"
+
+    m = _WORKSPACE_PATH_RE.search(reply or "")
+    if not m:
+        return None
+    path = m.group(1).strip().rstrip("/\\")
+    if not path:
+        return None
+    # Defensive: only absolute paths are accepted (drive letter or /-prefixed).
+    if not (re.match(r"^[A-Za-z]:[\\/]", path) or path.startswith("/")):
+        return None
+
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        logger.warning(f"Workspace answer path could not be created: {e}")
+        return None
+
+    base = os.path.basename(path) or "project"
+    slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-") or "project"
+
+    # Reuse an existing project pointing at the same folder, else create one
+    # (slug collisions get a short unique suffix).
+    project = (
+        await persist_session.execute(select(Project).where(Project.repo_path == path))
+    ).scalar_one_or_none()
+    if project is None:
+        clash = (
+            await persist_session.execute(select(Project.id).where(Project.slug == slug))
+        ).scalar_one_or_none()
+        if clash:
+            slug = f"{slug}-{uuid4().hex[:6]}"
+        project = Project(
+            name=base,
+            slug=slug,
+            description="Created from a chat workspace answer",
+            repo_path=path,
+            owner_id=None,
+        )
+        persist_session.add(project)
+        await persist_session.flush()
+
+    conv = await persist_session.get(Conversation, conversation_id)
+    if conv is not None:
+        conv.project_id = project.id
+    await persist_session.commit()
+    return str(path)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +491,18 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     # through the agent_runner path — the legacy ChatService path drops
     # attachments, so a vision question would silently lose its image.
     has_attachments = bool(payload.attachments)
-    if intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM) and not has_attachments:
+
+    # Discovery auto-continuation: if a previous assistant message left a
+    # pending (non-terminal) discovery session awaiting clarification and the
+    # user replied, this message MUST go through /chat/execute so the reply is
+    # fed into respond_to_clarification — even if the reply is not itself
+    # classified as a task_request.
+    pending_discovery_session_id = None
+    if not has_attachments:
+        pending_discovery_session_id = await _find_pending_discovery_session(payload.conversation_id)
+
+    if (intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM)
+            and not has_attachments and not pending_discovery_session_id):
         # Not a task — fall back to regular chat
         return await chat_stream_endpoint(payload, db)
 
@@ -181,10 +532,16 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
         )
 
     async def event_generator():
+        # The workspace may be re-pinned by the auto-continuation when the user
+        # answers the workspace question with a path — propagate to the agent.
+        nonlocal workspace, workspace_resolved
         persist_session = AsyncSessionLocal()
         user_msg = None
         assistant_msg = None
         chunks_since_commit = 0
+        # The prompt the agent receives. Discovery enrichment (brief) is applied
+        # to this variable; ``user_content`` stays the original user text.
+        agent_prompt = user_content
         # FIX: cooperative cancellation — set when the client disconnects so
         # the AgentRunner loop (which receives this event) stops executing
         # tools instead of continuing in the background after "Stop".
@@ -256,65 +613,251 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'intent', 'error': f'Intent detection failed: {str(e)[:200]}'})}\n\n"
                 return
 
+            # Step 1.4: Discovery auto-continuation.
+            #
+            # If a previous assistant message left a pending discovery session
+            # awaiting clarification, this message is a reply to it. Feed the
+            # reply into the real DiscoveryEngine (respond_to_clarification) so
+            # the request can progress instead of starting a fresh gate.
+            #
+            # Race guard: the find → respond → clear sequence runs under a
+            # per-conversation in-process lock so two concurrent /chat/execute
+            # calls cannot both consume the same DiscoverySession and both
+            # spawn agents. Idempotency is enforced by recording the consuming
+            # user message id in discovery_session.context["processed_message_ids"].
+            # Defensive: any failure falls through to the normal gate.
+            discovery_resolved = False
+            if not has_attachments:
+                clarify_lock = _get_clarify_lock(payload.conversation_id)
+                await clarify_lock.acquire()
+                try:
+                    # Re-find under the lock — a concurrent request may have
+                    # already consumed/cleared the pending marker.
+                    current_pending = await _find_pending_discovery_session(payload.conversation_id)
+                    if current_pending:
+                        if not await _clarification_message_processed(
+                            current_pending, user_msg.id if user_msg else ""
+                        ):
+                            # Honor an explicit workspace answer in the reply
+                            # (absolute path or "use a per-chat sandbox").
+                            workspace_answer = await _apply_workspace_answer(
+                                persist_session, payload.conversation_id, user_content
+                            )
+                            if workspace_answer == "sandbox":
+                                workspace_resolved = True
+                            elif workspace_answer:
+                                workspace = workspace_answer
+                                workspace_resolved = True
+
+                            history = await _fetch_prior_user_history(
+                                payload.conversation_id,
+                                exclude_message_id=user_msg.id if user_msg else None,
+                            )
+                            auto_result = await _respond_to_clarification(
+                                session_id=current_pending,
+                                response=user_content,
+                                history=history,
+                            )
+                            await _mark_clarification_processed(
+                                current_pending, user_msg.id if user_msg else ""
+                            )
+
+                            if auto_result is not None and auto_result.is_ready:
+                                if not workspace_resolved:
+                                    # Ready but the user never answered the
+                                    # workspace question — keep the clarify path
+                                    # (workspace only) instead of silently
+                                    # writing files into the sandbox.
+                                    questions = [_workspace_question()]
+                                    reason = (
+                                        "The request is ready to build. "
+                                        "Which workspace folder should I create the project in?"
+                                    )
+                                    yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                                    _finalize_clarify_message(
+                                        assistant_msg, reason, questions, user_content,
+                                        discovery_session_id=current_pending,
+                                    )
+                                    await persist_session.commit()
+                                    return
+                                # Discovery completed — proceed to the agent
+                                # with the enriched content and clear the
+                                # pending marker.
+                                agent_prompt = _discovery_enrich_prompt(user_content, auto_result)
+                                discovery_resolved = True
+                                await _clear_pending_discovery_meta(
+                                    persist_session, payload.conversation_id, current_pending
+                                )
+                            elif (auto_result is not None and auto_result.clarification
+                                    and auto_result.clarification.questions):
+                                questions = _format_discovery_questions(auto_result.clarification.questions)
+                                if not workspace_resolved:
+                                    questions.append(_workspace_question())
+                                reason = _discovery_reason(auto_result)
+                                yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                                _finalize_clarify_message(
+                                    assistant_msg, reason, questions, user_content,
+                                    discovery_session_id=auto_result.metadata.get("session_id") or current_pending,
+                                )
+                                await persist_session.commit()
+                                return
+                            elif auto_result is not None and is_terminal(auto_result.state):
+                                # The reply was classified non-task by discovery
+                                # (e.g. "hi"/"ok") and it aborted the session —
+                                # never spawn an agent on chit-chat. Nudge.
+                                reason = _CLARIFY_NUDGE_TEXT
+                                questions = _nudge_questions(not workspace_resolved)
+                                yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                                _finalize_clarify_message(
+                                    assistant_msg, reason, questions, user_content,
+                                    discovery_session_id=current_pending,
+                                )
+                                await persist_session.commit()
+                                return
+                            elif auto_result is None and intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM):
+                                # Session gone/terminal or respond errored and
+                                # the reply is not a fresh task request — treat
+                                # it as an unanswered clarification: nudge, and
+                                # never spawn the agent on the reply.
+                                reason = _CLARIFY_NUDGE_TEXT
+                                questions = _nudge_questions(not workspace_resolved)
+                                yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                                _finalize_clarify_message(
+                                    assistant_msg, reason, questions, user_content,
+                                    discovery_session_id=current_pending,
+                                )
+                                await persist_session.commit()
+                                return
+                            # else: task_request with a consumed/errored session
+                            # → fall through to the normal gate.
+                finally:
+                    clarify_lock.release()
+                    _release_clarify_lock(payload.conversation_id, clarify_lock)
+
+            # Routing sent us to /chat/execute because a pending discovery
+            # session existed, but by the time we looked it was gone (consumed
+            # by a concurrent request or it became terminal). If the reply is
+            # not itself a fresh task request, never spawn the agent on it.
+            if (pending_discovery_session_id and not has_attachments
+                    and not discovery_resolved
+                    and intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM)):
+                reason = _CLARIFY_NUDGE_TEXT
+                questions = _nudge_questions(not workspace_resolved)
+                yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                _finalize_clarify_message(assistant_msg, reason, questions, user_content)
+                await persist_session.commit()
+                return
+
             # Step 1.5: Discovery / clarify gate.
             #
             # A vague task_request (or one with no workspace selected) must not
             # silently spawn an agent that writes files into an arbitrary
-            # location. When the gate trips we emit a structured `clarify` SSE
-            # event, finalize the assistant message with the questions, and
-            # return WITHOUT spawning the agent.
+            # location. When the gate trips we run the REAL DiscoveryEngine — if
+            # it produces clarification questions we emit a structured `clarify`
+            # SSE event, finalize the assistant message, and return WITHOUT
+            # spawning the agent. If discovery decides the request is ready, we
+            # proceed to Step 2 with a brief-enriched prompt.
             #
             # SKIPPED entirely for:
             #  - multimodal requests (attachments present) — the attachment
             #    persistence path must never be blocked (test_attachment_store)
-            #  - non task_request intents (task_confirm / chat-with-attachment)
-            if intent == INTENT_TASK_REQUEST and not has_attachments:
+            #  - messages already resolved by the auto-continuation above
+            #
+            # INTENT_TASK_CONFIRM is included: a bare "yes / go ahead" with no
+            # pending discovery session and no workspace must NOT run the agent
+            # — it trips the gate and asks for workspace/details instead.
+            if (not discovery_resolved
+                    and intent in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM)
+                    and not has_attachments):
                 from shared.intake import evaluate_intake_completeness
 
                 # Corpus = current message + recent user history (mirrors
                 # ConversationEngine._handle_task_request corpus accumulation).
                 corpus_parts = [user_content]
-                try:
-                    hist_res = await persist_session.execute(
-                        select(Message).where(
-                            Message.conversation_id == payload.conversation_id,
-                            Message.role == "user",
-                        ).order_by(Message.created_at.desc()).limit(10)
-                    )
-                    for hmsg in hist_res.scalars().all():
-                        if hmsg.content:
-                            corpus_parts.append(str(hmsg.content))
-                except Exception as hist_err:
-                    logger.debug(f"Clarify gate history fetch skipped: {hist_err}")
+                history = await _fetch_prior_user_history(
+                    payload.conversation_id, exclude_message_id=user_msg.id if user_msg else None
+                )
+                for hmsg in history:
+                    if hmsg.get("content"):
+                        corpus_parts.append(str(hmsg["content"]))
                 corpus = " ".join(corpus_parts)
 
                 is_complete, missing_fields = evaluate_intake_completeness(corpus)
 
-                if (not workspace_resolved) or (not is_complete):
-                    questions = _build_clarify_questions(
-                        missing_fields=missing_fields,
-                        workspace_unresolved=not workspace_resolved,
-                    )
-                    reason = (
-                        "I need a few details before I can start building. "
-                        "Please answer the questions below (and pick a workspace), then resend your request."
-                    )
-                    yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                # task_request gates on intake completeness + workspace;
+                # task_confirm (no pending session) gates on workspace only —
+                # the user already discussed the request, but the files still
+                # need a home.
+                gate_trips = (not workspace_resolved) or (
+                    intent == INTENT_TASK_REQUEST and not is_complete
+                )
 
-                    # Finalize the assistant row so it is never left in
-                    # "streaming" after the generator returns.
-                    if assistant_msg is not None:
-                        lines = [reason, ""]
-                        for i, q in enumerate(questions, 1):
-                            lines.append(f"{i}. {q['question']}")
-                            for opt in q.get("options") or []:
-                                lines.append(f"   - {opt}")
-                        assistant_msg.content = "\n".join(lines)
-                        assistant_msg.status = "completed"
-                        assistant_msg.updated_at = datetime.now(timezone.utc)
-                        assistant_msg.token_count = len(assistant_msg.content) // 4 + len(user_content) // 4
-                    await persist_session.commit()
-                    return
+                if gate_trips:
+                    if intent == INTENT_TASK_REQUEST:
+                        # Run the real DiscoveryEngine pipeline (rule-based, no LLM).
+                        discovery_result = await _run_discovery(
+                            conversation_id=payload.conversation_id,
+                            corpus=corpus,
+                            history=history,
+                        )
+
+                        if discovery_result is not None and discovery_result.is_ready:
+                            # Request is now fully understood — proceed to Step 2
+                            # with a brief-enriched prompt.
+                            agent_prompt = _discovery_enrich_prompt(user_content, discovery_result)
+                        else:
+                            # Not ready → clarify with the DiscoveryEngine's questions.
+                            if (discovery_result is not None and discovery_result.clarification
+                                    and discovery_result.clarification.questions):
+                                questions = _format_discovery_questions(discovery_result.clarification.questions)
+                                reason = _discovery_reason(discovery_result)
+                                discovery_session_id = discovery_result.metadata.get("session_id")
+                            else:
+                                # Discovery disabled / errored / produced no questions →
+                                # static fallback (never crash the stream).
+                                questions = _build_clarify_questions(
+                                    missing_fields=missing_fields,
+                                    workspace_unresolved=not workspace_resolved,
+                                )
+                                reason = (
+                                    "I need a few details before I can start building. "
+                                    "Please answer the questions below (and pick a workspace), then resend your request."
+                                )
+                                discovery_session_id = None
+
+                            if not workspace_resolved:
+                                questions.append(_workspace_question())
+
+                            yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+
+                            # Finalize the assistant row so it is never left in
+                            # "streaming" after the generator returns, and persist
+                            # the discovery session id so the next message can
+                            # auto-continue the session.
+                            _finalize_clarify_message(
+                                assistant_msg, reason, questions, user_content,
+                                discovery_session_id=discovery_session_id,
+                            )
+                            await persist_session.commit()
+                            return
+                    elif not workspace_resolved:
+                        # INTENT_TASK_CONFIRM with no pending discovery session:
+                        # "yes / go ahead" but no folder pinned. Ask for
+                        # workspace/details instead of running the agent on a
+                        # bare confirmation.
+                        questions = _build_clarify_questions(
+                            missing_fields=missing_fields,
+                            workspace_unresolved=True,
+                        )
+                        reason = (
+                            "You confirmed the task — but I still need a few details "
+                            "(including the workspace folder) before I can start building."
+                        )
+                        yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
+                        _finalize_clarify_message(assistant_msg, reason, questions, user_content)
+                        await persist_session.commit()
+                        return
+                    # else: workspace resolved + user confirmed → proceed to Step 2
 
             # Step 2: Start agent with real tool execution
             try:
@@ -355,7 +898,7 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                 try:
                     async for event in runner.run_agent(
                         worker_type=worker_type,
-                        prompt=user_content,
+                        prompt=agent_prompt,
                         model_tier=model_tier,
                         max_iterations=10,
                         attachments=payload.attachments,
@@ -569,10 +1112,15 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
 
     if use_tools:
         from backend.services.tool_chat_service import ToolAwareChatService
-        import os
 
-        # Determine workspace root from conversation context
-        workspace_root = os.getcwd()
+        # M7 FIX: resolve the workspace from the conversation's project via the
+        # shared policy (never process cwd). Falls back to the per-conversation
+        # sandbox when no project repo_path is pinned.
+        from shared.workspace import resolve_conversation_workspace
+        async with AsyncSessionLocal() as ws_session:
+            workspace_root, _ws_resolved = await resolve_conversation_workspace(
+                ws_session, None, payload.conversation_id
+            )
         # QA-E2E FIX: pass the worker_type so the chat tool path uses the
         # worker's real permission set (write_file/shell for dev roles) instead
         # of falling back to the read-only default. Permission gating is still

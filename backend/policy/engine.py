@@ -115,7 +115,12 @@ class PolicyEngine:
                 )
 
         # 4. Worker file scope check
-        if worker_type and resource:
+        # M2 FIX: file-scope applies to real file paths only. The runtime
+        # executor passes resource="task:<id>" for worker.execute; that is a
+        # task-scoped resource, not a file path, so the file-scope component
+        # must be skipped for task: URIs (coding/deployment/testing workers
+        # were wrongly DENIED because "task:<id>" never matches src/**, etc.).
+        if worker_type and resource and not str(resource).startswith("task:"):
             scope = FILE_SCOPE.get(worker_type, [])
             if scope:
                 allowed = any(_match_glob(resource, pattern) for pattern in scope)

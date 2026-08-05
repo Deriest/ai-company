@@ -483,10 +483,13 @@ class ConversationEngine:
         if not project_id:
             return None, ""
 
-        from workflow.triage import perform_smart_triage
+        from workflow.triage import perform_smart_triage, ExecutionLevel
         triage_res = perform_smart_triage(f"{title} {description}", task_type=task_type, worker_hint=worker)
 
-        approval_required = task_type not in ("test", "docs") and triage_res.level != "QUICK"
+        # M6 FIX: triage_res.level is an ExecutionLevel enum — comparing it to a
+        # plain string was always True, so QUICK tasks incorrectly required
+        # approval. Compare against the enum member.
+        approval_required = task_type not in ("test", "docs") and triage_res.level != ExecutionLevel.QUICK
         task = Task(
             project_id=project_id,
             title=title,
@@ -569,60 +572,6 @@ class ConversationEngine:
         title = self._extract_title(content)
         approval_required = task_type not in ("test", "docs")
         return task_type, worker, title, approval_required
-        # Dead code below — kept for reference if LLM classification is ever fixed
-        from llm.provider import provider_manager, ModelTier
-        provider = provider_manager.get_active_with_key()
-        if not provider:
-            task_type, worker = self._classify_task(content)
-            title = self._extract_title(content)
-            approval_required = task_type not in ("test", "docs")
-            return task_type, worker, title, approval_required
-
-        TASK_CLASSIFY_PROMPT = """You are a task classifier. Return a JSON object:
-- title: concise task title (max 80 chars)
-- type: feature, bugfix, refactor, docs, test, infra, research
-- worker: pm, architect, research, designer, backend, frontend, qa, coding, database, security, documentation, deployment, devops, performance, debugger
-- approval_required: true for impactful work, false for low-risk
-
-Respond with ONLY the JSON object."""
-
-        try:
-            result = await provider.chat(
-                messages=[
-                    {"role": "system", "content": TASK_CLASSIFY_PROMPT},
-                    {"role": "user", "content": content},
-                ],
-                tier=ModelTier.SPRINTER,
-                temperature=0.0,
-                max_tokens=200,
-                purpose="task_classification",
-            )
-
-            raw = result["content"].strip()
-            logger.debug(f"LLM task classify raw: '{raw[:200]}'")
-            if not raw:
-                # Some models return content in a different structure
-                choices = result.get("raw", {}).get("choices", [])
-                if choices and choices[0].get("message", {}).get("content"):
-                    raw = choices[0]["message"]["content"].strip()
-                    logger.debug(f"LLM task classify from raw.choices: '{raw[:200]}'")
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            if start >= 0 and end > start:
-                raw = raw[start:end]
-            data = json.loads(raw)
-            return (
-                data.get("type", "feature"),
-                data.get("worker", "coding"),
-                data.get("title", self._extract_title(content)),
-                data.get("approval_required", True),
-            )
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"LLM task classification failed: {e}")
-            task_type, worker = self._classify_task(content)
-            return task_type, worker, self._extract_title(content), task_type not in ("test", "docs")
 
     async def _handle_status(self, conversation: Conversation) -> tuple[str, dict]:
         """Get project/task status."""

@@ -31,15 +31,10 @@ export function OnboardingFlow({ onComplete }: Props) {
   };
 
   const handleContinue = async () => {
-    // Optional GitHub token — only sent when the user actually filled it in.
-    // Never blocks the skip path.
+    // FE-H1: the field is camelCase `githubToken` (matches backend GET shape).
     const token = githubToken.trim();
     if (token) {
-      try {
-        await profileApi.update({ github_token: token });
-      } catch {
-        /* non-blocking — the token is optional */
-      }
+      try { await profileApi.update({ githubToken: token }) } catch { /* non-blocking */ }
     }
     const p = await profileApi.get();
     if (p) onComplete(p);

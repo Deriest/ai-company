@@ -5,9 +5,9 @@ import { Eye, EyeOff, KeyRound, Trash2 } from "lucide-react";
  * Optional GitHub token ("GHP") input — password field with an eye toggle.
  *
  * Semantics (owned by the parent):
- *  - type into the field  → parent sends `github_token` on save
- *  - leave blank          → field is NOT included in the PATCH (keeps stored)
- *  - "Remove stored"      → parent sends `github_token: null` to clear
+ *  - type into the field         → parent sends `githubToken` on save
+ *  - leave blank                 → field is NOT included in the PATCH (keeps stored)
+ *  - "Remove stored"             → parent sends `` (empty string clears it)
  *
  * When a token is already stored and the field is empty it shows a masked
  * placeholder so the stored value is never overwritten by mistake.

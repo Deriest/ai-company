@@ -149,8 +149,19 @@ class DiscoveryEngine:
         # Combine original content with clarification response
         combined_content = f"{content}\n\nClarification: {response}"
 
+        # A substantive clarification answer means the user already engaged with
+        # discovery and gave real detail. If the rule-based readiness evaluator
+        # still scores below threshold (it is calibrated for LLM-assisted
+        # extraction), force-complete with outstanding unknowns instead of
+        # interrogating the user again — discovery asked once, the user
+        # answered, so planning/build should proceed.
+        _words = len((response or "").split())
+        _chars = len((response or "").strip())
+        force_if_substantive = _words >= 12 or _chars >= 80
+
         result = await self._run_pipeline(
-            discovery_session, combined_content, history
+            discovery_session, combined_content, history,
+            force_if_substantive=force_if_substantive,
         )
 
         await self.session.commit()
@@ -178,6 +189,7 @@ class DiscoveryEngine:
         discovery_session: DiscoverySession,
         content: str,
         history: list | None = None,
+        force_if_substantive: bool = False,
     ) -> DiscoveryResult:
         """Run the discovery pipeline.
 
@@ -239,7 +251,8 @@ class DiscoveryEngine:
             )
         else:
             return await self._handle_not_ready(
-                discovery_session, intent, extraction, readiness, ambiguity, content
+                discovery_session, intent, extraction, readiness, ambiguity, content,
+                force_if_substantive=force_if_substantive,
             )
 
     async def _handle_ready(
@@ -301,7 +314,9 @@ class DiscoveryEngine:
             message=message,
             metadata={
                 "session_id": discovery_session.id,
-                "brief_id": brief_data.id,
+                # M4 FIX: brief_id must be the persisted EngineeringBriefModel
+                # row id (assigned on flush), not the dataclass id.
+                "brief_id": brief_model.id,
                 "domain": intent.domain,
                 "readiness_score": readiness.overall_score,
             },
@@ -315,6 +330,7 @@ class DiscoveryEngine:
         readiness: ReadinessResult,
         ambiguity: AmbiguityReport,
         content: str,
+        force_if_substantive: bool = False,
     ) -> DiscoveryResult:
         """Handle case when request is NOT Engineering Ready."""
         # Update state to CLARIFICATION
@@ -330,8 +346,9 @@ class DiscoveryEngine:
         # Update session
         discovery_session.questions_asked += len(clarification.questions)
 
-        # If final round or no questions, force-complete
-        if clarification.is_final or not clarification.questions:
+        # If final round, no questions, or the user already gave a substantive
+        # clarification answer, force-complete instead of interrogating again.
+        if clarification.is_final or not clarification.questions or force_if_substantive:
             return await self._force_complete(
                 discovery_session, intent, extraction, readiness, content
             )
@@ -417,7 +434,9 @@ class DiscoveryEngine:
             message=message,
             metadata={
                 "session_id": discovery_session.id,
-                "brief_id": brief_data.id,
+                # M4 FIX: brief_id must be the persisted EngineeringBriefModel
+                # row id (assigned on flush), not the dataclass id.
+                "brief_id": brief_model.id,
                 "force_completed": True,
                 "outstanding_unknowns": unknowns_count,
             },

@@ -34,6 +34,14 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Observability logger setup failed: {e}")
 
     await init_db()
+    # Defensive self-heal for existing DBs: seed the workers table (Lease rows
+    # FK -> workers.id). Idempotent — safe to run on every startup.
+    try:
+        from backend.database.workers_seed import seed_workers
+        async with AsyncSessionLocal() as db:
+            await seed_workers(db)
+    except Exception as e:
+        logger.warning(f"Workers seed at startup failed (non-critical): {e}")
     async with AsyncSessionLocal() as db:
         await init_fts5(db)
     # FIX: run_migrations is invoked inside init_db() — do not call it twice at

@@ -16,6 +16,7 @@ Integrity rules:
 - Events form causal chain via parent_event_id and metadata.
 """
 from datetime import datetime, timezone
+import asyncio
 import os
 import logging
 from sqlalchemy import select
@@ -91,7 +92,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
     else:
         scope_id = (task.context or {}).get("conversation_id") or task.id
         effective_repo_path = sandbox_workspace_dir(scope_id)
-    project_structure = inspect_project_structure(effective_repo_path)
+    project_structure = await asyncio.to_thread(inspect_project_structure, effective_repo_path)
 
     # 2. Resolve Smart Triage & Execution Level
     ctx = task.context or {}
@@ -450,7 +451,10 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 lease.artifact_path = saved_path
 
                 if result.output and not getattr(result, "used_fallback", False):
-                    extracted = extract_code_blocks_to_workspace(task.id, result.output, repo_path=effective_repo_path)
+                    extracted = await asyncio.to_thread(
+                        extract_code_blocks_to_workspace, task.id, result.output,
+                        effective_repo_path,
+                    )
                     if extracted:
                         phase_results[wtype]["extracted_files"] = extracted
                         logger.info(f"Extracted {len(extracted)} source files for task {task.id[:8]} (repo={effective_repo_path}): {extracted}")
@@ -540,7 +544,10 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     }
                     r_res = await r_worker.run_with_timeout(repair_task_ctx, timeout=120)
                     if r_res.output and not getattr(r_res, "used_fallback", False):
-                        extract_code_blocks_to_workspace(task.id, r_res.output, repo_path=effective_repo_path)
+                        await asyncio.to_thread(
+                            extract_code_blocks_to_workspace, task.id, r_res.output,
+                            effective_repo_path,
+                        )
 
                 # Re-run QA worker for targeted re-verification
                 qa_cls = WORKER_REGISTRY.get("qa")

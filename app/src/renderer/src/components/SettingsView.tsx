@@ -24,12 +24,18 @@ type Tab = SettingsTab
 function WorkspaceTab({ onProjectRootChange }: { onProjectRootChange?: (root: string | null) => void }) {
   const [root, setRoot] = useState('')
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [autoOpen, setAutoOpen] = useState(true)
   const [rememberSession, setRememberSession] = useState(true)
   const [sessionName, setSessionName] = useState('')
 
   useEffect(() => {
-    profileApi.get().then(p => { if (p?.projectRoot) setRoot(p.projectRoot) }).catch(() => {})
+    // FE-H3: the IPC store is the source of truth for projectRoot — the
+    // backend profile does not round-trip the field (PATCH ignores it), so
+    // never prefill from profile.projectRoot.
+    window.aic?.storeGet?.('projectRoot').then((v) => {
+      if (typeof v === 'string' && v) setRoot(v)
+    }).catch(() => {})
     try {
       const s = localStorage.getItem('aic-ade-workspace')
       if (s) {
@@ -41,17 +47,22 @@ function WorkspaceTab({ onProjectRootChange }: { onProjectRootChange?: (root: st
     } catch {}
   }, [])
 
-const handleSave = async () => {
-    try { 
-      await profileApi.update({ projectRoot: root })
+  const handleSave = async () => {
+    setSaveError('')
+    try {
       localStorage.setItem('aic-ade-workspace', JSON.stringify({ autoOpen, rememberSession, sessionName }))
-      // BUG-6: Propagate the project root to the IPC store and App-level state
-      // so the workspace/file tree pick up it immediately (mirrors ProjectPicker).
+      // FE-H3: persist to the IPC store first (source of truth). storeSet can
+      // reject unsafe paths — M8: surface that failure instead of swallowing it.
       await window.aic?.storeSet?.('projectRoot', root)
       onProjectRootChange?.(root)
-      setSaved(true); setTimeout(() => setSaved(false), 2000) 
+      // Best-effort mirror into the profile — the backend currently ignores
+      // projectRoot, so a failure here must not fail the save.
+      try { await profileApi.update({ projectRoot: root }) } catch { /* non-authoritative mirror */ }
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      setSaved(false)
+      setSaveError(e instanceof Error ? e.message : 'Failed to save workspace settings')
     }
-    catch { /* ignore */ }
   }
 
   const handleBrowse = async () => {
@@ -118,6 +129,7 @@ const handleSave = async () => {
           <button onClick={handleSave} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             {saved ? 'Saved' : 'Save'}
           </button>
+          {saveError && <p className="mt-2 text-xs text-destructive">{saveError}</p>}
         </div>
       </Card>
     </div>
@@ -444,8 +456,9 @@ function GithubTokenCard() {
   const [msg, setMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
+    // FE-H1: backend GET returns camelCase `githubToken`
     profileApi.get().then(p => {
-      if (p?.github_token) setHasStored(true)
+      if (p?.githubToken) setHasStored(true)
     }).catch(() => {})
   }, [])
 
@@ -453,20 +466,22 @@ function GithubTokenCard() {
     setSaving(true)
     setMsg(null)
     try {
-      const payload: { github_token?: string | null } = {}
+      const payload: { githubToken?: string } = {}
       if (value.trim()) {
-        payload.github_token = value.trim()
+        payload.githubToken = value.trim()
       } else if (cleared) {
-        payload.github_token = null
+        // Empty string clears the stored token; omitting it preserves.
+        payload.githubToken = ""
       }
       if (Object.keys(payload).length > 0) {
-        await profileApi.update(payload as { github_token: string | null })
-        setHasStored(Boolean(payload.github_token) && payload.github_token !== null)
+        await profileApi.update(payload as any)
+        setHasStored(Boolean(payload.githubToken))
         setValue("")
         setCleared(false)
-        setMsg({ kind: 'success', text: payload.github_token ? 'GitHub token saved' : 'GitHub token removed' })
+        setMsg({ kind: 'success', text: payload.githubToken ? 'GitHub token saved' : 'GitHub token removed' })
       } else {
-        setMsg({ kind: 'success', text: 'No changes — token kept as stored' })
+        // Only report "no changes" when a token is actually stored.
+        setMsg({ kind: 'success', text: hasStored ? 'No changes — token kept as stored' : 'Nothing to save — add a token first' })
       }
     } catch (e) {
       setMsg({ kind: 'error', text: 'Failed: ' + (e instanceof Error ? e.message : String(e)) })

@@ -51,22 +51,32 @@ class AutomationService:
 
     @staticmethod
     async def fire_event(db: AsyncSession, event_type: str, context: dict = None) -> list[EventHook]:
-        """Fire all hooks registered for an event type."""
-        hooks = await AutomationService.list_hooks(db, event_type)
-        fired = []
-        for hook in hooks:
-            await AutomationService.fire_hook(db, hook.id)
-            # Create notification if action_type is notify
-            if hook.action_type == "notify":
-                await AutomationService.create_notification(
-                    db,
-                    title=f"Event: {event_type}",
-                    message=hook.action_config.get("message", f"Hook '{hook.name}' fired"),
-                    level=hook.action_config.get("level", "info"),
-                    source=f"hook:{hook.id}",
-                )
-            fired.append(hook)
-        return fired
+        """Fire all hooks registered for an event type.
+
+        Runs on its OWN session (never the passed ``db``). The runtime executor
+        calls this from inside its FSM loop — if a hook committed the executor's
+        session mid-loop it would poison the pending transaction (e.g. the
+        pending Lease insert). Opening a dedicated session keeps the caller's
+        session clean while preserving the commit/refresh behavior of the hook
+        machinery.
+        """
+        from backend.database.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as hook_session:
+            hooks = await AutomationService.list_hooks(hook_session, event_type)
+            fired = []
+            for hook in hooks:
+                await AutomationService.fire_hook(hook_session, hook.id)
+                # Create notification if action_type is notify
+                if hook.action_type == "notify":
+                    await AutomationService.create_notification(
+                        hook_session,
+                        title=f"Event: {event_type}",
+                        message=hook.action_config.get("message", f"Hook '{hook.name}' fired"),
+                        level=hook.action_config.get("level", "info"),
+                        source=f"hook:{hook.id}",
+                    )
+                fired.append(hook)
+            return fired
 
     @staticmethod
     async def delete_hook(db: AsyncSession, hook_id: str):

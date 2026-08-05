@@ -54,7 +54,9 @@ export function GeneralTab({
     setMsg("");
     try {
       const updated = await profileApi.update({ displayName });
-      setProfile(updated);
+      // FE-H2: PATCH returns a partial profile — merge over the full one so
+      // deviceId/createdAt keep rendering instead of being wiped.
+      setProfile(prev => (prev ? { ...prev, ...updated } : updated));
       onProfileUpdated?.(updated);
       setMsg("Saved");
     } catch {

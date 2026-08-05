@@ -89,7 +89,9 @@ export function useBoot(opts: UseBootOptions): BootState {
   /** Splash "Retry" — reset transient boot state and re-run the whole sequence. */
   const retryBoot = useCallback(() => {
     setBootPhase("launching");
-    setBootDetail("Launching local engineering engine…");
+    // M3: the sidecar auto-restarts on a short delay; show a restarting state
+    // while the poll loop gives it a grace period before declaring error again.
+    setBootDetail("Restarting engine…");
     setHealth("unknown");
     setHealthDetail("checking…");
     setBackendStatus(null);
@@ -134,6 +136,14 @@ export function useBoot(opts: UseBootOptions): BootState {
       // surfaces an actionable error screen instead of hanging on "Loading…".
       if (window.aic?.getBackendStatus) {
         let lastStatus: BackendStatusInfo | null = null;
+        // M3: after a retry the main process restarts the sidecar on a short
+        // delay, so the very first polls can still see the stale pre-restart
+        // "error" status. Give a retry a grace period ("Restarting engine…")
+        // and require consecutive error polls before declaring failure again.
+        const isRetry = bootAttempt > 0;
+        const gracePolls = isRetry ? 8 : 0;   // ~2s for the auto-restart to kick in
+        const errorsRequired = isRetry ? 2 : 1;  // consecutive error polls to declare failure
+        let consecutiveErrors = 0;
         for (let i = 0; i < 40; i++) {
           try {
             const st = await window.aic.getBackendStatus();
@@ -141,18 +151,26 @@ export function useBoot(opts: UseBootOptions): BootState {
             setBackendStatus(st);
             if (st.status === "healthy") break;
             if (st.status === "error") {
-              setBootPhase("error");
-              setBootDetail(st.error || "Engine failed to start");
-              return;
+              consecutiveErrors += 1;
+              // Only surface error panel after grace period + required consecutive errors
+              if (i >= gracePolls && consecutiveErrors >= errorsRequired) {
+                setBootPhase("error");
+                setBootDetail(st.error || "Engine failed to start");
+                return;
+              }
+            } else {
+              consecutiveErrors = 0;
             }
-            setBootDetail(i < 4 ? "Launching local engineering engine…" : "Waiting for engine health…");
+            setBootDetail(
+              isRetry && i < gracePolls
+                ? "Restarting engine…"
+                : i < 4 ? "Launching local engineering engine…" : "Waiting for engine health…",
+            );
           } catch {
             /* keep polling */
           }
           await new Promise((r) => setTimeout(r, 250));
         }
-        // Renderer-side safety net: the main process health poll (15s) may not
-        // have flipped to "error" yet when we give up (10s) — surface it.
         if (!lastStatus || lastStatus.status !== "healthy") {
           setBootPhase("error");
           setBootDetail(lastStatus?.error || "Local engine did not become healthy within 10 seconds");

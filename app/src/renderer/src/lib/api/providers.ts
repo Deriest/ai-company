@@ -81,47 +81,54 @@ function mapProvider(p: ProviderWithModelsResponse): ProviderRecord {
   };
 }
 
-// Mock metadata provider logic (since backend doesn't provide it yet)
-// Vision rules mirror the backend's extended detection: gpt-4o, o4, "vl"/
-// "vision" family (qwen-vl, llava, pixtral), llama-4, gemini, claude.
-export function inferModelCapabilities(modelId: string): ModelCapabilities {
-  const id = modelId.toLowerCase();
-  const isClaude = id.includes("claude") || id.includes("opus") || id.includes("sonnet") || id.includes("haiku");
-  const isGpt = id.includes("gpt") || id.includes("o3") || id.includes("o1") || id.includes("o4");
-  const isDs = id.includes("deepseek");
-  const isQwen = id.includes("qwen");
-  const isGemini = id.includes("gemini");
-  const isSmall = id.includes("mini") || id.includes("3b") || id.includes("haiku") || id.includes("flash");
-  const isReason = id.includes("opus") || id.includes("o3") || id.includes("reasoner") || id.includes("r1");
+  // Mock metadata provider logic (since backend doesn't provide it yet)
+  // Vision rules mirror the backend's extended detection: gpt-4o, o4, "vl"/
+  // "vision" family (qwen-vl, llava, pixtral), llama-4, gemini, claude.
+  // EXACT mirroring of backend/services/provider_client.py::infer_capabilities
+  export function inferModelCapabilities(modelId: string): ModelCapabilities {
+    const id = modelId.toLowerCase();
+    // Backend is_gpt = ["gpt", "o1", "o3"] (no "o4") — o4 handled by \bo4\b below.
+    const isClaude = id.includes("claude") || id.includes("opus") || id.includes("sonnet") || id.includes("haiku");
+    const isGpt = id.includes("gpt") || id.includes("o3") || id.includes("o1");
+    const isDs = id.includes("deepseek");
+    const isQwen = id.includes("qwen");
+    const isGemini = id.includes("gemini");
+    const isSmall = id.includes("mini") || id.includes("3b") || id.includes("haiku") || id.includes("flash");
+    const isReason = id.includes("opus") || id.includes("o3") || id.includes("reasoner") || id.includes("r1");
 
-  // `vl` matches as a token (qwen2-vl, qwen2.5-vl, llava-vl…) but not inside
-  // unrelated words; `4o` and `o4` cover the OpenAI vision family.
-  const isVisionNamed =
-    id.includes("vision") || id.includes("4o") || id.includes("o4") ||
-    /(?:^|[-_./])vl(?:[-_./]|$)/.test(id) ||
-    id.includes("llava") || id.includes("pixtral") || id.includes("llama-4");
+    // Vision — EXACT mirror of backend _supports_vision (word-boundaries use
+    // JS \b semantics same as Python re \b; \b treats [A-Za-z0-9_] as word chars).
+    const isVision =
+      isClaude || isGpt || isGemini ||
+      id.includes("vision") ||
+      id.includes("4o") ||
+      id.includes("llava") ||
+      id.includes("pixtral") ||
+      id.includes("llama-4") ||
+      id.includes("image") ||
+      /\b(o4|vl|vlm)\b/.test(id);
 
-  let contextWindow = 128_000;
-  if (isClaude && id.includes("opus")) contextWindow = 200_000;
-  else if (isClaude) contextWindow = 200_000;
-  else if (isGpt && id.includes("4.1")) contextWindow = 1_000_000;
-  else if (isGpt) contextWindow = 128_000;
-  else if (isGemini) contextWindow = 1_000_000;
-  else if (isDs) contextWindow = 64_000;
-  else if (isSmall) contextWindow = 32_000;
+    let contextWindow = 128_000;
+    if (isClaude && id.includes("opus")) contextWindow = 200_000;
+    else if (isClaude) contextWindow = 200_000;
+    else if (isGpt && id.includes("4.1")) contextWindow = 1_000_000;
+    else if (isGpt) contextWindow = 128_000;
+    else if (isGemini) contextWindow = 1_000_000;
+    else if (isDs) contextWindow = 64_000;
+    else if (isSmall) contextWindow = 32_000;
 
-  return {
-    contextWindow,
-    vision: isClaude || isGpt || isGemini || isVisionNamed,
-    toolCalling: !id.includes("embed"),
-    streaming: true,
-    reasoning: isReason || isClaude || id.includes("think"),
-    functionCalling: !id.includes("embed") && !isSmall,
-    jsonMode: isGpt || isDs || isQwen || isClaude,
-    embedding: id.includes("embed"),
-    maxOutputTokens: isSmall ? 4096 : isReason ? 32_768 : 16_384,
-  };
-}
+    return {
+      contextWindow,
+      vision: isVision,
+      toolCalling: !id.includes("embed"),
+      streaming: true,
+      reasoning: isReason || isClaude || id.includes("think"),
+      functionCalling: !id.includes("embed") && !isSmall,
+      jsonMode: isGpt || isDs || isQwen || isClaude,
+      embedding: id.includes("embed"),
+      maxOutputTokens: isSmall ? 4096 : isReason ? 32_768 : 16_384,
+    };
+  }
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 

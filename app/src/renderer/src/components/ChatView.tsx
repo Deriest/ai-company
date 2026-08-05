@@ -1175,12 +1175,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
         },
         {
           onChunk: (chunk) => {
+            // M2: only append when this chunk belongs to the current streaming
+            // message — after Stop + immediate resend the aborted stream can
+            // still deliver late chunks that must not bleed into the new one.
+            if (streamMsgIdRef.current !== tempAsstId) return
             // PERF-FIX: single source of truth = assistantStates; the messages
             // array is only finalized once on done (no per-chunk O(n) map).
             streamContentRef.current += chunk
             updateAssistantState(tempAsstId, s => ({ ...s, content: streamContentRef.current, streamStatus: undefined }))
           },
           onToolStart: (tool, args, callId) => {
+            if (streamMsgIdRef.current !== tempAsstId) return
             const tc: ToolCallData = {
               id: callId || genId('tc'), type: tool, label: `${tool}: ${args.path || args.command || args.pattern || ''}`,
               status: 'running', args, result: {}, output: '', duration_ms: 0, timestamp: new Date().toISOString(), error: null,
@@ -1188,6 +1193,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             updateAssistantState(tempAsstId, s => ({ ...s, toolCalls: [...s.toolCalls, tc], streamStatus: undefined }))
           },
           onToolResult: (toolCall) => {
+            if (streamMsgIdRef.current !== tempAsstId) return
             updateAssistantState(tempAsstId, s => ({
               ...s,
               toolCalls: s.toolCalls.map(tc =>
@@ -1196,6 +1202,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             }))
           },
           onStatus: (status, _data) => {
+            // M2: a superseded stream (stopped / replaced by a resend) must not
+            // recreate assistant state or flip queued/executing on the new turn.
+            if (streamMsgIdRef.current !== tempAsstId) return
             if (status === 'overflow_warning') setContextOptimized(true)
             if (status === 'queued') {
               // Round-6 backend: agent concurrency cap emits "queued" before
@@ -1211,7 +1220,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               // Server cooperatively cancelled (Stop) — the SSE parser returns
               // here so onDone never fires. Finalize with the *[stopped]*
               // marker; never overwrite the partial content with a normal done.
-              if (streamMsgIdRef.current !== tempAsstId) return
               abortRef.current = null
               streamMsgIdRef.current = null
               const finalContent = streamContentRef.current
@@ -1229,20 +1237,37 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             }
           },
           onClarify: (payload) => {
-            // Backend needs missing details (project/workspace). Stop the
-            // "thinking…"/queued state, render the structured question block,
-            // and persist a plain-text fallback — the stream later sends done.
+            // M2: ignore clarify events from a superseded stream.
+            if (streamMsgIdRef.current !== tempAsstId) return
+            // M1: clarify ENDS the turn — the user answers in the next message.
+            // Finalize the assistant message (content + metadata carry the block)
+            // and RELEASE the send lock so the composer unlocks immediately.
+            // The backend may emit clarify without a following done; any later
+            // done/error from this stream hits the ownership guard above and is
+            // a no-op (the onDone fallback for normal streams stays intact).
             const text = formatClarify(payload)
             streamContentRef.current = text
-            updateAssistantState(tempAsstId, s => ({ ...s, isStreaming: false, streamStatus: undefined, clarify: payload }))
+            streamMsgIdRef.current = null
+            setAssistantStates(prev => {
+              const next = new Map(prev)
+              next.delete(tempAsstId)
+              return next
+            })
             setMessages(prev => prev.map(m => m.id === tempAsstId
-              ? { ...m, content: text, message_metadata: { ...m.message_metadata, clarify: payload } }
+              ? { ...m, content: text, status: 'completed', message_metadata: { ...m.message_metadata, clarify: payload } }
               : m))
+            setSending(false)
+            sendingRef.current = false
           },
           onDeliverables: (deliverables) => {
+            if (streamMsgIdRef.current !== tempAsstId) return
             updateAssistantState(tempAsstId, s => ({ ...s, deliverables }))
           },
           onDone: () => {
+            // M2: a stale stream (clarify-finalized, stopped, or superseded by a
+            // resend) must not overwrite the current message content or release
+            // a send lock it no longer owns.
+            if (streamMsgIdRef.current !== tempAsstId) return
             abortRef.current = null
             streamMsgIdRef.current = null
             const finalContent = streamContentRef.current
@@ -1260,6 +1285,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             // The useEffect on [activeId, sending] will reload naturally.
           },
           onError: (err) => {
+            // M2: an error from a superseded stream must not unlock the composer
+            // mid-new-send or clobber the new message.
+            if (streamMsgIdRef.current !== tempAsstId) return
             abortRef.current = null
             streamMsgIdRef.current = null
             const finalContent = streamContentRef.current

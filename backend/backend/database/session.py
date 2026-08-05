@@ -65,3 +65,10 @@ async def init_db():
     from backend.skill_engine import seed_builtin_skills
     async with AsyncSessionLocal() as db:
         await seed_builtin_skills(db)
+
+    # Seed the workers table (Lease rows FK -> workers.id). Idempotent —
+    # INSERT OR IGNORE per WORKER_REGISTRY key. Required so the executor's
+    # Lease inserts never crash with a FOREIGN KEY constraint failure.
+    from backend.database.workers_seed import seed_workers
+    async with AsyncSessionLocal() as db:
+        await seed_workers(db)

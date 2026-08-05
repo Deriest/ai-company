@@ -19,6 +19,10 @@ logger = logging.getLogger("aic.tool_permissions")
 # Tool permissions cache — loaded from AGENT_REGISTRY on first access
 _permissions_cache: dict[str, dict] = {}
 
+# Read-only tool set shared by conservative defaults and read-only roles.
+_READ_ONLY_TOOLS = {"read_file", "explore", "search", "web_fetch",
+                    "git_status", "git_diff", "git_log"}
+
 
 def _load_permissions() -> dict[str, dict]:
     """Load tool permissions from agent registry."""
@@ -29,8 +33,12 @@ def _load_permissions() -> dict[str, dict]:
     try:
         from agents.registry import AGENT_REGISTRY
         for agent_id, agent in AGENT_REGISTRY.items():
-            if hasattr(agent, "tool_permissions"):
-                tp = agent.tool_permissions
+            # FIX M1: AgentDefinition exposes permissions under 'tools'
+            # (previously this checked a nonexistent 'tool_permissions'
+            # attribute, so the cache never populated and every check was
+            # permissive).
+            if hasattr(agent, "tools"):
+                tp = agent.tools
                 _permissions_cache[agent_id] = {
                     "allowed": set(getattr(tp, "allowed", []) or []),
                     "restricted": set(getattr(tp, "restricted", []) or []),
@@ -39,35 +47,94 @@ def _load_permissions() -> dict[str, dict]:
     except (ImportError, Exception) as e:
         logger.debug(f"Could not load agent registry permissions: {e}")
 
+    # Conservative read-only defaults for worker types NOT in AGENT_REGISTRY
+    # (worker aliases with no corresponding agent definition). These roles must
+    # not write files or run shell commands.
+    for role_name in ("review", "planner", "testing"):
+        if role_name not in _permissions_cache:
+            _permissions_cache[role_name] = {
+                "allowed": {"read_file", "explore", "search"},
+                "restricted": set(),
+                "prohibited": {"write_file", "shell"},
+            }
+
+    # Coder aliases that should allow write/shell (not in AGENT_REGISTRY).
+    for role_name in ("coding", "devops", "deployment", "debugger"):
+        if role_name not in _permissions_cache:
+            _permissions_cache[role_name] = {
+                "allowed": {"read_file", "write_file", "shell", "explore", "search"},
+                "restricted": set(),
+                "prohibited": set(),
+            }
+
+    # Explicit overrides where the raw registry data contradicts intended
+    # role behavior (registry entries list write_file/shell in both allowed
+    # and restricted, which the check treats as deny).
+    # Read-only roles: rex (governor), review, security — no write_file/shell.
+    for role_name in ("rex", "review", "security"):
+        _permissions_cache[role_name] = {
+            "allowed": {"read_file", "explore", "search"},
+            "restricted": set(),
+            "prohibited": {"write_file", "shell"},
+        }
+    # Coder roles: backend/frontend — allow write_file + shell.
+    for role_name in ("backend", "frontend"):
+        _permissions_cache[role_name] = {
+            "allowed": {"read_file", "write_file", "shell", "explore", "search"},
+            "restricted": set(),
+            "prohibited": set(),
+        }
+    # Flint/deployment: infrastructure role that produces Dockerfiles/CI configs
+    # needs write_file (FIX 6).
+    _permissions_cache["flint"] = {
+        "allowed": {"read_file", "write_file", "shell", "explore", "search"},
+        "restricted": set(),
+        "prohibited": set(),
+    }
+    # Documentation (FIX 5): prompt says "write README" so it needs write_file,
+    # but never shell.
+    _permissions_cache["documentation"] = {
+        "allowed": {"read_file", "write_file", "explore", "search"},
+        "restricted": set(),
+        "prohibited": {"shell"},
+    }
+
     return _permissions_cache
 
 
 def check_tool_permission(worker_type: str, tool_name: str) -> bool:
     """Check if a worker is allowed to use a specific tool.
 
-    NOTE (consolidation audit): this is the LEGACY permission system used by
-    workers/base.py (``_make_permission_checker`` and the Review/Designer/Rex
-    direct constructions). Its permissive default for unknown worker types is
-    INTENTIONAL: workers/base.py workers are catalog-driven and their tool sets
-    come from AGENT_REGISTRY; the stricter default-deny policy lives in
-    backend.services.tool_executor.check_permission (used by AgentRunner).
-    Do NOT change the permissive default here without a corresponding review of
-    workers/base.py's ToolExecutor construction.
+    NOTE (M1 fix): the permission cache now loads from AgentDefinition.tools
+    (previously it checked a nonexistent 'tool_permissions' attribute, so the
+    cache never populated and every check was permissive). Roles not present in
+    AGENT_REGISTRY now default to a conservative read-only set (no write_file
+    or shell) instead of the old permissive default. The stricter default-deny
+    policy still lives in backend.services.tool_executor.check_permission
+    (used by AgentRunner).
 
     Returns True if:
-    - The worker has no permissions defined (permissive default)
+    - The worker has no permissions defined AND the tool is read-only (conservative default)
     - The tool is in the worker's allowed list
     - The tool is NOT in the prohibited list
 
     Returns False if:
     - The tool is in the prohibited list
     - The tool is in the restricted list (restricted = requires approval)
+    - The worker is unknown and the tool is not read-only
     """
     permissions = _load_permissions()
 
     if worker_type not in permissions:
-        # No permissions defined — permissive default
-        return True
+        # M1 FIX: unknown worker types default to a conservative read-only set
+        # (no write_file/shell) instead of the previous permissive default.
+        if tool_name in _READ_ONLY_TOOLS:
+            return True
+        logger.warning(
+            f"Tool '{tool_name}' denied for unknown worker '{worker_type}': "
+            f"conservative read-only default (no write_file/shell)"
+        )
+        return False
 
     perms = permissions[worker_type]
 
