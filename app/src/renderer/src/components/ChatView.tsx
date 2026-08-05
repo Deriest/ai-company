@@ -7,7 +7,7 @@
  * Sidebar is compact — session name + time.
  * Status bar shows model, tokens, connection.
  */
-import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect, memo } from 'react'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
@@ -19,6 +19,18 @@ import { chatApi, type ToolCallData, type FileDiffData, type ShellOutputData, ty
 import { providersApi, type ProviderRecord } from '../lib/api/providers'
 import { providerManageApi } from '../lib/api/provider_manage'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
+import { clamp, computeMessageWindow } from '../lib/virtualList'
+
+// ── Virtual list (windowing) ─────────────────────────────
+// Only the visible window of messages is rendered (a 1000-message conversation
+// renders ~40-50 rows instead of 1000). We use a fixed-estimate row height that
+// is refined over time by measuring the rendered slice (average height), so the
+// scrollbar stays aligned with the content even though rows vary in height.
+const VIRTUAL_OVERSCAN = 6       // extra rows above/below the viewport
+const ROW_HEIGHT_DEFAULT = 64    // initial estimate before first measurement
+const ROW_HEIGHT_MIN = 40        // measured average is clamped to this range
+const ROW_HEIGHT_MAX = 220       // ...so a tall streaming row can't skew it
+const SCROLL_TOLERANCE_PX = 96   // "near bottom" for stick-to-bottom (round-1)
 
 // ── Types ────────────────────────────────────────────────
 
@@ -419,7 +431,10 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
 
 // ── Message Row ──────────────────────────────────────────
 
-const MessageRow = memo(function MessageRow({ message, state }: { message: MessageRecord; state?: AssistantMessageState }) {
+// Exported for the component test (ChatView.test.tsx) — a real component test
+// renders MessageRow directly with a sample message instead of mocking the
+// whole ChatView (api calls, SSE, sessionStorage, ResizeObserver…).
+export const MessageRow = memo(function MessageRow({ message, state }: { message: MessageRecord; state?: AssistantMessageState }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -600,6 +615,15 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [compacting, setCompacting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
+  // ── Virtual list state (round-8) ────────────────────────
+  // scrollTop/containerHeight drive the visible window; rowHeight is the
+  // measured average row height (estimated first, refined by measurement so
+  // the scrollbar stays aligned with variable-height rows).
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(0)
+  const [rowHeight, setRowHeight] = useState(ROW_HEIGHT_DEFAULT)
+  const rowHeightRef = useRef(ROW_HEIGHT_DEFAULT)
+  const sliceRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const streamMsgIdRef = useRef<string | null>(null)
@@ -631,10 +655,59 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     const streaming = messages.find(m => m.status === 'streaming')
     return streaming?.conversation_id ?? null
   }, [messages])
-  const visibleMessages = activeId
-    ? messages.filter(m => m.conversation_id === activeId)
-    : messages
+  const visibleMessages = useMemo(
+    () => (activeId ? messages.filter(m => m.conversation_id === activeId) : messages),
+    [messages, activeId],
+  )
   const streamingBackground = sending && streamingConvId !== null && activeId !== null && activeId !== streamingConvId
+
+  // ── Virtual list: visible window (round-8) ─────────────
+  // Only this slice of visibleMessages is rendered; spacers keep the native
+  // scroll height identical to a fully-rendered list.
+  const listWindow = useMemo(
+    () => computeMessageWindow(visibleMessages.length, scrollTop, containerHeight, rowHeight, VIRTUAL_OVERSCAN),
+    [visibleMessages, scrollTop, containerHeight, rowHeight],
+  )
+  const messageSlice = useMemo(
+    () => visibleMessages.slice(listWindow.start, listWindow.end),
+    [visibleMessages, listWindow],
+  )
+
+  // Keep the scroll container height in sync (initial + window resizes). The
+  // jsdom test environment has no ResizeObserver, so guard for it.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const measure = () => setContainerHeight(el.clientHeight)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Refine the row-height estimate by measuring the average height of the
+  // rendered slice. EMA smoothing + clamping keep the estimate stable while a
+  // tall streaming row is growing; the 4px tolerance prevents feedback loops.
+  useLayoutEffect(() => {
+    const el = sliceRef.current
+    if (!el) return
+    const count = el.childElementCount
+    if (count < 3) return
+    const measured = el.offsetHeight / count
+    const prev = rowHeightRef.current
+    if (Math.abs(measured - prev) < 4) return
+    const next = clamp(prev * 0.6 + measured * 0.4, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
+    if (Math.abs(next - prev) < 1) return
+    rowHeightRef.current = next
+    setRowHeight(next)
+  })
+
+  // Reset the scroll anchor when the conversation changes so the stale
+  // scrollTop from the previous session can't throw the window off.
+  useEffect(() => {
+    setScrollTop(0)
+  }, [activeId])
 
   // ── Context usage (QA-2439 FIX → QA-2446: consistent per-message estimate)
   // Previous logic switched between backend token_count (crude len//4) and an
@@ -756,7 +829,11 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     const el = scrollRef.current
     if (!el || !shouldAutoScrollRef.current) return
     el.scrollTop = el.scrollHeight
-  }, [messages, assistantStates])
+    // rowHeight in deps: when the measurement refines the estimate (or the
+    // container resizes), re-anchor to the bottom so the streaming/last
+    // message stays in view — but only when the user is already at/near the
+    // bottom (shouldAutoScrollRef), never when they scrolled up.
+  }, [messages, assistantStates, rowHeight, containerHeight])
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -1216,7 +1293,11 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             ref={scrollRef}
             onScroll={e => {
               const el = e.currentTarget
-              shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96
+              // Stick-to-bottom: only auto-scroll when already near the bottom.
+              // When the user scrolls up, this becomes false and the scroll
+              // position is never forced (round-1 behavior, preserved).
+              shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_TOLERANCE_PX
+              setScrollTop(el.scrollTop)
             }}
             className="flex-1 overflow-y-auto scroll-thin px-4 py-3"
           >
@@ -1249,9 +1330,15 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               </div>
             ) : (
               <div className="max-w-3xl mx-auto">
-                {visibleMessages.map(m => (
-                  <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} />
-                ))}
+                {/* Virtual window (round-8): spacers preserve the total scroll
+                    height; only the visible slice of messages is rendered. */}
+                <div style={{ height: listWindow.spacerTop }} aria-hidden="true" />
+                <div ref={sliceRef}>
+                  {messageSlice.map(m => (
+                    <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} />
+                  ))}
+                </div>
+                <div style={{ height: listWindow.spacerBottom }} aria-hidden="true" />
               </div>
             )}
           </div>

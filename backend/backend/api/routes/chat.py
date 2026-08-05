@@ -12,6 +12,10 @@ from typing import List
 
 from backend.database.session import get_db, AsyncSessionLocal
 from backend.models.ai_runtime import Artifact
+from backend.models.conversation import Attachment
+from backend.services.attachment_store import (
+    save_attachment, decode_data_url, derive_file_type,
+)
 from storage.models import Message
 from backend.schemas.ai_runtime_schemas import (
     ChatRequest, ChatCancelRequest, ChatRegenerateRequest,
@@ -175,6 +179,39 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
             persist_session.add_all([user_msg, assistant_msg])
             await persist_session.commit()
 
+            # Persist attachment metadata AND binary so attachments survive
+            # backup/restore. The renderer sends each file as a base64 data URL
+            # ({name, mime_type, data_url}) inside payload.attachments; decode
+            # it and store the bytes at DATA_DIR/attachments/<attachment_id>.
+            # The metadata rows are linked to the user message (attachment-creation
+            # path for the chat flow). Failures are logged and skipped — the chat
+            # stream must never break because a file could not be written.
+            if payload.attachments:
+                for a in payload.attachments:
+                    try:
+                        if not isinstance(a, dict):
+                            continue
+                        data_url = a.get("data_url", "")
+                        name = a.get("name") or "attachment"
+                        mime = a.get("mime_type") or "application/octet-stream"
+                        data = decode_data_url(data_url)
+                        if data is None:
+                            logger.warning(f"Skipping attachment {name!r}: no decodable data_url")
+                            continue
+                        att = Attachment(
+                            message_id=user_msg.id,
+                            file_name=name,
+                            file_type=derive_file_type(mime, name),
+                            mime_type=mime,
+                            file_size=len(data),
+                        )
+                        persist_session.add(att)
+                        await persist_session.flush()
+                        save_attachment(att.id, data)
+                    except Exception as e:
+                        logger.warning(f"Failed to persist attachment binary: {e}")
+                await persist_session.commit()
+
             # Step 1: Acknowledge intent
             try:
                 yield f"data: {json.dumps({'type': 'intent', 'intent': intent, 'content': user_content})}\n\n"
@@ -249,6 +286,11 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
                             label_path = args.get('path', args.get('command', ''))
                             label = f"{event['tool']}: {label_path}"
                             yield f"data: {json.dumps({'type': 'tool_result', 'tool_call': {'id': event.get('call_id', ''), 'type': event['tool'], 'label': label, 'status': 'completed' if event.get('success') else 'error', 'output': event.get('output', ''), 'error': event.get('error'), 'args': args, 'duration_ms': 0, 'timestamp': ''}})}\n\n"
+                        elif event["type"] == "overflow_warning":
+                            # Forward the agent_runner context-overflow warning so
+                            # the frontend can surface it (renderer has a
+                            # "overflow_warning" case).
+                            yield f"data: {json.dumps({'type': 'overflow_warning', 'estimated': event.get('estimated'), 'budget': event.get('budget')})}\n\n"
                         elif event["type"] == "error":
                             assistant_msg.status = "error"
                             assistant_msg.updated_at = datetime.now(timezone.utc)

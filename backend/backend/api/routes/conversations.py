@@ -23,6 +23,9 @@ from backend.services.search_service import (
     index_conversation_fts, index_message_fts,
     remove_fts_by_conversation, init_fts5,
 )
+from backend.services.attachment_store import (
+    save_attachment, delete_attachment, read_attachment, decode_data_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -311,13 +314,22 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     # FIX: Attachment rows have no FK/relationship to messages — delete them
     # explicitly so they don't become orphans when the conversation (and its
     # messages via ORM cascade) is removed. Discovery sessions also reference
-    # the conversation (no cascade) — delete them explicitly too.
+    # the conversation (no cascade) — delete them explicitly too. Each
+    # attachment's binary file is removed from DATA_DIR/attachments/ as well.
+    att_res = await db.execute(select(Attachment.id).where(
+        Attachment.message_id.in_(
+            select(Message.id).where(Message.conversation_id == id)
+        )
+    ))
+    att_ids = [row[0] for row in att_res.all()]
     await db.execute(text(
         "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = :cid)"
     ), {"cid": id})
     await db.execute(text("DELETE FROM discovery_sessions WHERE conversation_id = :cid"), {"cid": id})
     await db.delete(conv)
     await db.commit()
+    for att_id in att_ids:
+        delete_attachment(att_id)
     await remove_fts_by_conversation(db, id)
     return {"status": "ok"}
 
@@ -374,6 +386,15 @@ async def duplicate_conversation(id: str, db: AsyncSession = Depends(get_db)):
                 attachment_metadata=a.attachment_metadata
             )
             db.add(new_att)
+            # Copy the source attachment's binary to the new attachment id so
+            # the duplicate is fully restorable too.
+            try:
+                await db.flush()
+                src = read_attachment(a.id)
+                if src is not None:
+                    save_attachment(new_att.id, src)
+            except Exception as e:
+                logger.warning(f"Failed to copy attachment binary {a.id}: {e}")
         await index_message_fts(db, new_msg.id, new_conv.id, new_msg.content)
 
     await db.commit()
@@ -484,6 +505,16 @@ async def import_conversation(payload: ImportConversationPayload, db: AsyncSessi
                     attachment_metadata=a.attachment_metadata
                 )
                 db.add(att)
+                # Persist the binary when the import payload carries a base64
+                # data URL (exported via the attachment-creation path).
+                if a.data_url:
+                    try:
+                        await db.flush()
+                        data = decode_data_url(a.data_url)
+                        if data is not None:
+                            save_attachment(att.id, data)
+                    except Exception as e:
+                        logger.warning(f"Failed to persist imported attachment binary {att.id}: {e}")
             await db.commit()
         await index_message_fts(db, msg.id, conv.id, msg.content)
 

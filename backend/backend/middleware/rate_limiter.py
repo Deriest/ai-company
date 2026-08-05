@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX_REQUESTS = 300  # max requests per window
-RATE_LIMIT_BURST = 50  # max concurrent requests
 
 _request_counts: dict[str, list[float]] = defaultdict(list)
 

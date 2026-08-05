@@ -8,6 +8,8 @@ from typing import Optional
 
 from backend.database.session import get_db
 from backend.models.local_profile import LocalProfile
+from backend.models.conversation import Attachment
+from backend.services.attachment_store import delete_attachment
 from storage.models import Project
 
 router = APIRouter()
@@ -202,6 +204,13 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(text(
         "DELETE FROM discovery_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
     ), {"pid": project_id})
+    # Collect attachment ids BEFORE deleting the rows so their binary files can
+    # be removed from DATA_DIR/attachments/ (round-4 cleanup deletes the rows;
+    # this keeps the on-disk binaries in sync).
+    att_res = await db.execute(text(
+        "SELECT id FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid))"
+    ), {"pid": project_id})
+    att_ids = [row[0] for row in att_res.all()]
     await db.execute(text(
         "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid))"
     ), {"pid": project_id})
@@ -214,6 +223,8 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
     await db.delete(project)
     await db.commit()
+    for att_id in att_ids:
+        delete_attachment(att_id)
     return None
 
 

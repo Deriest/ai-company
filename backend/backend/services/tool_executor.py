@@ -149,6 +149,16 @@ class WorkerToolExecutor:
                 except Exception:
                     pass
             return ToolResult(tool="run_shell", success=False, output="", error=f"Command timed out after {timeout}s")
+        except asyncio.CancelledError:
+            # FIX: kill the subprocess on cancellation so the shell command is
+            # stopped instantly instead of running until the full timeout.
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            raise
         except Exception as e:
             return ToolResult(tool="run_shell", success=False, output="", error=str(e))
 

@@ -15,6 +15,10 @@ from backend.services.artifact_service import artifact_service
 
 logger = logging.getLogger(__name__)
 
+# Sentinel returned by _resolve_model_chain when the model auto-selection chain
+# did NOT touch the provider config (the caller keeps its existing config).
+_NO_CHAIN_CONFIG = object()
+
 
 # PERF-FIX: fully static tool schema — built once at module import instead of
 # re-constructing the dict chain on every chat_completion call.
@@ -194,6 +198,190 @@ class ChatService:
         return _TOOLS_SCHEMA
 
     @classmethod
+    async def _resolve_model_chain(
+        cls,
+        db: AsyncSession,
+        provider_id: str | None,
+        model_id: str | None,
+        conversation_id: str,
+    ) -> tuple[str | None, str | None, object]:
+        """Resolve the effective model + provider (env → provider_models → worker_runtime).
+
+        Deduplicated model auto-selection chain shared by chat_completion() and
+        chat_stream() (previously inlined in both). Returns
+        (model_id, provider_id, chain_config) where chain_config is the config
+        selected by the chain — the env endpoint when an env model is chosen, or
+        the worker_runtime provider's config (may be None when that provider has
+        no usable key) — or _NO_CHAIN_CONFIG when the chain did not touch the
+        config. Callers apply their own provider re-fetch semantics on top.
+        """
+        chain_config = _NO_CHAIN_CONFIG
+        if not model_id:
+            from backend.config import settings
+            env_model = (
+                settings.AIC_MODEL_CRAFTER
+                or settings.AIC_MODEL_THINKER
+                or settings.AIC_MODEL_SPRINTER
+            )
+            if env_model:
+                model_id = env_model
+                # Prefer the env provider's base_url/api_key — an env model
+                # must not be sent to an auto-detected DB provider's endpoint.
+                env_base_url = settings.AIC_LLM_BASE_URL or ""
+                env_api_key = settings.AIC_LLM_API_KEY or ""
+                if env_base_url and env_api_key:
+                    env_base_url = env_base_url.rstrip("/")
+                    if not env_base_url.endswith("/v1"):
+                        env_base_url += "/v1"
+                    chain_config = (env_base_url, env_api_key)
+            else:
+                # Auto-detect provider if none given
+                if not provider_id:
+                    prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
+                    auto_prov = prov_res.scalars().first()
+                    if auto_prov:
+                        provider_id = auto_prov.id
+
+                if provider_id:
+                    # Try to find a valid model from the provider's model list
+                    res = await db.execute(
+                        select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
+                    )
+                    all_models = res.scalars().all()
+                    if all_models:
+                        excluded_prefixes = ("combo/", "IAMHC/")
+                        excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
+                        valid_models = [
+                            m for m in all_models
+                            if not m.startswith(excluded_prefixes)
+                            and not any(s in m.lower() for s in excluded_substrings)
+                        ]
+                        if not valid_models:
+                            valid_models = [m for m in all_models if not m.startswith("combo/")]
+                        if valid_models:
+                            model_id = valid_models[0]
+
+            # If still no model, try to get it from worker_runtime configuration
+            if not model_id:
+                from backend.models.schema import WorkerRuntime
+                wr_result = await db.execute(
+                    select(WorkerRuntime).where(WorkerRuntime.is_enabled == True).limit(1)
+                )
+                worker_runtime = wr_result.scalars().first()
+                if worker_runtime and worker_runtime.model_id:
+                    model_id = worker_runtime.model_id
+                    if not provider_id and worker_runtime.provider_id:
+                        provider_id = worker_runtime.provider_id
+                        # chat_stream() re-fetches the config for the
+                        # worker_runtime provider here (may be None when the
+                        # provider has no usable key — chat_stream errors then).
+                        chain_config = await cls._get_provider_config(db, provider_id)
+
+        logger.debug(
+            f"Model chain resolved for conversation {conversation_id}: "
+            f"model={model_id}, provider={provider_id}"
+        )
+        return model_id, provider_id, chain_config
+
+    @classmethod
+    async def _taste_rewrite_if_needed(cls, content: str, provider) -> str:
+        """Scan content for AI-isms and rewrite it via the LLM when needed.
+
+        Deduplicated taste-check + rewrite block (has_ai_slop → scan_summary →
+        REWRITE_PROMPT → check_again) shared by chat_completion() and
+        chat_stream(). `provider` may be an LLMProvider instance or the
+        provider_manager (both expose .chat()). Returns the (possibly
+        rewritten) content. Never raises — taste failures are non-critical.
+        """
+        try:
+            if not content:
+                return content
+            from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
+            if has_ai_slop(content, threshold=1):
+                taste_meta = scan_summary(content)
+                logger.info(f"Taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
+
+                # REWRITE PASS: If high findings, use LLM to rewrite
+                if taste_meta["high"] > 0:
+                    try:
+                        from llm.provider import ModelTier
+                        rewrite_result = await provider.chat(
+                            messages=[
+                                {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
+                                {"role": "user", "content": REWRITE_PROMPT + content},
+                            ],
+                            tier=ModelTier.SPRINTER,
+                            temperature=0.3,
+                            max_tokens=len(content) + 200,
+                            purpose="taste_rewrite",
+                        )
+                        rewritten = (rewrite_result.get("content", "") or "").strip()
+                        if rewritten and len(rewritten) > 10:
+                            from backend.services.taste_checker import has_ai_slop as check_again
+                            if not check_again(rewritten, threshold=1):
+                                logger.info("Taste rewrite successful — cleaner output")
+                                content = rewritten
+                            else:
+                                logger.info("Taste rewrite still has AI-isms — using original")
+                        else:
+                            logger.debug("Taste rewrite returned empty — using original")
+                    except Exception as rewrite_err:
+                        logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
+        except Exception as taste_err:
+            logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+        return content
+
+    @staticmethod
+    def _is_content_length_overflow(e: Any) -> bool:
+        """Detect upstream CONTENT_LENGTH_EXCEEDS_THRESHOLD errors.
+
+        Accepts a parsed JSON error body (dict), an httpx.HTTPStatusError, or a
+        generic exception. Returns True when the error carries the upstream
+        content-length signature. Mirrors the exact per-shape checks used by the
+        QA-249-R5 handlers (400 body, HTTPStatusError body, generic str(e)).
+        """
+        reason = ""
+        message = ""
+        if isinstance(e, httpx.HTTPStatusError):
+            try:
+                body = e.response.json()
+                reason = body.get("reason", "")
+                message = body.get("message", "")
+            except Exception:
+                return False  # body not JSON → falls through to generic handling
+        elif isinstance(e, dict):
+            reason = e.get("reason", "")
+            message = e.get("message", "")
+        else:
+            message = str(e)
+
+        if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in reason:
+            return True
+        if "exceeds threshold" in message.lower():
+            return True
+        if isinstance(e, (dict, httpx.HTTPStatusError)) and "content length" in message.lower():
+            return True
+        low = str(e).lower()
+        return "content_length_exceeds_threshold" in low or (
+            "content length" in low and "exceed" in low
+        )
+
+    @staticmethod
+    def _handle_content_length_overflow(e: Any, estimated: int, model_id: str | None) -> bool:
+        """Detect an upstream content-length overflow and log it.
+
+        Reuses the shared `_is_content_length_overflow` signature check. The
+        caller is responsible for emitting the friendly error / done events.
+        Returns True when the error is a content-length overflow.
+        """
+        if ChatService._is_content_length_overflow(e):
+            logger.error(
+                f"Upstream content length error: estimated={estimated}, model={model_id}, error={e}"
+            )
+            return True
+        return False
+
+    @classmethod
     async def chat_completion(
         cls,
         db: AsyncSession,
@@ -229,60 +417,13 @@ class ChatService:
         # short-circuited to "No AI provider configured" even when an enabled
         # provider existed.
         if not model_id:
-            from backend.config import settings
-            env_model = (
-                settings.AIC_MODEL_CRAFTER
-                or settings.AIC_MODEL_THINKER
-                or settings.AIC_MODEL_SPRINTER
+            model_id, provider_id, chain_config = await cls._resolve_model_chain(
+                db, provider_id, model_id, conversation_id
             )
-            if env_model:
-                model_id = env_model
-                # Prefer the env provider's base_url/api_key — an env model
-                # must not be sent to an auto-detected DB provider's endpoint.
-                env_base_url = settings.AIC_LLM_BASE_URL or ""
-                env_api_key = settings.AIC_LLM_API_KEY or ""
-                if env_base_url and env_api_key:
-                    env_base_url = env_base_url.rstrip("/")
-                    if not env_base_url.endswith("/v1"):
-                        env_base_url += "/v1"
-                    config = (env_base_url, env_api_key)
-            else:
-                # Auto-detect provider if none given
-                if not provider_id:
-                    prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
-                    auto_prov = prov_res.scalars().first()
-                    if auto_prov:
-                        provider_id = auto_prov.id
-
-                if provider_id:
-                    # Try to find a valid model from the provider's model list
-                    res = await db.execute(
-                        select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
-                    )
-                    all_models = res.scalars().all()
-                    if all_models:
-                        excluded_prefixes = ("combo/", "IAMHC/")
-                        excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
-                        valid_models = [
-                            m for m in all_models
-                            if not m.startswith(excluded_prefixes)
-                            and not any(s in m.lower() for s in excluded_substrings)
-                        ]
-                        if not valid_models:
-                            valid_models = [m for m in all_models if not m.startswith("combo/")]
-                        if valid_models:
-                            model_id = valid_models[0]
-
-            if not model_id:
-                from backend.models.schema import WorkerRuntime
-                wr_result = await db.execute(
-                    select(WorkerRuntime).where(WorkerRuntime.is_enabled == True).limit(1)
-                )
-                worker_runtime = wr_result.scalars().first()
-                if worker_runtime and worker_runtime.model_id:
-                    model_id = worker_runtime.model_id
-                    if not provider_id and worker_runtime.provider_id:
-                        provider_id = worker_runtime.provider_id
+            # Apply the chain-selected config (env endpoint / worker_runtime
+            # provider) unless the chain left the config untouched.
+            if chain_config is not _NO_CHAIN_CONFIG:
+                config = chain_config
 
             # Re-fetch config with the (possibly auto-detected) provider.
             if provider_id:
@@ -403,37 +544,7 @@ class ChatService:
             finish_reason = choice.get("finish_reason", "stop")
             
             # FITUR 2: Taste checker — scan for AI-isms and rewrite if needed
-            try:
-                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
-                if has_ai_slop(content, threshold=1):
-                    taste_meta = scan_summary(content)
-                    logger.info(f"Chat taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
-                    
-                    # REWRITE PASS: If high findings, use LLM to rewrite
-                    if taste_meta["high"] > 0:
-                        try:
-                            rewrite_result = await provider.chat(
-                                messages=[
-                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
-                                    {"role": "user", "content": REWRITE_PROMPT + content},
-                                ],
-                                tier=ModelTier.SPRINTER,
-                                temperature=0.3,
-                                max_tokens=len(content) + 200,
-                                purpose="taste_rewrite"
-                            )
-                            rewritten = rewrite_result.get("content", "").strip()
-                            if rewritten and len(rewritten) > 10:
-                                from backend.services.taste_checker import has_ai_slop as check_again
-                                if not check_again(rewritten, threshold=1):
-                                    logger.info("Taste rewrite successful — cleaner output")
-                                    content = rewritten
-                                else:
-                                    logger.info("Taste rewrite still has AI-isms — using original")
-                        except Exception as rewrite_err:
-                            logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
-            except Exception as taste_err:
-                logger.debug(f"Taste checker exception (non-critical): {taste_err}")
+            content = await cls._taste_rewrite_if_needed(content, provider)
             
             # handle tool calls if present
             if tool_calls:
@@ -595,71 +706,16 @@ class ChatService:
             # Providers → written to AIC_MODEL_* env) must take priority over
             # auto-picking from provider_models — the first "valid" model in the
             # list may have no active credentials on the endpoint (404).
-            from backend.config import settings
-            env_model = (
-                settings.AIC_MODEL_CRAFTER
-                or settings.AIC_MODEL_THINKER
-                or settings.AIC_MODEL_SPRINTER
+            model_id, provider_id, chain_config = await cls._resolve_model_chain(
+                db, provider_id, model_id, conversation_id
             )
-            if env_model:
-                model_id = env_model
-                # QA-FIX: the env model must be paired with the env provider's
-                # base_url/api_key — otherwise an env model gets sent to an
-                # auto-detected DB provider's endpoint (404).
-                env_base_url = settings.AIC_LLM_BASE_URL or ""
-                env_api_key = settings.AIC_LLM_API_KEY or ""
-                if env_base_url and env_api_key:
-                    env_base_url = env_base_url.rstrip("/")
-                    if not env_base_url.endswith("/v1"):
-                        env_base_url += "/v1"
-                    config = (env_base_url, env_api_key)
-            else:
-                # BUG-14 FIX: Resolve provider_id first so we can look up ProviderModel
-                if not provider_id:
-                    # Auto-detect: find first enabled provider's ID
-                    prov_res = await db.execute(select(Provider).where(Provider.enabled == True).limit(1))
-                    auto_prov = prov_res.scalars().first()
-                    if auto_prov:
-                        provider_id = auto_prov.id
+            # The chain selected a config (env endpoint / worker_runtime
+            # provider) — apply it. A worker_runtime provider without a usable
+            # key yields None here, which the `if not config:` guard below
+            # reports as "No provider configuration found." (same as before).
+            if chain_config is not _NO_CHAIN_CONFIG:
+                config = chain_config
 
-                if provider_id:
-                    # Try to find a valid model from the provider's model list
-                    res = await db.execute(
-                        select(ProviderModel.model_id).where(ProviderModel.provider_id == provider_id)
-                    )
-                    all_models = res.scalars().all()
-                    if all_models:
-                        # Filter out combo/bad models, pick first valid one
-                        excluded_prefixes = ("combo/", "IAMHC/")
-                        excluded_substrings = ("free", "big-pickle", "deepseek", "r1")
-                        valid_models = [
-                            m for m in all_models
-                            if not m.startswith(excluded_prefixes)
-                            and not any(s in m.lower() for s in excluded_substrings)
-                        ]
-                        if not valid_models:
-                            valid_models = [m for m in all_models if not m.startswith("combo/")]
-                        if valid_models:
-                            model_id = valid_models[0]
-            
-            # If still no model, try to get from worker_runtime configuration
-            if not model_id:
-                from backend.models.schema import WorkerRuntime
-                wr_result = await db.execute(
-                    select(WorkerRuntime).where(WorkerRuntime.is_enabled == True).limit(1)
-                )
-                worker_runtime = wr_result.scalars().first()
-                if worker_runtime and worker_runtime.model_id:
-                    model_id = worker_runtime.model_id
-                    if not provider_id and worker_runtime.provider_id:
-                        provider_id = worker_runtime.provider_id
-                        # Re-fetch config with correct provider
-                        config = await cls._get_provider_config(db, provider_id)
-                        if config:
-                            base_url, api_key = config
-                            url = f"{base_url}/chat/completions"
-                            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            
             # Only use env fallback if absolutely no configuration exists
             # AND no DB provider is active — mixing an env model (e.g.
             # AIC_MODEL_CRAFTER) with a DB provider's base_url would send a
@@ -795,15 +851,10 @@ class ChatService:
                         try:
                             error_body = await res.aread()
                             error_json = json.loads(error_body)
-                            error_reason = error_json.get("reason", "")
-                            error_message = error_json.get("message", "")
 
                             # Check if it's a content length threshold error from upstream
-                            if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in error_reason or \
-                               "exceeds threshold" in error_message.lower() or \
-                               "content length" in error_message.lower():
+                            if cls._handle_content_length_overflow(error_json, estimated, model_id):
                                 friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
-                                logger.error(f"Upstream content length error: estimated={estimated}, model={model_id}, reason={error_reason}")
                                 msg.status = "error"
                                 msg.content = friendly_msg
                                 await db.commit()
@@ -840,39 +891,12 @@ class ChatService:
             # stay visible; when a cleaner rewrite is produced, emit a `rewrite`
             # SSE event (renderer dispatches it to onRewrite) and persist the
             # rewritten text so the next reload shows the clean version.
-            try:
-                from backend.services.taste_checker import has_ai_slop, scan_summary, REWRITE_PROMPT
-                if raw_content and has_ai_slop(raw_content, threshold=1):
-                    taste_meta = scan_summary(raw_content)
-                    logger.info(f"Stream taste checker: {taste_meta['total_findings']} findings (high={taste_meta['high']})")
-                    if taste_meta["high"] > 0:
-                        try:
-                            from llm.provider import provider_manager, ModelTier
-                            rewrite_result = await provider_manager.chat(
-                                messages=[
-                                    {"role": "system", "content": "You are a text editor. Rewrite the given text to remove AI patterns. Keep the meaning and tone. Do NOT add explanations, just output the rewritten text."},
-                                    {"role": "user", "content": REWRITE_PROMPT + raw_content},
-                                ],
-                                tier=ModelTier.SPRINTER,
-                                temperature=0.3,
-                                max_tokens=len(raw_content) + 200,
-                                purpose="taste_rewrite",
-                            )
-                            rewritten = (rewrite_result.get("content", "") or "").strip()
-                            if rewritten and len(rewritten) > 10:
-                                from backend.services.taste_checker import has_ai_slop as check_again
-                                if not check_again(rewritten, threshold=1):
-                                    logger.info("Stream taste rewrite successful — cleaner output")
-                                    msg.content = rewritten
-                                    yield f"data: {json.dumps({'type': 'rewrite', 'content': rewritten})}\n\n"
-                                else:
-                                    logger.info("Stream taste rewrite still has AI-isms — using original")
-                            else:
-                                logger.debug("Stream taste rewrite returned empty — using original")
-                        except Exception as rewrite_err:
-                            logger.debug(f"Stream taste rewrite failed (non-critical): {rewrite_err}")
-            except Exception as taste_err:
-                logger.debug(f"Stream taste checker exception (non-critical): {taste_err}")
+            if raw_content:
+                from llm.provider import provider_manager
+                rewritten_content = await cls._taste_rewrite_if_needed(raw_content, provider_manager)
+                if rewritten_content != raw_content:
+                    msg.content = rewritten_content
+                    yield f"data: {json.dumps({'type': 'rewrite', 'content': rewritten_content})}\n\n"
 
             msg.status = "completed"
             # Store token_count from upstream usage if available, otherwise estimate
@@ -921,45 +945,30 @@ class ChatService:
 
         except httpx.HTTPStatusError as e:
             # QA-249-R5: Catch HTTPStatusError for 400 responses not caught above
-            if e.response.status_code == 400:
-                try:
-                    error_json = e.response.json()
-                    error_reason = error_json.get("reason", "")
-                    error_message = error_json.get("message", "")
-                    
-                    if "CONTENT_LENGTH_EXCEEDS_THRESHOLD" in error_reason or \
-                       "exceeds threshold" in error_message.lower() or \
-                       "content length" in error_message.lower():
-                        friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
-                        logger.error(f"Upstream content length error (HTTPStatusError): estimated={estimated}, model={model_id}")
-                        msg.status = "error"
-                        msg.content = friendly_msg
-                        await db.commit()
-                        yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                        return
-                except Exception:
-                    pass
-            
-            # Generic HTTP error
-            msg.status = "error"
-            await db.commit()
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
-        except Exception as e:
-            # QA-249-R5: Check if exception message contains threshold indicators
-            error_str = str(e).lower()
-            if "content_length_exceeds_threshold" in error_str or \
-               "exceeds threshold" in error_str or \
-               ("content length" in error_str and "exceed" in error_str):
+            if e.response.status_code == 400 and cls._handle_content_length_overflow(e, estimated, model_id):
                 friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
-                logger.error(f"Upstream content length error (Exception): estimated={estimated}, model={model_id}, error={e}")
                 msg.status = "error"
                 msg.content = friendly_msg
                 await db.commit()
                 yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
-            
+
+            # Generic HTTP error
+            msg.status = "error"
+            await db.commit()
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        except Exception as e:
+            # QA-249-R5: Check if exception message contains threshold indicators
+            if cls._handle_content_length_overflow(e, estimated, model_id):
+                friendly_msg = "Context terlalu besar untuk model ini. Mulai sesi baru atau minta ringkasan."
+                msg.status = "error"
+                msg.content = friendly_msg
+                await db.commit()
+                yield f"data: {json.dumps({'type': 'error', 'error': friendly_msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+
             msg.status = "error"
             await db.commit()
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"

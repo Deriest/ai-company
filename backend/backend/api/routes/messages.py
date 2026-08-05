@@ -1,5 +1,6 @@
 """Message routes — CRUD for conversation messages."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -11,8 +12,13 @@ from backend.models.conversation import Attachment
 from backend.schemas.conversation_schemas import (
     MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
 )
+from backend.services.attachment_store import (
+    save_attachment, delete_attachment, read_attachment, decode_data_url,
+)
 from backend.services.search_service import index_message_fts, remove_fts
 from backend.api.routes.conversations import _build_msg_responses, _build_msg_response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -79,14 +85,26 @@ async def create_message(id: str, payload: MessageCreate, db: AsyncSession = Dep
 
     if payload.attachments:
         for a in payload.attachments:
-            db.add(Attachment(
+            att = Attachment(
                 message_id=msg.id,
                 file_name=a.file_name,
                 file_type=a.file_type,
                 mime_type=a.mime_type,
                 file_size=a.file_size,
                 attachment_metadata=a.attachment_metadata
-            ))
+            )
+            db.add(att)
+            # Persist the binary when the client supplied a base64 data URL so
+            # the attachment survives backup/restore. Flush first to obtain the
+            # generated attachment id (DATA_DIR/attachments/<id>).
+            if a.data_url:
+                try:
+                    await db.flush()
+                    data = decode_data_url(a.data_url)
+                    if data is not None:
+                        save_attachment(att.id, data)
+                except Exception as e:
+                    logger.warning(f"Failed to persist attachment {att.id} binary: {e}")
         await db.commit()
 
     await index_message_fts(db, msg.id, id, msg.content)
@@ -128,9 +146,40 @@ async def delete_message(id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Message not found")
 
     # FIX: Attachment rows have no FK/relationship to messages — delete them
-    # explicitly so they don't become orphans.
+    # explicitly so they don't become orphans. Also remove each attachment's
+    # binary file from DATA_DIR/attachments/.
+    att_res = await db.execute(select(Attachment.id).where(Attachment.message_id == id))
+    att_ids = [row[0] for row in att_res.all()]
     await db.execute(delete(Attachment).where(Attachment.message_id == id))
+    for att_id in att_ids:
+        delete_attachment(att_id)
     await db.delete(msg)
     await db.commit()
     await remove_fts(db, 'message', id)
     return {"status": "ok"}
+
+
+@router.get("/attachments/{attachment_id}")
+async def get_attachment(attachment_id: str, db: AsyncSession = Depends(get_db)):
+    """Serve an attachment's binary with its stored mime_type.
+
+    Restored messages carry attachment metadata but no live base64 payload, so
+    the renderer fetches the binary here (GET /attachments/{id}). Attachments
+    created before binary storage existed (or whose file was removed) 404 with
+    a clear message.
+    """
+    att_res = await db.execute(select(Attachment).where(Attachment.id == attachment_id))
+    att = att_res.scalars().first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    data = read_attachment(attachment_id)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Attachment binary not found (created before binary storage existed)",
+        )
+    return Response(
+        content=data,
+        media_type=att.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{att.file_name}"'},
+    )

@@ -10,7 +10,6 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import net from "node:net";
 import * as pty from "node-pty";
 import { UpdateManager } from "./updateManager";
 import {
@@ -19,6 +18,7 @@ import {
   DEFAULT_UPDATE_BASE_URL,
   type UpdateConfig,
 } from "./updateConfig";
+import { findFreePort, isAllowedNavigation, sanitizeProjectRoot, resolveSafe } from "./security";
 
 const isDev = !app.isPackaged && process.env.AIC_IDE_DEV === "1";
 
@@ -28,65 +28,6 @@ type DirTreeNode = {
   isDirectory: boolean;
   children?: DirTreeNode[];
 };
-
-/** Allowed roots for read/write — app data dir only (covers store, downloads, logs, staged updates).
- *  Project folders are attached per-call via `resolveSafe(..., [projectRoot])`.
- *  Home / Documents / Temp are intentionally NOT included (world-writable or sensitive). */
-function allowedRoots(): string[] {
-  return [appDataDir()];
-}
-
-/** Reject project-root values that would expand the renderer's file access to the whole machine. */
-const SENSITIVE_FS_ROOTS = new Set([
-  "/", "/home", "/root", "/etc", "/usr", "/var", "/tmp", "/bin", "/sbin",
-  "/lib", "/lib64", "/proc", "/sys", "/dev", "/boot", "/opt", "/mnt",
-  "/media", "/run", "/srv", "/snap", "/nix", "/Volumes", "/System",
-  "/Library", "/Private", "/Users", "/Applications", "/Windows",
-  "/Program Files", "/Program Files (x86)", "C:\\", "C:\\Windows",
-  "C:\\Program Files", "C:\\Program Files (x86)", "C:\\Users",
-]);
-
-function sanitizeProjectRoot(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value !== "string") return null;
-  let resolved: string;
-  try {
-    resolved = path.resolve(value);
-  } catch {
-    return null;
-  }
-  const lower = resolved.toLowerCase();
-  if (SENSITIVE_FS_ROOTS.has(resolved) || SENSITIVE_FS_ROOTS.has(lower)) return null;
-  const home = path.resolve(app.getPath("home"));
-  if (resolved === home || resolved === path.resolve(app.getPath("temp"))) return null;
-  // Must be an existing directory.
-  try {
-    const st = fs.statSync(resolved);
-    if (!st.isDirectory()) return null;
-  } catch {
-    return null;
-  }
-  return resolved;
-}
-
-function resolveSafe(target: string, extraRoots: string[] = []): string {
-  const resolved = path.resolve(target);
-  const roots = [...allowedRoots(), ...extraRoots].map((r) => path.resolve(r));
-  const ok = roots.some((root) => resolved === root || resolved.startsWith(root + path.sep));
-  if (!ok) throw new Error(`path not allowed: ${resolved}`);
-  // block symlink escape: lstat the resolved path, reject if symlink pointing outside roots
-  try {
-    const real = fs.realpathSync(resolved);
-    if (real !== resolved) {
-      const realOk = roots.some((root) => real === root || real.startsWith(root + path.sep));
-      if (!realOk) throw new Error(`symlink escape blocked: ${resolved} → ${real}`);
-    }
-  } catch (e) {
-    // path may not exist yet (write case) — only block if it exists and is a symlink
-    if (fs.existsSync(resolved)) throw e;
-  }
-  return resolved;
-}
 
 function appDataDir(): string {
   return path.join(app.getPath("userData"), "aic-ade");
@@ -211,35 +152,6 @@ export function resolvePlatformDir(): string {
   const devWorkspace = path.join(__dirname, "..", "..", "..", "backend");
   if (fs.existsSync(devWorkspace)) return path.resolve(devWorkspace);
   return appParentDir;
-}
-
-/** Find a free TCP port — try from start until one is available. */
-export function findFreePort(start: number = 8000, end: number = 8099, host: string = "127.0.0.1"): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let port = start;
-    const tryNext = (): void => {
-      if (port > end) {
-        reject(new Error(`No free ports in range ${start}-${end}`));
-        return;
-      }
-      const socket = net.createConnection({ host, port });
-      socket.setTimeout(300);
-      socket.on("connect", () => {
-        socket.destroy();
-        port++;
-        tryNext();
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        resolve(port);
-      });
-      socket.on("timeout", () => {
-        socket.destroy();
-        resolve(port);
-      });
-    };
-    tryNext();
-  });
 }
 
 /** Bundled portable Python (packaged) or local venv (dev). Never require system Python for production. */
@@ -575,32 +487,6 @@ function verifyBackupContents(root: string): { ok: boolean; error?: string } {
   return { ok: true };
 }
 
-/** Navigation allowlist — only the app's own dist bundle file:// pages and
- *  (in dev) the Vite server. M8: arbitrary file:// URLs are rejected; only
- *  paths under app.getAppPath()/dist are allowed. */
-function isAllowedNavigation(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol === "file:") {
-      const distDir = path.resolve(app.getAppPath(), "dist");
-      let filePath: string;
-      try {
-        filePath = path.resolve(decodeURIComponent(u.pathname));
-      } catch {
-        return false;
-      }
-      // On Windows, file:///C:/... parses pathname as /C:/... — strip the
-      // leading slash before comparing against the resolved dist dir.
-      if (/^\/[A-Za-z]:/.test(filePath)) filePath = filePath.slice(1);
-      return filePath === distDir || filePath.startsWith(distDir + path.sep);
-    }
-    if (isDev && u.protocol === "http:" && u.hostname === "127.0.0.1" && u.port === "5174") return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
-
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
@@ -638,10 +524,10 @@ function createWindow(): BrowserWindow {
   // so remote pages must never be allowed to load inside this window.
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (e, url) => {
-    if (!isAllowedNavigation(url)) e.preventDefault();
+    if (!isAllowedNavigation(url, path.resolve(app.getAppPath(), "dist"), isDev)) e.preventDefault();
   });
   win.webContents.on("will-redirect", (e, url) => {
-    if (!isAllowedNavigation(url)) e.preventDefault();
+    if (!isAllowedNavigation(url, path.resolve(app.getAppPath(), "dist"), isDev)) e.preventDefault();
   });
 
   mainWindow = win;
@@ -690,7 +576,7 @@ function registerIpc(): void {
       // projectRoot is the trust boundary for file access — never let the
       // renderer set an arbitrary path. Only validated non-sensitive paths
       // are accepted (native dialog / backend-selected projects).
-      const safe = sanitizeProjectRoot(value);
+      const safe = sanitizeProjectRoot(value, app.getPath("home"), app.getPath("temp"));
       if (value === null || value === undefined || value === "") {
         store.projectRoot = null;
         projectRoot = null;
@@ -712,7 +598,7 @@ function registerIpc(): void {
 
   ipcMain.handle("aic:open-path", async (_e, target: string) => {
     if (!target || typeof target !== "string") return { ok: false, error: "invalid path" };
-    const safe = resolveSafe(target, projectRoot ? [projectRoot] : []);
+    const safe = resolveSafe(target, projectRoot ? [projectRoot] : [], [appDataDir()]);
     const result = await shell.openPath(safe);
     return result ? { ok: false, error: result } : { ok: true };
   });
@@ -736,7 +622,7 @@ function registerIpc(): void {
 
   ipcMain.handle("aic:read-dir-tree", async (_e, dir: string, maxDepth = 4) => {
     if (!dir || typeof dir !== "string") throw new Error("invalid dir");
-    const safe = resolveSafe(dir, projectRoot ? [projectRoot] : []);
+    const safe = resolveSafe(dir, projectRoot ? [projectRoot] : [], [appDataDir()]);
 
     async function build(basePath: string, depth: number): Promise<DirTreeNode[]> {
       if (depth <= 0) return [];
@@ -787,7 +673,7 @@ function registerIpc(): void {
     }
     const root = cwd || projectRoot;
     if (!root) throw new Error("No project root — open a folder first");
-    const safeCwd = resolveSafe(root, [root]);
+    const safeCwd = resolveSafe(root, [root], [appDataDir()]);
     const shellPath =
       process.platform === "win32"
         ? process.env.COMSPEC || "cmd.exe"

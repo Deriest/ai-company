@@ -171,12 +171,22 @@ async def delete_conversation(
     # FIX (round-5): discovery_sessions reference the conversation with no
     # cascade, and Attachment rows have no FK — delete both explicitly so the
     # ORM delete of the conversation does not hit a NOT NULL/FK violation.
+    # Also remove each attachment's binary file from DATA_DIR/attachments/.
+    att_res = await session.execute(
+        select(Attachment.id).where(Attachment.message_id.in_(
+            select(Message.id).where(Message.conversation_id == conversation_id)
+        ))
+    )
+    att_ids = [row[0] for row in att_res.all()]
     await session.execute(delete(DiscoverySession).where(DiscoverySession.conversation_id == conversation_id))
     await session.execute(delete(Attachment).where(Attachment.message_id.in_(
         select(Message.id).where(Message.conversation_id == conversation_id)
     )))
     await session.delete(conv)
     await session.commit()
+    from backend.services.attachment_store import delete_attachment
+    for att_id in att_ids:
+        delete_attachment(att_id)
     return {"deleted": True, "id": conversation_id}
 
 

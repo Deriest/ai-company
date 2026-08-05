@@ -8,6 +8,11 @@ class AttachmentCreate(BaseModel):
     mime_type: str
     file_size: int
     attachment_metadata: Optional[Dict[str, Any]] = None
+    # Optional base64 data URL (data:<mime>;base64,<payload>). When present the
+    # binary is decoded and persisted to DATA_DIR/attachments/<id> so the
+    # attachment survives backup/restore. The renderer only sends this on the
+    # chat/execute path (see AttachmentStorage); export/import payloads omit it.
+    data_url: Optional[str] = None
 
 class AttachmentResponse(AttachmentCreate):
     id: str

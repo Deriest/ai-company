@@ -71,6 +71,34 @@ export type UpdateState = {
 
 export type UpdateListener = (state: UpdateState) => void;
 
+/** Network/disk I/O seam — injected so tests can run without network or real files. */
+export type IO = {
+  fetchJson: (url: string, timeoutMs?: number) => Promise<unknown>;
+  downloadFile: (
+    url: string,
+    dest: string,
+    onProgress?: (downloaded: number, total: number, speed: number) => void
+  ) => Promise<void>;
+  sha256File: (filePath: string) => Promise<string>;
+};
+
+/** Electron surface used by the updater — injected so tests avoid real Electron. */
+export type AppAdapter = {
+  getVersion: () => string;
+  getPath: (name: "userData") => string;
+  shell: {
+    openPath: (path: string) => Promise<string>;
+    openExternal?: (url: string) => Promise<void>;
+  };
+  Notification: {
+    isSupported: () => boolean;
+    new (opts: { title: string; body: string }): { show: () => void };
+  };
+  exit?: (code?: number) => void;
+  quit?: () => void;
+  relaunch?: () => void;
+};
+
 const MAX_REDIRECTS = 5;
 const MAX_MANIFEST_BYTES = 1 * 1024 * 1024; // 1MB manifest cap
 const MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024 * 1024; // 8GB artifact safety cap
@@ -238,6 +266,8 @@ export class UpdateManager {
   private state: UpdateState;
   private listeners = new Set<UpdateListener>();
   private config: UpdateConfig;
+  private io: IO;
+  private appAdapter: AppAdapter;
   private checking = false;
   private downloading = false;
   private abortDownload = false;
@@ -245,11 +275,53 @@ export class UpdateManager {
 
   setBackendProc(proc: any) { this._backendProc = proc; }
 
-  constructor(config?: Partial<UpdateConfig>) {
-    this.config = defaultUpdateConfig(config);
+  /**
+   * @param config     Update configuration (the historical first argument,
+   *                   still used by main.ts).
+   * @param io         Optional I/O seam — falls back to the real fetchJson /
+   *                   downloadFile / sha256File implementations.
+   * @param appAdapter Optional Electron seam — falls back to real electron.
+   *                   When the first argument itself looks like an IO object
+   *                   (i.e. has fetchJson/downloadFile/sha256File), it is
+   *                   treated as the io seam and the second as appAdapter,
+   *                   preserving the `new UpdateManager(io, appAdapter)`
+   *                   injection style.
+   */
+  constructor(
+    config?: Partial<UpdateConfig> | Partial<IO>,
+    io?: Partial<IO> | Partial<AppAdapter>,
+    appAdapter?: Partial<AppAdapter>
+  ) {
+    const isIoShape = (v: unknown): v is Partial<IO> =>
+      !!v && typeof v === "object" && ("fetchJson" in v || "downloadFile" in v || "sha256File" in v);
+    let cfg = config;
+    let ioOpts: Partial<IO> | undefined;
+    let adapterOpts = appAdapter;
+    if (isIoShape(cfg)) {
+      adapterOpts = io as Partial<AppAdapter> | undefined;
+      ioOpts = cfg;
+      cfg = undefined;
+    } else {
+      ioOpts = io as Partial<IO> | undefined;
+    }
+    this.config = defaultUpdateConfig(cfg);
+    this.io = {
+      fetchJson: ioOpts?.fetchJson ?? fetchJson,
+      downloadFile: ioOpts?.downloadFile ?? downloadFile,
+      sha256File: ioOpts?.sha256File ?? sha256File,
+    };
+    this.appAdapter = {
+      getVersion: adapterOpts?.getVersion ?? (() => app.getVersion()),
+      getPath: adapterOpts?.getPath ?? ((name) => app.getPath(name)),
+      shell: adapterOpts?.shell ?? shell,
+      Notification: adapterOpts?.Notification ?? Notification,
+      exit: adapterOpts?.exit ?? ((code) => app.exit(code)),
+      quit: adapterOpts?.quit ?? (() => app.quit()),
+      relaunch: adapterOpts?.relaunch ?? (() => app.relaunch()),
+    };
     this.state = {
       status: "idle",
-      currentVersion: app.getVersion(),
+      currentVersion: this.appAdapter.getVersion(),
       baseUrl: this.config.baseUrl,
       channel: this.config.channel,
       lastCheckedAt: this.config.lastCheckedAt,
@@ -306,8 +378,8 @@ export class UpdateManager {
   /** Native notification shown before an auto-download when notifyBeforeInstall is on. */
   private notifyUpdateAvailable(): void {
     try {
-      if (!Notification.isSupported()) return;
-      const n = new Notification({
+      if (!this.appAdapter.Notification.isSupported()) return;
+      const n = new this.appAdapter.Notification({
         title: "Update available",
         body: `AIC ADE ${this.state.availableVersion ?? ""} is ready to download. Open Settings → Updates to install it.`,
       });
@@ -323,14 +395,14 @@ export class UpdateManager {
     this.setState({ status: "checking", error: undefined });
     try {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
-      const raw = await fetchJson(url);
+      const raw = await this.io.fetchJson(url);
       const manifest = parseManifest(raw);
       const now = new Date().toISOString();
       this.config.lastCheckedAt = now;
 
       const platform = process.platform as PlatformKey;
       const artifact = manifest.platforms[platform];
-      const newer = isNewerVersion(manifest.version, app.getVersion());
+      const newer = isNewerVersion(manifest.version, this.appAdapter.getVersion());
 
       if (!newer) {
         this.setState({
@@ -338,7 +410,7 @@ export class UpdateManager {
           availableVersion: undefined,
           lastCheckedAt: now,
           releaseNotes: manifest.releaseNotes,
-          mandatory: isMandatoryUpdate(manifest, app.getVersion()),
+          mandatory: isMandatoryUpdate(manifest, this.appAdapter.getVersion()),
           artifact: undefined,
           dismissedVersion: undefined,
           notifyBeforeInstall: false,
@@ -368,7 +440,7 @@ export class UpdateManager {
           status: "idle",
           availableVersion: manifest.version,
           releaseNotes: manifest.releaseNotes,
-          mandatory: isMandatoryUpdate(manifest, app.getVersion()),
+          mandatory: isMandatoryUpdate(manifest, this.appAdapter.getVersion()),
           artifact: art,
           lastCheckedAt: now,
         });
@@ -379,7 +451,7 @@ export class UpdateManager {
         status: "available",
         availableVersion: manifest.version,
         releaseNotes: manifest.releaseNotes,
-        mandatory: isMandatoryUpdate(manifest, app.getVersion()),
+        mandatory: isMandatoryUpdate(manifest, this.appAdapter.getVersion()),
         artifact: art,
         lastCheckedAt: now,
         dismissedVersion: undefined,
@@ -421,7 +493,7 @@ export class UpdateManager {
         return this.getState();
       }
       this.abortDownload = false;
-      const dir = path.join(app.getPath("userData"), "aic-ade", "updates", "staged");
+      const dir = path.join(this.appAdapter.getPath("userData"), "aic-ade", "updates", "staged");
       fs.mkdirSync(dir, { recursive: true });
       // Sanitize artifact filename — path.basename() blocks "../" traversal escapes.
       const safeFilename = path.basename(artifact.filename || `update-${this.state.availableVersion}`);
@@ -438,7 +510,7 @@ export class UpdateManager {
       });
 
       try {
-        await downloadFile(artifact.downloadUrl, tempDest, (downloaded, total, speed) => {
+        await this.io.downloadFile(artifact.downloadUrl, tempDest, (downloaded, total, speed) => {
           if (this.abortDownload) return;
           this.setState({
             status: "downloading",
@@ -450,7 +522,7 @@ export class UpdateManager {
         });
 
         this.setState({ status: "verifying", progress: 100 });
-        const hash = await sha256File(tempDest);
+        const hash = await this.io.sha256File(tempDest);
         const expected = (artifact.sha256 || "").toLowerCase();
         // sha256 is REQUIRED by parseManifest — never skip verification.
         if (!expected || hash.toLowerCase() !== expected) {
@@ -499,7 +571,7 @@ export class UpdateManager {
         // macOS: surface the .dmg to the user (Finder opens it). The restart
         // is applied separately via quitAndInstall so the freshly installed
         // app takes effect.
-        const err = await shell.openPath(file);
+        const err = await this.appAdapter.shell.openPath(file);
         if (err) {
           this.setState({ status: "error", error: `Could not open installer: ${err}` });
           return this.getState();
@@ -536,21 +608,21 @@ export class UpdateManager {
       fs.writeFileSync(batFile, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart "AIC ADE Update" "${file}"\r\ndel "%~f0"\r\n`);
       spawn('cmd', ['/c', batFile], { detached: true, stdio: 'ignore' }).unref();
       // Exit immediately so installer can overwrite files
-      setImmediate(() => app.exit(0));
+      setImmediate(() => this.appAdapter.exit?.(0));
     } else if (process.platform === "linux" && file.endsWith(".AppImage")) {
       try { fs.chmodSync(file, 0o755); } catch {}
       const cmd = `sleep 2 && "${file}"`;
       spawn('sh', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
       // Let the new AppImage take over — quit gracefully so the backend is
       // torn down via the normal will-quit path.
-      setImmediate(() => app.quit());
+      setImmediate(() => this.appAdapter.quit?.());
     } else {
       // macOS: never spawn the .dmg as a binary (that fails with
       // EXEC_BAD_ACCESS). Open the staged .dmg in Finder (no-op if already
       // mounted) then relaunch so the freshly installed app takes effect.
-      void shell.openPath(file).then(() => {
-        app.relaunch();
-        app.exit(0);
+      void this.appAdapter.shell.openPath(file).then(() => {
+        this.appAdapter.relaunch?.();
+        this.appAdapter.exit?.(0);
       });
     }
   }
