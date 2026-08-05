@@ -1,9 +1,10 @@
 """AIC Platform — Security primitives: JWT."""
 from datetime import datetime, timedelta, timezone
 
-# NOTE: pyjwt (unmaintained python-jose was replaced — pyjwt's jwt.encode
-# returns str, jwt.decode raises jwt.InvalidTokenError on any failure).
-import jwt
+# NOTE: keep python-jose — the packaged Windows/Linux runtimes ship with
+# python-jose installed (not PyJWT); a PyJWT-only code path broke the
+# installed app with ModuleNotFoundError: No module named 'jwt'.
+from jose import JWTError, jwt
 
 from backend.config import settings
 
@@ -22,5 +23,5 @@ def decode_access_token(token: str) -> dict | None:
     """Decode and verify a JWT. Returns claims or None on failure."""
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except jwt.InvalidTokenError:
+    except JWTError:
         return None
