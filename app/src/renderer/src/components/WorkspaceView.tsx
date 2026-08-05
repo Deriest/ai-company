@@ -193,6 +193,10 @@ function WorkerSprite({ worker, status }: { worker: WorkerDef; status: WorkerSta
     drawPixelCharacter(canvas, worker, isWorking, 0, 0)
 
     let blinkCounter = 0
+    // L7: track the pending blink-close timeout so the effect cleanup can clear
+    // it — previously every blink scheduled a 100ms timer that was never
+    // cleared on unmount/status change (one leaked timer per idle tick).
+    let blinkTimeoutId: ReturnType<typeof setTimeout> | undefined
     const interval = setInterval(() => {
       if (isWorking) {
         frameRef.current = frameRef.current === 0 ? 1 : 0
@@ -203,7 +207,7 @@ function WorkerSprite({ worker, status }: { worker: WorkerDef; status: WorkerSta
         if (blinkCounter % 4 === 0) {
           eyeRef.current = 1
           drawPixelCharacter(canvas, worker, false, 0, 1)
-          setTimeout(() => {
+          blinkTimeoutId = setTimeout(() => {
             eyeRef.current = 0
             drawPixelCharacter(canvas, worker, false, 0, 0)
           }, 100)
@@ -211,7 +215,10 @@ function WorkerSprite({ worker, status }: { worker: WorkerDef; status: WorkerSta
       }
     }, tick)
 
-    return () => clearInterval(interval)
+    return () => {
+      if (blinkTimeoutId !== undefined) clearTimeout(blinkTimeoutId)
+      clearInterval(interval)
+    }
   }, [worker, status])
 
   // Shake animation for working status via CSS class

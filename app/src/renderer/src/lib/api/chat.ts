@@ -1,6 +1,3 @@
-import { apiClient } from "./client";
-import { MessageRecord } from "./conversations";
-
 // PERF-FIX: cache the backend port after the first IPC round-trip so every
 // stream call doesn't pay a getBackendStatus IPC hop. The cache is bounded
 // by a TTL so a backend restart onto a different port (8000-8099) is picked
@@ -9,11 +6,20 @@ const PORT_CACHE_TTL_MS = 60_000;
 let cachedBackendPort: number | null = null;
 let cachedBackendPortAt = 0;
 
+/** M5: drop the cached port so the next getBackendPort() re-resolves via IPC. */
+function invalidatePortCache(): void {
+  cachedBackendPort = null;
+  cachedBackendPortAt = 0;
+}
+
 async function getBackendPort(): Promise<number> {
   if (cachedBackendPort !== null && Date.now() - cachedBackendPortAt < PORT_CACHE_TTL_MS) {
     return cachedBackendPort;
   }
-  const port = await (window as any).aic?.getBackendStatus()?.then((s: any) => s.port).catch(() => 8000) || 8000;
+  let port = 8000;
+  if (typeof window !== "undefined" && window.aic?.getBackendStatus) {
+    port = await window.aic.getBackendStatus().then((s) => s.port).catch(() => 8000) || 8000;
+  }
   cachedBackendPort = port;
   cachedBackendPortAt = Date.now();
   return port;
@@ -57,18 +63,6 @@ export interface TodoItemData {
   priority: string; // high, medium, low
 }
 
-/** Clarify question from the backend when a task lacks project/workspace details. */
-export interface ClarifyQuestion {
-  id: string;
-  question: string;
-  options?: string[];
-}
-
-export interface ClarifyPayload {
-  reason?: string;
-  questions: ClarifyQuestion[];
-}
-
 /** Deliverable summary from backend */
 export interface DeliverableFile {
   path: string;
@@ -90,172 +84,19 @@ export interface DeliverableSummary {
   errors: { tool: string; error: string }[];
 }
 
-/** All event types from the backend SSE stream */
-export type StreamEvent =
-  | { type: "chunk"; content: string }
-  | { type: "rewrite"; content: string }
-  | { type: "tool_start"; tool: string; args: Record<string, any> }
-  | { type: "tool_result"; tool_call: ToolCallData }
-  | { type: "file_diff"; path: string; before: string; after: string; action: string }
-  | { type: "shell_output"; command: string; chunk: string; exit_code: number | null; status: string }
-  | { type: "todo_update"; items: TodoItemData[] }
-  | { type: "files_modified"; paths: string[] }
-  | { type: "deliverables"; deliverables: DeliverableSummary }
-  | { type: "done"; intent?: string; metadata?: Record<string, any> }
-  | { type: "error"; error: string }
-  | { type: "cancelled"; reason?: string }
-  | { type: "overflow_warning"; summary?: string };
+/** Clarify question from the backend when a task lacks project/workspace details. */
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  options?: string[];
+}
 
-/** Callback interface for stream events */
-export interface StreamCallbacks {
-  onChunk: (content: string) => void;
-  onRewrite?: (content: string) => void;
-  onToolStart: (tool: string, args: Record<string, any>) => void;
-  onToolResult: (toolCall: ToolCallData) => void;
-  onFileDiff: (diff: FileDiffData) => void;
-  onShellOutput: (output: ShellOutputData) => void;
-  onTodoUpdate: (items: TodoItemData[]) => void;
-  onFilesModified: (paths: string[]) => void;
-  onDone: (metadata?: Record<string, any>) => void;
-  onError: (error: string) => void;
+export interface ClarifyPayload {
+  reason?: string;
+  questions: ClarifyQuestion[];
 }
 
 export const chatApi = {
-  async complete(payload: {
-    conversation_id: string;
-    messages: { role: string; content: string }[];
-    provider_id?: string;
-    model_id?: string;
-    worker_role?: string;
-    temperature?: number;
-    top_p?: number;
-    max_tokens?: number;
-  }): Promise<MessageRecord> {
-    return apiClient.post<MessageRecord>("/chat", payload);
-  },
-
-  /**
-   * Stream with full tool event support.
-   * Parses all SSE event types and dispatches to callbacks.
-   */
-  async streamWithTools(
-    payload: {
-      conversation_id: string;
-      messages: { role: string; content: string }[];
-      provider_id?: string;
-      model_id?: string;
-      worker_role?: string;
-      temperature?: number;
-      top_p?: number;
-      max_tokens?: number;
-    },
-    callbacks: StreamCallbacks,
-  ): Promise<() => void> {
-    const port = await getBackendPort();
-    const url = `http://127.0.0.1:${port}/chat/stream`;
-    const ac = new AbortController();
-
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, stream: true }),
-      signal: ac.signal,
-    }).then(async (res) => {
-      if (!res.body) throw new Error("No body");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Cap the SSE buffer so a misbehaving stream can never grow unbounded.
-        // Keep only the tail after the last complete event boundary.
-        if (buffer.length > 1_000_000) {
-          const lastBreak = buffer.lastIndexOf('\n\n');
-          buffer = lastBreak >= 0 ? buffer.slice(lastBreak + 2) : '';
-        }
-
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const dataStr = line.substring(6);
-          if (dataStr === "[DONE]") { callbacks.onDone(); return; }
-
-          try {
-            const evt: StreamEvent = JSON.parse(dataStr);
-            switch (evt.type) {
-              case "chunk":
-                callbacks.onChunk(evt.content);
-                break;
-              case "rewrite":
-                callbacks.onRewrite?.(evt.content);
-                break;
-              case "tool_start":
-                callbacks.onToolStart(evt.tool, evt.args);
-                break;
-              case "tool_result":
-                callbacks.onToolResult(evt.tool_call);
-                break;
-              case "file_diff":
-                callbacks.onFileDiff({ path: evt.path, before: evt.before, after: evt.after, action: evt.action });
-                break;
-              case "shell_output":
-                callbacks.onShellOutput({ command: evt.command, chunk: evt.chunk, exit_code: evt.exit_code ?? null, status: evt.status });
-                break;
-              case "todo_update":
-                callbacks.onTodoUpdate(evt.items);
-                break;
-              case "files_modified":
-                callbacks.onFilesModified(evt.paths);
-                break;
-              case "done":
-                callbacks.onDone(evt.metadata);
-                return;
-              case "error":
-                callbacks.onError(evt.error);
-                return;
-            }
-          } catch { /* ignore parse errors for partial chunks */ }
-        }
-      }
-      callbacks.onDone();
-    }).catch((e) => {
-      if (e.name !== "AbortError") callbacks.onError(String(e));
-    });
-
-    return () => ac.abort();
-  },
-
-  /** Legacy stream (no tools) — backward compat */
-  async stream(payload: {
-    conversation_id: string;
-    messages: { role: string; content: string }[];
-    provider_id?: string;
-    model_id?: string;
-    worker_role?: string;
-    temperature?: number;
-    top_p?: number;
-    max_tokens?: number;
-  }, onChunk: (chunk: string) => void, onDone: () => void, onError: (err: any) => void): Promise<() => void> {
-    return chatApi.streamWithTools(payload, {
-      onChunk,
-      onRewrite: () => {},
-      onToolStart: () => {},
-      onToolResult: () => {},
-      onFileDiff: () => {},
-      onShellOutput: () => {},
-      onTodoUpdate: () => {},
-      onFilesModified: () => {},
-      onDone,
-      onError: (err) => onError(new Error(err)),
-    });
-  },
-
   async executeAgent(payload: {
     conversation_id: string;
     messages: { role: string; content: string }[];
@@ -277,16 +118,32 @@ export const chatApi = {
     /** Backend asks for missing details (project/workspace) — render, don't auto-spawn. */
     onClarify?: (payload: ClarifyPayload) => void;
   }): Promise<() => void> {
-    const port = await getBackendPort();
-    const url = `http://127.0.0.1:${port}/chat/execute`;
     const ac = new AbortController();
 
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: ac.signal,
-    }).then(async (res) => {
+    // M5: open the stream, retrying ONCE with a freshly resolved port on
+    // connection failure (non-2xx or network error) — a backend crash-restart
+    // can land on a new port (8000-8099), leaving the cached port stale.
+    const openStream = async (): Promise<Response> => {
+      const open = async () =>
+        fetch(`http://127.0.0.1:${await getBackendPort()}/chat/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: ac.signal,
+        });
+      try {
+        const res = await open();
+        if (res.ok) return res;
+        invalidatePortCache();
+        return await open();
+      } catch (e) {
+        if ((e as Error)?.name === "AbortError") throw e;
+        invalidatePortCache();
+        return await open();
+      }
+    };
+
+    openStream().then(async (res) => {
       // QA-HARDENING: surface non-2xx responses (e.g. 413 body too large)
       // via onError instead of silently parsing the JSON error body as SSE
       // and firing an empty onDone.

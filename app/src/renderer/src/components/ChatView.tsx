@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect, mem
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList, FolderOpen,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
@@ -446,7 +446,7 @@ function formatClarify(p: ClarifyPayload): string {
 }
 
 /** Structured "I need a few details" assistant block (clarify SSE event). */
-function ClarifyBlock({ payload }: { payload: ClarifyPayload }) {
+function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayload; onPickWorkspaceFolder?: () => void }) {
   const intro = payload.reason || 'Sebelum mulai, saya perlu beberapa detail:'
   return (
     <div className="my-1 rounded-lg border border-info/30 bg-info/5 p-3">
@@ -469,6 +469,18 @@ function ClarifyBlock({ payload }: { payload: ClarifyPayload }) {
                 ))}
               </div>
             ) : null}
+            {/* Workspace question affordance */}
+            {q.id === 'workspace' && onPickWorkspaceFolder && (
+              <button
+                type="button"
+                onClick={onPickWorkspaceFolder}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/70"
+                title="Select an absolute folder path to use as the workspace root"
+              >
+                <FolderOpen className="size-3.5" />
+                Pilih folder…
+              </button>
+            )}
           </li>
         ))}
       </ol>
@@ -480,7 +492,7 @@ function ClarifyBlock({ payload }: { payload: ClarifyPayload }) {
 // Exported for the component test (ChatView.test.tsx) — a real component test
 // renders MessageRow directly with a sample message instead of mocking the
 // whole ChatView (api calls, SSE, sessionStorage, ResizeObserver…).
-export const MessageRow = memo(function MessageRow({ message, state }: { message: MessageRecord; state?: AssistantMessageState }) {
+export const MessageRow = memo(function MessageRow({ message, state, onPickWorkspaceFolder }: { message: MessageRecord; state?: AssistantMessageState; onPickWorkspaceFolder?: () => void }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -538,7 +550,7 @@ export const MessageRow = memo(function MessageRow({ message, state }: { message
                 ? (message.message_metadata as { clarify?: ClarifyPayload } | undefined)?.clarify
                 : undefined)
             if (clarify) {
-              return <ClarifyBlock payload={clarify} />
+              return <ClarifyBlock payload={clarify} onPickWorkspaceFolder={onPickWorkspaceFolder} />
             }
             if (isStreaming && !contentText) {
               return (
@@ -1379,6 +1391,18 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       reader.readAsDataURL(file)
     })
 
+  // MEDIUM (clarify workspace): pick an absolute folder path and insert it into
+  // the composer so the user can send it as their answer. Does NOT auto-send.
+  const handlePickWorkspaceFolder = useCallback(async () => {
+    if (!window.aic?.selectDirectory) return
+    try {
+      const dir = await window.aic.selectDirectory()
+      if (!dir) return
+      // Replace if the input is empty; otherwise append a space-separated path.
+      setInput(prev => prev.trim() ? `${prev.trim()} ${dir}` : dir)
+    } catch { /* selection cancelled */ }
+  }, [])
+
   return (
     <div className="flex flex-col absolute inset-0">
       <div className="flex min-h-0 flex-1">
@@ -1462,7 +1486,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                 <div style={{ height: listWindow.spacerTop }} aria-hidden="true" />
                 <div ref={sliceRef}>
                   {messageSlice.map(m => (
-                    <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} />
+                    <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} onPickWorkspaceFolder={handlePickWorkspaceFolder} />
                   ))}
                 </div>
                 <div style={{ height: listWindow.spacerBottom }} aria-hidden="true" />

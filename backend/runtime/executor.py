@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import asyncio
 import os
 import logging
+from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -446,7 +447,8 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 from backend.code_extract import extract_code_blocks_to_workspace
 
                 doc_filename = f"{phase}/{wtype}-deliverable.md"
-                doc_content = f"# Deliverable: {task.title}\n\n**Phase**: {phase.upper()}\n**Worker**: {wtype.title()}\n\n## Output\n\n{result.output or 'Execution complete.'}"
+                output_text = result.output if result.output else "(no output produced)"
+                doc_content = f"# Deliverable: {task.title}\n\n**Phase**: {phase.upper()}\n**Worker**: {wtype.title()}\n\n## Output\n\n{output_text}"
                 saved_path = save_deliverable_file(task.id, doc_filename, doc_content)
                 lease.artifact_path = saved_path
 
@@ -695,12 +697,36 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
         block_reason = "llm_fallback_output"
     else:
         from backend.workspace_manager import list_workspace_files
+        from shared.workspace import sandbox_workspace_dir
+        
+        # Check deliverable workspace (secondary signal)
         files = list_workspace_files(task.id)
-        source_files = [
+        deliverable_source_files = [
             f for f in files
             if f.get("extension") in ("py", "ts", "tsx", "js", "jsx", "go", "rs", "java", "css", "html", "sql")
         ]
-        if task.type in ("feature", "bugfix", "refactor") and not source_files:
+        
+        # Check actual workspace/sandbox where write_file tools wrote real source files (primary)
+        scope_id = (task.context or {}).get("conversation_id") or task.id
+        workspace_root = effective_repo_path  # This is the sandbox or project repo where files were actually written
+        source_files_in_workspace = []
+        if os.path.exists(workspace_root):
+            for root, _, filenames in os.walk(workspace_root):
+                for fname in filenames:
+                    if fname.endswith(tuple([".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".css", ".html", ".sql"])):
+                        full_p = Path(root) / fname
+                        try:
+                            rel_p = str(full_p.relative_to(workspace_root))
+                            # Skip virtual environments and node_modules
+                            if "/node_modules/" in rel_p or "/venv/" in rel_p or "/.venv/" in rel_p:
+                                continue
+                            source_files_in_workspace.append(fname)
+                        except ValueError:
+                            pass
+        
+        has_source_artifacts = bool(source_files_in_workspace) or bool(deliverable_source_files)
+        
+        if task.type in ("feature", "bugfix", "refactor") and not has_source_artifacts:
             if "implementation" in results and phase_semantics.get("implementation") == "FULLY_EXECUTED":
                 block_reason = "no_source_artifacts"
 

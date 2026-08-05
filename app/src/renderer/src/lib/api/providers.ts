@@ -153,7 +153,7 @@ export const providersApi = {
   },
 
   async update(id: string, partial: Partial<{ name: string; endpoint: string; apiKey: string; enabled: boolean }>): Promise<ProviderRecord> {
-    const req: any = {};
+    const req: { name?: string; endpoint?: string; apiKey?: string; enabled?: boolean } = {};
     if (partial.name !== undefined) req.name = partial.name;
     if (partial.endpoint !== undefined) req.endpoint = partial.endpoint;
     if (partial.apiKey !== undefined) req.apiKey = partial.apiKey;

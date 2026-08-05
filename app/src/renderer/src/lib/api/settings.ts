@@ -36,7 +36,7 @@ export const settingsApi = {
   },
 
   async updateTelemetry(prefs: Partial<TelemetryPrefs>): Promise<TelemetryPrefs> {
-    const req: any = {};
+    const req: { crash_reports?: boolean; diagnostics?: boolean; performance?: boolean; usage_analytics?: boolean } = {};
     if (prefs.crashReports !== undefined) req.crash_reports = prefs.crashReports;
     if (prefs.diagnostics !== undefined) req.diagnostics = prefs.diagnostics;
     if (prefs.performance !== undefined) req.performance = prefs.performance;

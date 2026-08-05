@@ -253,12 +253,18 @@ class DispatcherEngine:
         self.session.add(session_model)
         await self.session.flush()
 
+        # Defensive: ensure the returned execution_id matches the persisted row id.
+        # In normal operation these should be identical, but align them defensively
+        # in case the ORM assigns a different id (e.g. via database default).
+        if session_model.id != dispatch_result.execution_id:
+            dispatch_result.execution_id = session_model.id
+
         return DispatcherResult(
             state=DispatcherState.DISPATCHER_COMPLETE.value,
             result=dispatch_result,
             message=self._build_dispatch_message(dispatch_result, len(nodes)),
             metadata={
-                "execution_id": dispatch_result.execution_id,
+                "execution_id": session_model.id,  # Use the actual persisted row id
                 "graph_id": graph_id,
                 "total_tasks": len(nodes),
                 "completed_tasks": completed,

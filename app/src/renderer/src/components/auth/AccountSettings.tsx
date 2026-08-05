@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "../kit";
 import { profileApi, type LocalProfile } from "../../lib/api/profile";
+import type { UpdateStateDto } from "../../types";
 import { BugReportDialog, UpdatesDialog } from "./Dialogs";
 
 export function GeneralTab({
@@ -22,7 +23,7 @@ export function GeneralTab({
 
   // Real update state from Electron
   const [appVersion, setAppVersion] = useState("…");
-  const [updateState, setUpdateState] = useState<any>(null);
+  const [updateState, setUpdateState] = useState<UpdateStateDto | null>(null);
 
   useEffect(() => {
     profileApi.get().then((p) => {
@@ -38,12 +39,12 @@ export function GeneralTab({
     }).catch(() => {});
 
     // Read current update state
-    window.aic?.updateGetState?.().then((s: any) => {
+    window.aic?.updateGetState?.().then((s) => {
       if (s) setUpdateState(s);
     }).catch(() => {});
 
     // Listen for update state changes
-    const off = window.aic?.onUpdateStateChanged?.((s: any) => {
+    const off = window.aic?.onUpdateStateChanged?.((s) => {
       setUpdateState(s);
     });
     return () => { off?.(); };

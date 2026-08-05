@@ -40,7 +40,6 @@ function TreeNode({ node, depth, onSelect }: { node: DirTreeNode; depth: number;
 export function FileTree({ rootPath, onFileSelect }: { rootPath: string; onFileSelect: (path: string) => void }) {
   const [tree, setTree] = useState<DirTreeNode[]>([])
   const [loading, setLoading] = useState(true)
-  const [paused] = useState(false)
 
   const loadTree = useCallback(async () => {
     try {
@@ -52,11 +51,11 @@ export function FileTree({ rootPath, onFileSelect }: { rootPath: string; onFileS
 
   useEffect(() => { loadTree() }, [loadTree])
 
+  // Poll for file changes every 5s.
   useEffect(() => {
-    if (paused) return
     const id = setInterval(loadTree, 5000)
     return () => clearInterval(id)
-  }, [loadTree, paused])
+  }, [loadTree])
 
   if (loading) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Loading…</div>
   if (!tree.length) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Empty project</div>

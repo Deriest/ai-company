@@ -43,12 +43,10 @@ export interface BootState {
   activityLog: string[];
   palette: boolean;
   setPalette: React.Dispatch<React.SetStateAction<boolean>>;
-  bootDone: React.MutableRefObject<boolean>;
   engineUrl: string;
   log: (line: string) => void;
   refreshProviders: () => Promise<void>;
   refreshHealth: () => Promise<void>;
-  workspaceRefreshRef: React.MutableRefObject<(() => Promise<void>) | undefined>;
   updateDownload: () => Promise<void>;
   updateDismiss: () => Promise<void>;
   updateInstall: () => Promise<void>;
@@ -73,8 +71,6 @@ export function useBoot(opts: UseBootOptions): BootState {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [activityLog, setActivityLog] = useState<string[]>(["AIC ADE session started"]);
   const [palette, setPalette] = useState(false);
-  const bootDone = useRef(false);
-  const workspaceRefreshRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const engineUrl = INTERNAL_ENGINE_URL;
 
@@ -257,7 +253,6 @@ export function useBoot(opts: UseBootOptions): BootState {
       setBootDetail(root ? `Workspace: ${root}` : "No project folder yet");
       setBootPhase("loading_skills");
       setBootDetail("Preparing skills and workforce…");
-      bootDone.current = true;
       setBootPhase("ready");
       setBootDetail("Ready");
     })().catch((e) => {
@@ -296,7 +291,6 @@ export function useBoot(opts: UseBootOptions): BootState {
         if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current);
         wsRefreshRef.current = setTimeout(() => {
           void refreshHealth();
-          void workspaceRefreshRef.current?.();
         }, 1500);
       },
       (s) => log(`ws ${s}`)
@@ -343,12 +337,10 @@ export function useBoot(opts: UseBootOptions): BootState {
     activityLog,
     palette,
     setPalette,
-    bootDone,
     engineUrl,
     log,
     refreshProviders,
     refreshHealth,
-    workspaceRefreshRef,
     updateDownload,
     updateDismiss,
     updateInstall,

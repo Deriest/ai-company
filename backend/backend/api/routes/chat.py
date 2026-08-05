@@ -33,7 +33,6 @@ from conversation.engine import (
     LLMUnavailableError,
 )
 from discovery.states import is_terminal
-from backend.routes.conversations import _dispatch_created_task
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +275,10 @@ async def _find_pending_discovery_session(conversation_id: str) -> str | None:
                 if not session_id:
                     continue
                 ds = await s.get(DiscoverySessionModel, session_id)
-                if ds is not None and not is_terminal(ds.status):
+                # Skip sessions that are terminal OR already have a completed brief
+                # (engineering_brief_complete is not in TERMINAL_STATES but should
+                # not be treated as pending since the brief is already done).
+                if ds is not None and not is_terminal(ds.status) and ds.status != "engineering_brief_complete":
                     return str(session_id)
         return None
     except Exception as e:
@@ -515,6 +517,25 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
 
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # If the conversation has no project_id but the payload provides one, set it.
+    # Defensive: only update if the project actually exists.
+    if payload.project_id and not conv.project_id:
+        try:
+            async with AsyncSessionLocal() as session:
+                from storage.models import Project
+                proj_res = await session.execute(
+                    select(Project).where(Project.id == payload.project_id)
+                )
+                project = proj_res.scalar_one_or_none()
+                if project:
+                    async with AsyncSessionLocal() as persist_session:
+                        conv_row = await persist_session.get(Conversation, payload.conversation_id)
+                        if conv_row is not None and not conv_row.project_id:
+                            conv_row.project_id = project.id
+                            await persist_session.commit()
+        except Exception as e:
+            logger.debug(f"Failed to link project_id to conversation: {e}")
 
     worker_type = payload.worker_role or "backend"
     # Resolve workspace root with the shared resolver. Priority:

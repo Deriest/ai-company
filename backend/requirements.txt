@@ -46,4 +46,6 @@ uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.1.1
 wrapt==2.2.2
-sentence-transformers>=2.2.0
+# sentence-transformers removed from core requirements (optional RAG enhancement,
+# ~864MB with torch). embedding_provider falls back to OpenAI/Ollama/hash providers.
+# Install manually for local-embedding RAG: pip install sentence-transformers

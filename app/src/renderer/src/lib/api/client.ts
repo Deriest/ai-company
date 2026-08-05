@@ -10,58 +10,61 @@ export class ApiClientError extends Error {
   }
 }
 
-let baseUrl = "http://127.0.0.1:8000";
+// M4: cache the resolved backend URL for a short TTL. Previously EVERY REST
+// call did an IPC getBackendStatus round-trip, whose main-process handler runs
+// a real fetch(/health) — so each API call cost an extra HTTP hop. A backend
+// restart onto a different port (8000-8099) is picked up within the TTL, and
+// network errors invalidate the cache immediately.
+const URL_CACHE_TTL_MS = 30_000;
+let cachedBaseUrl: string | null = null;
+let cachedBaseUrlAt = 0;
 
-export function setApiBaseUrl(url: string) {
-  baseUrl = url;
+export function invalidateBaseUrlCache(): void {
+  cachedBaseUrl = null;
+  cachedBaseUrlAt = 0;
 }
 
-export function getApiBaseUrl() {
-  return baseUrl;
+async function resolveBaseUrl(): Promise<string> {
+  if (cachedBaseUrl && Date.now() - cachedBaseUrlAt < URL_CACHE_TTL_MS) {
+    return cachedBaseUrl;
+  }
+  let port = 8000;
+  if (typeof window !== "undefined" && window.aic?.getBackendStatus) {
+    port = await window.aic.getBackendStatus().then((s) => s.port).catch(() => 8000) || 8000;
+  }
+  cachedBaseUrl = `http://127.0.0.1:${port}`;
+  cachedBaseUrlAt = Date.now();
+  return cachedBaseUrl;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  // If we're in Electron, fetch dynamic port
-  if (typeof window !== "undefined" && window.aic?.getBackendStatus) {
-    try {
-      const status = await window.aic.getBackendStatus();
-      if (status && status.port) {
-        setApiBaseUrl(`http://127.0.0.1:${status.port}`);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-  
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-
+  const suffix = path.startsWith("/") ? path : `/${path}`;
   const options: RequestInit = {
     method,
-    headers,
+    headers: { "Content-Type": "application/json" },
   };
-
   if (body !== undefined) {
     options.body = JSON.stringify(body);
   }
 
   let res: Response;
   try {
-    res = await fetch(url, options);
+    res = await fetch(`${await resolveBaseUrl()}${suffix}`, options);
   } catch {
-    // Try to get backend status for better error message
-    let backendInfo = "";
+    // M4: network failure — the backend may have restarted on a new port.
+    // Invalidate the cache and re-resolve once before throwing.
+    invalidateBaseUrlCache();
     try {
-      if (window.aic?.getBackendStatus) {
-        const status = await window.aic.getBackendStatus();
-        backendInfo = status.error ? ` Backend error: ${status.error}` : "";
-        if (status.logFile) backendInfo += ` (Log: ${status.logFile})`;
-      }
-    } catch { /* ignore */ }
-    throw new ApiClientError(0, `Network error. Is the backend running?${backendInfo}`);
+      res = await fetch(`${await resolveBaseUrl()}${suffix}`, options);
+    } catch {
+      let backendInfo = "";
+      try {
+        const status = await window.aic?.getBackendStatus?.();
+        if (status?.error) backendInfo = ` Backend error: ${status.error}`;
+        if (status?.logFile) backendInfo += ` (Log: ${status.logFile})`;
+      } catch { /* ignore */ }
+      throw new ApiClientError(0, `Network error. Is the backend running?${backendInfo}`);
+    }
   }
 
   if (!res.ok) {

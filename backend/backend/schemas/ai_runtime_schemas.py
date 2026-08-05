@@ -19,6 +19,9 @@ class ChatRequest(BaseModel):
     top_p: Optional[float] = 1.0
     max_tokens: Optional[int] = None
     stream: Optional[bool] = False
+    project_id: Optional[str] = None
+    
+    model_config = {"extra": "ignore"}
 
 class ChatCancelRequest(BaseModel):
     message_id: str
