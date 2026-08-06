@@ -116,6 +116,23 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
     phase_semantics = ctx.get("phase_semantics", {})
     handoffs_dict = ctx.get("handoffs", {})
 
+    # Materialize PRD.md from Engineering Brief if available (best-effort)
+    try:
+        brief_id = ctx.get("brief_id", "")
+        if brief_id:
+            from storage.models import EngineeringBrief
+            brief_res = await session.execute(
+                select(EngineeringBrief).where(EngineeringBrief.id == brief_id)
+            )
+            brief_obj = brief_res.scalar_one_or_none()
+            if brief_obj:
+                from backend.services.prd_writer import materialize_prd
+                prd_path = await asyncio.to_thread(materialize_prd, effective_repo_path, brief_obj)
+                if prd_path:
+                    logger.info(f"Task {task.id[:8]}: PRD.md materialized -> {prd_path}")
+    except Exception as e:
+        logger.warning(f"Task {task.id[:8]}: Failed to materialize PRD.md (non-fatal): {e}")
+
     # Start from first execution phase
     phase = "discovery"
     task.status = phase
@@ -197,315 +214,367 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
         phase_results = {}
         phase_semantics[phase] = "FULLY_EXECUTED"
 
-        for wtype in workers:
-            worker_cls = WORKER_REGISTRY.get(wtype)
-            if not worker_cls:
-                continue
-
-            # Policy gate: check if this worker is allowed to execute
-            from policy.engine import policy, Decision
-            policy_result = policy.evaluate(
-                action="worker.execute",
-                worker_type=wtype,
-                resource=f"task:{task.id}",
-                context={"phase": phase, "task_type": task.type},
+        # With-Phase Parallelism: Run all workers concurrently within the phase.
+        # SESSION SAFETY: Each worker gets its own AsyncSession derived from the
+        # executor session's bind (async_sessionmaker pattern from dispatcher/engine.py).
+        # The main executor session remains for phase-level state transitions/commits.
+        
+        async def _execute_worker_in_new_session(wtype: str) -> tuple[str, dict]:
+            """Execute a single worker with a dedicated session."""
+            from sqlalchemy.ext.asyncio import async_sessionmaker as worker_sessionmaker
+            
+            # Derive a fresh session factory from the executor session's bind
+            worker_factory = worker_sessionmaker(
+                bind=session.bind, class_=AsyncSession, expire_on_commit=False
             )
-            if policy_result and hasattr(policy_result, 'decision') and policy_result.decision == Decision.DENY:
-                logger.warning(f"Policy denied worker {wtype}: {policy_result.reason}")
-                phase_results[wtype] = {"success": False, "error": f"Policy denied: {policy_result.reason}"}
-                continue
-
-            lease = Lease(
-                task_id=task.id,
-                worker_id=f"worker-{wtype}",
-                worker_name=wtype.title(),
-                worker_type=wtype,
-                phase=phase,
-                status=LeaseStatus.ACTIVE.value,
-                created_at=_utcnow(),
-            )
-            session.add(lease)
-
-            await _emit_event(
-                session, str(task.id), EventType.WORKER_STARTED.value, f"worker:{wtype}", f"task:{task.id}",
-                {"phase": phase, "task_title": task.title, "lease_phase": phase, "prev": prev_event_target}, "info"
-            )
-            await session.commit()
-
-            worker = worker_cls()
-            worker.agent_id = wtype
-            worker_timeout = 120
-            try:
-                from agents.context_assembly import get_model_config
-                worker_timeout = int(get_model_config(wtype).get("timeout") or 120)
-            except Exception:
-                pass
-
-            # Resolve worker skills and project memories dynamically
-            active_worker_skills = []
-            active_project_memories = []
-            try:
-                from backend.skill_engine import resolve_skills_for_worker
-                from backend.memory_engine import retrieve_project_memories
-                active_worker_skills = await resolve_skills_for_worker(session, wtype)
-                active_project_memories = await retrieve_project_memories(session, str(task.project_id) if task.project_id else None)
-            except Exception as e:
-                logger.debug(f"Skill/Memory resolution exception: {e}")
-
-            # G1 FIX: resolve plugins assigned to this worker and build adapted
-            # context so plugin commands/tools/agents are available in the
-            # company batch runtime (mirrors agent_runner.py plugin resolution).
-            plugin_contexts = []
-            try:
-                from backend.plugin_engine import resolve_plugins_for_worker
-                from backend.services.plugin_adapter import build_plugin_context
-                assigned_plugins = await resolve_plugins_for_worker(session, wtype)
-                for p in assigned_plugins:
-                    ppath = p.get("package_path", "")
-                    if not ppath or not os.path.exists(ppath):
-                        if p.get("is_required"):
-                            plugin_contexts.append({
-                                "plugin_id": p.get("plugin_id"),
-                                "name": p.get("name"),
-                                "error": "Plugin package missing",
-                            })
-                        continue
-                    pctx = build_plugin_context(ppath, p.get("components", []))
-                    pctx["plugin_id"] = p.get("plugin_id")
-                    pctx["name"] = p.get("name")
-                    pctx["is_required"] = p.get("is_required")
-                    # Surface instructions into the skills channel so the worker
-                    # system prompt (assemble_system_prompt) picks them up.
-                    instr = pctx.get("instructions", "")
-                    if instr:
-                        active_worker_skills.append(f"[Plugin: {p.get('name')}]\n{instr}")
-                    for ai in pctx.get("agent_instructions", []):
-                        if ai:
-                            active_worker_skills.append(f"[Plugin Agent: {p.get('name')}]\n{ai}")
-                    plugin_contexts.append(pctx)
-            except Exception as e:
-                logger.debug(f"Plugin resolution exception: {e}")
-
-            # FITUR 1: Query MCP Memory graph for task-relevant knowledge
-            mcp_memory_context = []
-            try:
-                from backend.services.mcp_service import mcp_service
-                from backend.database.session import AsyncSessionLocal
-                async with AsyncSessionLocal() as mcp_db:
-                    mcp_schemas = await mcp_service.get_all_mcp_tool_schemas(mcp_db)
-                    # Check if memory server tools are available
-                    memory_tool_names = {"search_nodes", "read_graph", "open_nodes"}
-                    has_memory_tools = any(t["name"] in memory_tool_names for t in mcp_schemas)
-                    if has_memory_tools:
-                        # Query MCP memory via search_nodes with task keywords
-                        from backend.services.mcp_client import mcp_pool
-                        search_keywords = f"{task.title} {task.description or ''}".split()[:5]
-                        for keyword in search_keywords:
-                            if len(keyword) < 3:
-                                continue
-                            try:
-                                result = await mcp_pool.call_tool("search_nodes", {"query": keyword})
-                                content_parts = result.get("content", [])
-                                text = "\n".join(p.get("text", "") for p in content_parts if p.get("type") == "text")
-                                if text and len(text) > 10:
-                                    mcp_memory_context.append({"keyword": keyword, "memory": text[:500]})
-                                    break  # one good match is enough
-                            except Exception:
-                                pass
-                        if mcp_memory_context:
-                            active_project_memories.extend(mcp_memory_context)
-                            logger.info(f"MCP memory: found {len(mcp_memory_context)} relevant memories for task {task.id[:8]}")
-            except Exception as e:
-                logger.debug(f"MCP memory query exception (non-critical): {e}")
-
-            task_ctx = {
-                "task_id": task.id,
-                "title": task.title,
-                "description": task.description or "",
-                "type": task.type,
-                "repo_path": effective_repo_path,
-                "project_structure": project_structure,
-                "handoffs": handoffs_dict,
-                "skills": active_worker_skills,
-                "memories": active_project_memories,
-                "plugins": plugin_contexts,
-                "phase": phase,
-                "execution_level": execution_level,
-                # Optional task-level model tier override (e.g. "vision") — when
-                # set, workers use it instead of their registry tier so a task
-                # can be launched with vision capability (see workers/base.py).
-                "model_tier": ctx.get("model_tier"),
-            }
-
-            # A6: Build unified context from pipeline sources
-            try:
-                from context.pipeline import ContextPipeline
-                from context.sources import CodeContextSource, ToolHistorySource
-
-                ctx_pipeline = ContextPipeline(token_budget=4000)
-                ctx_pipeline.add_source(CodeContextSource(config={"project_root": effective_repo_path}))
-                ctx_pipeline.add_source(ToolHistorySource(config={"recent_tool_calls": handoffs_dict}))
-                ctx_assembly = await ctx_pipeline.assemble(
-                    f"{task.title} {task.description or ''}",
-                    max_tokens=4000,
-                )
-                task_ctx["context_text"] = ctx_assembly.to_prompt_context()
-            except Exception as ctx_err:
-                logger.debug(f"Context pipeline build failed (non-critical): {ctx_err}")
-
-            from llm.provider import provider_manager
-            active_profile = provider_manager.get_active_profile()
-            if active_profile:
-                from runtime.adaptive import apply_worker_policy
-                task_ctx = apply_worker_policy(task_ctx, active_profile)
-
-            try:
-                result = await worker.run_with_timeout(task_ctx, timeout=worker_timeout)
-                phase_results[wtype] = {
-                    "success": result.success,
-                    "output": result.output[:1000] if result.output else "",
-                    "error": result.error,
-                    "used_fallback": bool(getattr(result, "used_fallback", False)),
-                }
-                if getattr(result, "used_fallback", False):
-                    fallback_used = True
-
-                # Progressive Recovery Ladder (Attempts 1..4)
-                attempt = 1
-                while not result.success and attempt <= 4:
-                    logger.warning(f"Worker {wtype} failed in {phase} — recovery attempt={attempt}")
-                    try:
-                        from backend.recovery_engine import RecoveryEngine
-                        recovery = RecoveryEngine()
-                        decision = recovery.evaluate_failure(
-                            task_id=task.id,
-                            phase=phase,
-                            worker_type=wtype,
-                            attempt=attempt,
-                            error_msg=result.error or "unknown error",
-                            previous_output=result.output or "",
-                        )
-                        session.add(Event(
-                            type=EventType.WORKER_FAILED.value,
-                            actor=f"recovery:{wtype}",
-                            target=f"task:{task.id}",
-                            data={
-                                "phase": phase,
-                                "strategy": decision.strategy,
-                                "attempt": attempt,
-                                "feedback": decision.feedback_prompt[:200],
-                            },
-                            severity="warn"
-                        ))
-                        await session.commit()
-
-                        if not decision.should_proceed:
-                            break
-                        if decision.strategy in ("retry", "refine_prompt", "fallback_model", "canonical_lock"):
-                            task_ctx = {
-                                **task_ctx,
-                                "description": (
-                                    f"{task.description or ''}\n\n"
-                                    f"[RECOVERY attempt {attempt} strategy={decision.strategy}]\n"
-                                    f"{decision.feedback_prompt}"
-                                ),
-                            }
-                            result2 = await worker.run_with_timeout(task_ctx, timeout=worker_timeout)
-                            if result2.success:
-                                result = result2
-                                phase_results[wtype] = {
-                                    "success": True,
-                                    "output": result.output[:1000] if result.output else "",
-                                    "error": None,
-                                    "recovered": True,
-                                    "recovery_strategy": decision.strategy,
-                                    "attempt": attempt,
-                                    "used_fallback": bool(getattr(result, "used_fallback", False)),
-                                }
-                                if getattr(result, "used_fallback", False):
-                                    fallback_used = True
-                                logger.info(f"Worker {wtype} succeeded after recovery {decision.strategy}")
-                                break
-                            result = result2
-                            attempt += 1
-                            continue
-                        break
-                    except Exception as rec_err:
-                        logger.error(f"Recovery engine error: {rec_err}")
-                        break
-
-                lease.status = LeaseStatus.COMPLETED.value if result.success else LeaseStatus.FAILED.value
-                lease.exit_code = result.exit_code
-                lease.error_message = result.error if not result.success else None
-                lease.finished_at = _utcnow()
-
-                if phase == "verification" and not result.success:
-                    verification_failed = True
-                    logger.error(f"VERIFICATION FAILED: {wtype}")
-
-                from backend.workspace_manager import save_deliverable_file
-                from backend.code_extract import extract_code_blocks_to_workspace
-
-                doc_filename = f"{phase}/{wtype}-deliverable.md"
-                output_text = result.output if result.output else "(no output produced)"
-                doc_content = f"# Deliverable: {task.title}\n\n**Phase**: {phase.upper()}\n**Worker**: {wtype.title()}\n\n## Output\n\n{output_text}"
-                saved_path = save_deliverable_file(task.id, doc_filename, doc_content)
-                lease.artifact_path = saved_path
-
-                if result.output and not getattr(result, "used_fallback", False):
-                    extracted = await asyncio.to_thread(
-                        extract_code_blocks_to_workspace, task.id, result.output,
-                        effective_repo_path,
-                    )
-                    if extracted:
-                        phase_results[wtype]["extracted_files"] = extracted
-                        logger.info(f"Extracted {len(extracted)} source files for task {task.id[:8]} (repo={effective_repo_path}): {extracted}")
-
-                if result.success and result.output:
-                    handoffs_dict[phase] = {
-                        "worker": wtype,
-                        "output": result.output[:1000],
-                        "extracted": phase_results[wtype].get("extracted_files", []),
+            
+            async with worker_factory() as worker_session:
+                worker_cls = WORKER_REGISTRY.get(wtype)
+                if not worker_cls:
+                    return wtype, {
+                        "result": {"success": False, "error": f"Worker {wtype} not registered"},
+                        "verification_failed": False,
+                        "fallback_used": False,
+                        "event_target": f"worker:{wtype}:{phase}:{task.id}"
                     }
+
+                lease = Lease(
+                    task_id=task.id,
+                    worker_id=f"worker-{wtype}",
+                    worker_name=wtype.title(),
+                    worker_type=wtype,
+                    phase=phase,
+                    status=LeaseStatus.ACTIVE.value,
+                    created_at=_utcnow(),
+                )
+                worker_session.add(lease)
+
+                await _emit_event(
+                    worker_session, str(task.id), EventType.WORKER_STARTED.value, f"worker:{wtype}", f"task:{task.id}",
+                    {"phase": phase, "task_title": task.title, "lease_phase": phase, "prev": prev_event_target}, "info"
+                )
+                await worker_session.commit()
+
+                worker_instance = worker_cls()
+                worker_instance.agent_id = wtype
+                worker_timeout = 120
+                try:
+                    from agents.context_assembly import get_model_config
+                    worker_timeout = int(get_model_config(wtype).get("timeout") or 120)
+                except Exception:
+                    pass
+
+                # Resolve worker skills and project memories dynamically
+                active_worker_skills = []
+                active_project_memories = []
+                try:
+                    from backend.skill_engine import resolve_skills_for_worker
+                    from backend.memory_engine import retrieve_project_memories
+                    active_worker_skills = await resolve_skills_for_worker(worker_session, wtype)
+                    active_project_memories = await retrieve_project_memories(worker_session, str(task.project_id) if task.project_id else None)
+                except Exception as e:
+                    logger.debug(f"Skill/Memory resolution exception: {e}")
+
+                # G1 FIX: resolve plugins assigned to this worker
+                plugin_contexts = []
+                try:
+                    from backend.plugin_engine import resolve_plugins_for_worker
+                    from backend.services.plugin_adapter import build_plugin_context
+                    assigned_plugins = await resolve_plugins_for_worker(worker_session, wtype)
+                    for p in assigned_plugins:
+                        ppath = p.get("package_path", "")
+                        if not ppath or not os.path.exists(ppath):
+                            if p.get("is_required"):
+                                plugin_contexts.append({
+                                    "plugin_id": p.get("plugin_id"),
+                                    "name": p.get("name"),
+                                    "error": "Plugin package missing",
+                                })
+                            continue
+                        pctx = build_plugin_context(ppath, p.get("components", []))
+                        pctx["plugin_id"] = p.get("plugin_id")
+                        pctx["name"] = p.get("name")
+                        pctx["is_required"] = p.get("is_required")
+                        instr = pctx.get("instructions", "")
+                        if instr:
+                            active_worker_skills.append(f"[Plugin: {p.get('name')}]\n{instr}")
+                        for ai in pctx.get("agent_instructions", []):
+                            if ai:
+                                active_worker_skills.append(f"[Plugin Agent: {p.get('name')}]\n{ai}")
+                        plugin_contexts.append(pctx)
+                except Exception as e:
+                    logger.debug(f"Plugin resolution exception: {e}")
+
+                # FITUR 1: Query MCP Memory graph for task-relevant knowledge
+                mcp_memory_context = []
+                try:
+                    from backend.services.mcp_service import mcp_service
+                    from backend.database.session import AsyncSessionLocal
+                    async with AsyncSessionLocal() as mcp_db:
+                        mcp_schemas = await mcp_service.get_all_mcp_tool_schemas(mcp_db)
+                        memory_tool_names = {"search_nodes", "read_graph", "open_nodes"}
+                        has_memory_tools = any(t["name"] in memory_tool_names for t in mcp_schemas)
+                        if has_memory_tools:
+                            from backend.services.mcp_client import mcp_pool
+                            search_keywords = f"{task.title} {task.description or ''}".split()[:5]
+                            for keyword in search_keywords:
+                                if len(keyword) < 3:
+                                    continue
+                                try:
+                                    result = await mcp_pool.call_tool("search_nodes", {"query": keyword})
+                                    content_parts = result.get("content", [])
+                                    text = "\n".join(p.get("text", "") for p in content_parts if p.get("type") == "text")
+                                    if text and len(text) > 10:
+                                        mcp_memory_context.append({"keyword": keyword, "memory": text[:500]})
+                                        break
+                                except Exception:
+                                    pass
+                            if mcp_memory_context:
+                                active_project_memories.extend(mcp_memory_context)
+                                logger.info(f"MCP memory: found {len(mcp_memory_context)} relevant memories for task {task.id[:8]}")
+                except Exception as e:
+                    logger.debug(f"MCP memory query exception (non-critical): {e}")
+
+                task_ctx = {
+                    "task_id": task.id,
+                    "title": task.title,
+                    "description": task.description or "",
+                    "type": task.type,
+                    "repo_path": effective_repo_path,
+                    "project_structure": project_structure,
+                    "handoffs": handoffs_dict,
+                    "skills": active_worker_skills,
+                    "memories": active_project_memories,
+                    "plugins": plugin_contexts,
+                    "phase": phase,
+                    "execution_level": execution_level,
+                    "model_tier": ctx.get("model_tier"),
+                }
+
+                # A6: Build unified context from pipeline sources
+                try:
+                    from context.pipeline import ContextPipeline
+                    from context.sources import CodeContextSource, ToolHistorySource
+
+                    ctx_pipeline = ContextPipeline(token_budget=4000)
+                    ctx_pipeline.add_source(CodeContextSource(config={"project_root": effective_repo_path}))
+                    ctx_pipeline.add_source(ToolHistorySource(config={"recent_tool_calls": handoffs_dict}))
+                    ctx_assembly = await ctx_pipeline.assemble(
+                        f"{task.title} {task.description or ''}",
+                        max_tokens=4000,
+                    )
+                    task_ctx["context_text"] = ctx_assembly.to_prompt_context()
+                except Exception as ctx_err:
+                    logger.debug(f"Context pipeline build failed (non-critical): {ctx_err}")
+
+                from llm.provider import provider_manager
+                active_profile = provider_manager.get_active_profile()
+                if active_profile:
+                    from runtime.adaptive import apply_worker_policy
+                    task_ctx = apply_worker_policy(task_ctx, active_profile)
+
+                # Initialize local flags
+                verification_failed_local = False
+                fallback_used_local = False
+                worker_result = {}
+                
+                try:
+                    result = await worker_instance.run_with_timeout(task_ctx, timeout=worker_timeout)
+                    worker_result = {
+                        "success": result.success,
+                        "output": result.output[:1000] if result.output else "",
+                        "error": result.error,
+                        "used_fallback": bool(getattr(result, "used_fallback", False)),
+                    }
+                    if getattr(result, "used_fallback", False):
+                        fallback_used_local = True
+
+                    # Progressive Recovery Ladder (Attempts 1..4)
+                    attempt = 1
+                    while not result.success and attempt <= 4:
+                        logger.warning(f"Worker {wtype} failed in {phase} — recovery attempt={attempt}")
+                        try:
+                            from backend.recovery_engine import RecoveryEngine
+                            recovery = RecoveryEngine()
+                            decision = recovery.evaluate_failure(
+                                task_id=task.id,
+                                phase=phase,
+                                worker_type=wtype,
+                                attempt=attempt,
+                                error_msg=result.error or "unknown error",
+                                previous_output=result.output or "",
+                            )
+                            worker_session.add(Event(
+                                type=EventType.WORKER_FAILED.value,
+                                actor=f"recovery:{wtype}",
+                                target=f"task:{task.id}",
+                                data={
+                                    "phase": phase,
+                                    "strategy": decision.strategy,
+                                    "attempt": attempt,
+                                    "feedback": decision.feedback_prompt[:200],
+                                },
+                                severity="warn"
+                            ))
+                            await worker_session.commit()
+
+                            if not decision.should_proceed:
+                                break
+                            if decision.strategy in ("retry", "refine_prompt", "fallback_model", "canonical_lock"):
+                                task_ctx = {
+                                    **task_ctx,
+                                    "description": (
+                                        f"{task.description or ''}\n\n"
+                                        f"[RECOVERY attempt {attempt} strategy={decision.strategy}]\n"
+                                        f"{decision.feedback_prompt}"
+                                    ),
+                                }
+                                result2 = await worker_instance.run_with_timeout(task_ctx, timeout=worker_timeout)
+                                if result2.success:
+                                    result = result2
+                                    worker_result = {
+                                        "success": True,
+                                        "output": result.output[:1000] if result.output else "",
+                                        "error": None,
+                                        "recovered": True,
+                                        "recovery_strategy": decision.strategy,
+                                        "attempt": attempt,
+                                        "used_fallback": bool(getattr(result, "used_fallback", False)),
+                                    }
+                                    if getattr(result, "used_fallback", False):
+                                        fallback_used_local = True
+                                    logger.info(f"Worker {wtype} succeeded after recovery {decision.strategy}")
+                                    break
+                                result = result2
+                                attempt += 1
+                                continue
+                            break
+                        except Exception as rec_err:
+                            logger.error(f"Recovery engine error: {rec_err}")
+                            break
+
+                    lease.status = LeaseStatus.COMPLETED.value if result.success else LeaseStatus.FAILED.value
+                    lease.exit_code = result.exit_code
+                    lease.error_message = result.error if not result.success else None
+                    lease.finished_at = _utcnow()
+
+                    if phase == "verification" and not result.success:
+                        verification_failed_local = True
+
+                    from backend.workspace_manager import save_deliverable_file
+                    from backend.code_extract import extract_code_blocks_to_workspace
+
+                    doc_filename = f"{phase}/{wtype}-deliverable.md"
+                    output_text = result.output if result.output else "(no output produced)"
+                    doc_content = f"# Deliverable: {task.title}\n\n**Phase**: {phase.upper()}\n**Worker**: {wtype.title()}\n\n## Output\n\n{output_text}"
+                    saved_path = save_deliverable_file(task.id, doc_filename, doc_content)
+                    lease.artifact_path = saved_path
+
+                    if result.output and not getattr(result, "used_fallback", False):
+                        extracted = await asyncio.to_thread(
+                            extract_code_blocks_to_workspace, task.id, result.output,
+                            effective_repo_path,
+                        )
+                        if extracted:
+                            worker_result["extracted_files"] = extracted
+                            logger.info(f"Extracted {len(extracted)} source files for task {task.id[:8]} (repo={effective_repo_path}): {extracted}")
+
+                    if result.success and result.output:
+                        handoffs_dict[phase] = {
+                            "worker": wtype,
+                            "output": result.output[:1000],
+                            "extracted": worker_result.get("extracted_files", []),
+                        }
+                        ctx["handoffs"] = handoffs_dict
+                        task.context = ctx
+                        flag_modified(task, 'context')
+
+                    event_type = EventType.WORKER_COMPLETED.value if result.success else EventType.WORKER_FAILED.value
+                    await _emit_event(
+                        worker_session, str(task.id), event_type, f"worker:{wtype}", f"task:{task.id}",
+                        {
+                            "phase": phase,
+                            "success": result.success,
+                            "output": (result.output or "")[:200],
+                            "lease_id": lease.id,
+                            "prev": prev_event_target,
+                            "used_fallback": bool(getattr(result, "used_fallback", False)),
+                        },
+                        "info" if result.success else "error"
+                    )
+                    
+                except Exception as e:
+                    worker_result = {"success": False, "error": str(e)}
+                    lease.status = LeaseStatus.FAILED.value
+                    lease.error_message = str(e)
+                    lease.finished_at = _utcnow()
+                    if phase == "verification":
+                        verification_failed_local = True
+                    
+                    worker_session.add(Event(
+                        type=EventType.WORKER_FAILED.value,
+                        actor=f"worker:{wtype}",
+                        target=f"task:{task.id}",
+                        data={"phase": phase, "error": str(e)[:300]},
+                        severity="error"
+                    ))
+                    logger.error(f"Worker {wtype} exception: {e}")
+
+                await worker_session.commit()
+                
+                return wtype, {
+                    "result": worker_result,
+                    "verification_failed": verification_failed_local,
+                    "fallback_used": fallback_used_local,
+                    "event_target": f"worker:{wtype}:{phase}:{task.id}"
+                }
+
+        # Execute all workers concurrently with return_exceptions=True
+        # so one failure doesn't cancel others
+        worker_tasks = [_execute_worker_in_new_session(wtype) for wtype in workers]
+        worker_responses = await asyncio.gather(*worker_tasks, return_exceptions=True)
+
+        # Merge results deterministically by processing responses in order
+        phase_verification_failed = False
+        phase_fallback_used = False
+        
+        for idx, response in enumerate(worker_responses):
+            wtype = workers[idx]
+            
+            # Handle exception results from gather(return_exceptions=True)
+            if isinstance(response, BaseException):
+                phase_results[wtype] = {"success": False, "error": f"Worker crash: {str(response)}"}
+                logger.error(f"Worker {wtype} raised unhandled exception: {response}")
+                continue
+            
+            try:
+                worker_type_result, meta = response
+                phase_results[worker_type_result] = meta["result"]
+                if meta.get("verification_failed"):
+                    phase_verification_failed = True
+                if meta.get("fallback_used"):
+                    phase_fallback_used = True
+                # Merge handoffs from successful workers
+                if phase in handoffs_dict:
                     ctx["handoffs"] = handoffs_dict
                     task.context = ctx
                     flag_modified(task, 'context')
+            except Exception as merge_err:
+                logger.error(f"Failed to merge worker {wtype} result: {merge_err}")
+                phase_results[wtype] = {"success": False, "error": f"Merge error: {merge_err}"}
 
-                event_type = EventType.WORKER_COMPLETED.value if result.success else EventType.WORKER_FAILED.value
-                await _emit_event(
-                    session, str(task.id), event_type, f"worker:{wtype}", f"task:{task.id}",
-                    {
-                        "phase": phase,
-                        "success": result.success,
-                        "output": (result.output or "")[:200],
-                        "lease_id": lease.id,
-                        "prev": prev_event_target,
-                        "used_fallback": bool(getattr(result, "used_fallback", False)),
-                    },
-                    "info" if result.success else "error"
-                )
-                prev_event_target = f"worker:{wtype}:{phase}:{task.id}"
-            except Exception as e:
-                phase_results[wtype] = {"success": False, "error": str(e)}
-                lease.status = LeaseStatus.FAILED.value
-                lease.error_message = str(e)
-                lease.finished_at = _utcnow()
-                if phase == "verification":
-                    verification_failed = True
-
-                session.add(Event(
-                    type=EventType.WORKER_FAILED.value,
-                    actor=f"worker:{wtype}",
-                    target=f"task:{task.id}",
-                    data={"phase": phase, "error": str(e)[:300], "prev": prev_event_target},
-                    severity="error"
-                ))
-                logger.error(f"Worker {wtype} exception: {e}")
-
-            await session.commit()
+        # Handle phase-level flags
+        if phase_verification_failed:
+            verification_failed = phase_verification_failed
+        if phase_fallback_used:
+            fallback_used = phase_fallback_used
 
         results[phase] = phase_results
         phases_done += 1
+
+        # Commit the main session to ensure it sees changes from worker sessions
+        # (leases created in worker sessions need to be visible to the main session)
+        await session.commit()
 
         # 4. Local Repair Loop for Verification Failures
         if phase == "verification" and verification_failed:

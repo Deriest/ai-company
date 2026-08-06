@@ -225,15 +225,16 @@ class ToolExecutor:
     Each tool call is tracked and can be streamed to the frontend.
     """
 
-    def __init__(self, workspace_root: str = "", on_event=None, permission_checker=None, allowed_tools: list[str] | None = None):
+    def __init__(self, workspace_root: str = "", on_event=None, permission_checker=None, allowed_tools: list[str] | None = None, write_scope: str = "full"):
         self.workspace_root = workspace_root
         self.tool_calls: list[ToolCall] = []
         self.todos: list[TodoItem] = []
         self.file_diffs: list[FileDiff] = []
-        self._on_event = on_event  # async callback for streaming events
+        self._on_event = on_event
         self._counter = 0
-        self._permission_checker = permission_checker  # callable(tool_name) -> bool
-        self._allowed_tools = allowed_tools  # if set, only these tools are exposed
+        self._permission_checker = permission_checker
+        self._allowed_tools = allowed_tools
+        self._write_scope = write_scope
 
     def _next_id(self) -> str:
         self._counter += 1
@@ -314,6 +315,68 @@ class ToolExecutor:
 
     # ── File Write ───────────────────────────────────────
 
+    def _validate_doc_path(self, path: str):
+        """Validate a target path for docs-scoped write_file.
+
+        Returns (ok: bool, reason: str). Docs-scoped roles may only write
+        documentation artifacts: doc extensions (.md/.markdown/.txt/.rst/.adoc),
+        files under docs/ or documentation/ (still doc extensions only), or
+        standard doc basenames (README, LICENSE, CHANGELOG, CONTRIBUTING,
+        ARCHITECTURE, DESIGN, PRD, RESEARCH, SECURITY_AUDIT,
+        PERFORMANCE_REPORT) with or without an extension. Path traversal is
+        rejected before any extension check.
+        """
+        import posixpath
+
+        if not isinstance(path, str) or not path.strip():
+            return False, "Invalid path"
+
+        # Normalize (posix-style, workspace-relative) and reject traversal
+        # BEFORE any extension check.
+        norm = posixpath.normpath(path.strip().replace("\\", "/"))
+        if norm.startswith("..") or norm.startswith("/"):
+            return False, "Path traversal not allowed"
+        parts = [p for p in norm.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            return False, "Path traversal not allowed"
+        if not parts:
+            return False, "Invalid path"
+        norm = "/".join(parts)
+
+        doc_exts = ("md", "markdown", "txt", "rst", "adoc")
+        doc_names = ("readme", "license", "changelog", "contributing",
+                     "architecture", "design", "prd", "research",
+                     "qa_report", "test_report", "project_plan", "compliance",
+                     "security_audit", "performance_report", "bug_report")
+
+        basename = parts[-1]
+        stem, dot, ext = basename.rpartition(".")
+        stem_lower = (stem if dot else basename).lower()
+        ext_lower = ext.lower() if dot else ""
+
+        # 1) Standard documentation basenames (case-insensitive), with or
+        #    without an extension. Extension, when present, must still be a
+        #    doc extension (README.md ok, README.py not).
+        if stem_lower in doc_names:
+            if not dot or ext_lower in doc_exts:
+                return True, ""
+            return False, (
+                "This role can only write documentation artifacts "
+                "(.md/.txt/docs/). Source code must be written by "
+                "backend/frontend/coding/database workers."
+            )
+
+        # 2) Doc extension anywhere in the workspace (docs/ prefix not required).
+        if ext_lower in doc_exts:
+            return True, ""
+
+        # 3) Anything else is a non-doc file (e.g. .py/.ts/.js/.json/.yaml).
+        return False, (
+            "This role can only write documentation artifacts "
+            "(.md/.txt/docs/). Source code must be written by "
+            "backend/frontend/coding/database workers."
+        )
+
     async def write_file(self, path: str, content: str, create_dirs: bool = True) -> ToolCall:
         """Write content to a file, tracking the diff."""
         tc = ToolCall(
@@ -334,6 +397,19 @@ class ToolExecutor:
             self.tool_calls.append(tc)
             await self._emit("tool_result", {"tool_call": tc.to_dict()})
             return tc
+
+        # Docs-scoped write enforcement: thinker/artifact workers may only
+        # write documentation paths. Validate BEFORE any filesystem access.
+        if self._write_scope == "docs":
+            ok, reason = self._validate_doc_path(path)
+            if not ok:
+                tc.status = "error"
+                tc.error = reason
+                tc.output = tc.error
+                tc.duration_ms = 0
+                self.tool_calls.append(tc)
+                await self._emit("tool_result", {"tool_call": tc.to_dict()})
+                return tc
 
         start = time.monotonic()
 
@@ -406,6 +482,34 @@ class ToolExecutor:
             self.tool_calls.append(tc)
             await self._emit("tool_result", {"tool_call": tc.to_dict()})
             return tc
+
+        # Docs-scoped shell hardening: roles with write_scope="docs" cannot
+        # run file-mutating shell commands that would bypass the doc-only
+        # policy (e.g. `echo x > src/app.py`). Block destructive operations
+        # by checking command tokens (word boundaries) rather than substrings.
+        if self._write_scope == "docs":
+            blocked = []
+            # Extract all word tokens from the command
+            tokens = re.findall(r"\b\w+\b", command.lower())
+            if any(tok in ("rm", "mv", "dd", "chmod", "chown", "mkfs") for tok in tokens):
+                blocked.append("destructive/moving commands (rm/mv/dd/chmod/chown/mkfs)")
+            if ">" in command or ">>" in command:
+                # Avoid matching >>> (Python)
+                if "> " in command or ">>" in command or command.endswith(">") or command.endswith(">>"):
+                    blocked.append("output redirection (> / >>)")
+            if "tee" in tokens:
+                blocked.append("tee")
+            # Pipe-to-shell patterns
+            if bool(re.search(r"\|\s*(sh|bash)\s*$", command)):
+                blocked.append("pipe to shell (| sh/ bash)")
+            if blocked:
+                tc.status = "error"
+                tc.error = f"Documentation-scoped roles cannot run file-mutating shell commands: {', '.join(blocked)}"
+                tc.output = tc.error
+                tc.duration_ms = 0
+                self.tool_calls.append(tc)
+                await self._emit("tool_result", {"tool_call": tc.to_dict()})
+                return tc
 
         start = time.monotonic()
 

@@ -537,7 +537,28 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
         except Exception as e:
             logger.debug(f"Failed to link project_id to conversation: {e}")
 
+    # Workflow-tags-to-worker-role mapping (only if payload.worker_role is default/empty).
     worker_type = payload.worker_role or "backend"
+    audit_instruction_prefix = ""  # for bughunt tasks; defaults to empty string
+    if not payload.worker_role:  # only map if caller didn't explicitly set a worker role
+        first_tag = None
+        if payload.tags and isinstance(payload.tags, list) and len(payload.tags) > 0:
+            first_tag = payload.tags[0]
+            workflow = first_tag.get("workflow", "")
+            workflow_mapping = {
+                "bughunt": ("qa", "Audit only — do NOT modify source code. Produce docs/BUG_REPORT.md with findings."),
+                "test": ("qa", ""),
+                "docs": ("documentation", ""),
+                "bugfix": ("backend", ""),
+                "refactor": ("backend", ""),
+                "build": ("backend", ""),
+                "feature": ("backend", ""),
+                "infra": ("backend", ""),
+                "research": ("backend", ""),
+            }
+            if workflow in workflow_mapping:
+                mapped_role, audit_instruction_prefix = workflow_mapping[workflow]
+                worker_type = mapped_role
     # Resolve workspace root with the shared resolver. Priority:
     #   1. payload.workspace
     #   2. conversation.project_id -> project.repo_path
@@ -555,14 +576,17 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
     async def event_generator():
         # The workspace may be re-pinned by the auto-continuation when the user
         # answers the workspace question with a path — propagate to the agent.
-        nonlocal workspace, workspace_resolved
+        nonlocal workspace, workspace_resolved, audit_instruction_prefix
         persist_session = AsyncSessionLocal()
         user_msg = None
         assistant_msg = None
         chunks_since_commit = 0
         # The prompt the agent receives. Discovery enrichment (brief) is applied
         # to this variable; ``user_content`` stays the original user text.
-        agent_prompt = user_content
+        # For bughunt tasks, prepend an audit instruction so the LLM knows not
+        # to write source code but instead produce a report.
+        base_prompt = audit_instruction_prefix + ("\n\n" if audit_instruction_prefix else "") + user_content
+        agent_prompt = base_prompt
         # FIX: cooperative cancellation — set when the client disconnects so
         # the AgentRunner loop (which receives this event) stops executing
         # tools instead of continuing in the background after "Stop".

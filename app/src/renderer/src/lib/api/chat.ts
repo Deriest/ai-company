@@ -85,6 +85,27 @@ export interface DeliverableSummary {
 }
 
 /** Clarify question from the backend when a task lacks project/workspace details. */
+/** Workflow/task types mirroring the backend's WORKFLOW_PLANS enum. */
+export type WorkflowType =
+  | "build"
+  | "feature"
+  | "bugfix"
+  | "refactor"
+  | "bughunt"
+  | "test"
+  | "docs"
+  | "infra"
+  | "research";
+
+/** Level of execution depth for a workflow. Mirrors backend ExecutionLevel QUICK/STANDARD/EXTENDED/FULL. */
+export type WorkflowLevel = "quick" | "standard" | "extended" | "full";
+
+/** Tag attached to messages indicating which workflow type/level to run. */
+export interface WorkflowTag {
+  workflow: WorkflowType;
+  level?: WorkflowLevel;
+}
+
 export interface ClarifyQuestion {
   id: string;
   question: string;
@@ -107,6 +128,8 @@ export const chatApi = {
     workspace?: string;
     /** Active project record id — conversations/agents run scoped to this project. */
     project_id?: string;
+    /** Workflow tags — which task-type pipeline (bugfix/build/etc) to run. */
+    tags?: WorkflowTag[];
   }, callbacks: {
     onChunk: (content: string) => void;
     onToolStart: (tool: string, args: Record<string, any>, callId: string) => void;

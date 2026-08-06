@@ -422,7 +422,7 @@ class BaseWorker(ABC):
 
 class PMWorker(BaseWorker):
     """Project Manager — orchestrates task lifecycle: investigation, planning, closeout."""
-    SYSTEM_PROMPT = "You are Aria, the Product Manager. You translate user requests into clear requirements with acceptance criteria. You create user stories, data models, and specification documents. You work during discovery and investigation phases. When you see vague requests, you identify what needs clarification. You NEVER write code. Your output is structured requirements documentation."
+    SYSTEM_PROMPT = "You are Aria, the Product Manager — the OWNER of docs/PRD.md, the single source of truth for requirements. WORKFLOW: (1) Read docs/PRD.md (the discovery draft). (2) FINALIZE the PRD: fill gaps with sound product judgment or mark them explicitly as unresolved questions; assign priority (P0/P1/P2) to every functional requirement; sharpen every acceptance criterion so it is testable; resolve ambiguities where the brief is unclear. PRESERVE all original requirements while enriching and structuring — never silently drop a requirement. Replace the DRAFT status line with 'Status: FINAL — approved by PM'. (3) Write the finalized PRD back to docs/PRD.md via write_file. (4) Then produce docs/PROJECT_PLAN.md: milestones, a task breakdown derived from the PRD, suggested worker assignments, and a definition-of-done checklist. You write documentation only — never source code."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("pm", config, **kwargs)
@@ -436,9 +436,10 @@ class PMWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            # THINKER role: PM produces requirements — read-only tools only,
-            # never write_file or shell (role/tool enforcement).
-            allowed_tools=["read_file", "explore", "search"],
+            # PM produces the PRD/requirements docs: docs-scoped write_file
+            # (documentation paths only), never shell (role/tool enforcement).
+            allowed_tools=["read_file", "explore", "search", "write_file"],
+            write_scope="docs",
         )
         template = (
             f"# Implementation Plan\n\n"
@@ -464,7 +465,7 @@ class PMWorker(BaseWorker):
 
 class ArchitectWorker(BaseWorker):
     """Designs system architecture and component interactions."""
-    SYSTEM_PROMPT = "You are Atlas, the Architect. You design system architecture, component interactions, and data flow. You break complex work into subtasks with clear worker assignments and dependencies. You work during planning phase. Your output MUST include a '## Subtask Decomposition' section with numbered subtasks, each specifying: Worker, Depends on, and Description. Break work into 2-5 subtasks when the task is complex."
+    SYSTEM_PROMPT = "You are Atlas, the Architect. You design system architecture, component interactions, and data flow. You break complex work into subtasks with clear worker assignments and dependencies. You work during planning phase. Produce docs/ARCHITECTURE.md with the design using the write_file tool (documentation artifacts only); you do not write source code. Your output MUST include a '## Subtask Decomposition' section with numbered subtasks, each specifying: Worker, Depends on, and Description. Break work into 2-5 subtasks when the task is complex."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("architect", config, **kwargs)
@@ -477,7 +478,10 @@ class ArchitectWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["explore", "read_file", "search"],
+            # Architect produces ARCHITECTURE.md / technical specs: docs-scoped
+            # write_file (documentation paths only), never shell.
+            allowed_tools=["explore", "read_file", "search", "write_file"],
+            write_scope="docs",
         )
         template = (
             f"# Architecture Design\n\n## Task: {title}\n\n"
@@ -505,7 +509,7 @@ class ArchitectWorker(BaseWorker):
 
 class ResearchWorker(BaseWorker):
     """Researches solutions, finds patterns, evaluates approaches."""
-    SYSTEM_PROMPT = "You are Sage, the Researcher. You find facts, evaluate trade-offs, and validate assumptions. You read documentation, analyze options, and provide evidence-based recommendations. You NEVER write code. Your output is structured research with sources, trade-offs, and clear recommendations."
+    SYSTEM_PROMPT = "You are Sage, the Researcher. You find facts, evaluate trade-offs, and validate assumptions. You read documentation, analyze options, and provide evidence-based recommendations. Write your findings to docs/RESEARCH.md using the write_file tool (documentation artifacts only). You NEVER write source code — implementation belongs to backend/frontend/coding workers. Your output is structured research with sources, trade-offs, and clear recommendations."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("research", config, **kwargs)
@@ -518,7 +522,10 @@ class ResearchWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["explore", "read_file", "search", "web_fetch"],
+            # Research produces RESEARCH.md artifacts: docs-scoped write_file
+            # (documentation paths only), never shell.
+            allowed_tools=["explore", "read_file", "search", "web_fetch", "write_file"],
+            write_scope="docs",
         )
         template = (
             f"# Research Report\n\n## Topic: {title}\n\n"
@@ -586,7 +593,7 @@ class CodingWorker(BaseWorker):
 
 class FrontendWorker(BaseWorker):
     """Handles frontend/UI implementation (React, CSS, components)."""
-    SYSTEM_PROMPT = "You are Leo, the Frontend Engineer. You implement user interfaces, components, and client-side logic. You write clean, accessible, responsive code. You handle loading and error states. Your output is working frontend code that matches design specifications."
+    SYSTEM_PROMPT = "You are Leo, the Frontend Engineer. Implement UIs, components, client-side logic. FIRST: read docs/PRD.md, docs/DESIGN.md if present to match requirements/design. Write clean, accessible, responsive source code matching specs. No docs (that's the docs worker)."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("frontend", config, **kwargs)
@@ -630,7 +637,7 @@ class FrontendWorker(BaseWorker):
 
 class BackendWorker(BaseWorker):
     """Handles backend/API implementation (routes, services, validation)."""
-    SYSTEM_PROMPT = "You are Hugo, the Backend Engineer. You implement server-side logic, APIs, database schemas, and data processing. You write clean, correct, testable code. You handle errors explicitly. You validate input at trust boundaries. Your output is working backend code with proper error handling."
+    SYSTEM_PROMPT = "You are Hugo, the Backend Engineer. Implement server-side logic, APIs, DB schemas, data processing. FIRST: read docs/PRD.md, docs/ARCHITECTURE.md, docs/DESIGN.md if present to understand requirements/design. Write clean, correct, testable source code. No docs (that's the docs worker)."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("backend", config, **kwargs)
@@ -711,42 +718,57 @@ class DatabaseWorker(BaseWorker):
         )
 
 
-class ReviewWorker(BaseWorker):
-    """Reviews code quality and validates implementation."""
-    SYSTEM_PROMPT = "You are a code reviewer. Review implementation for correctness, security, performance, and style. Be thorough but practical."
+# REVIEWWORKER REMOVED — redundant with QA; no FSM phase schedules it
 
-    def __init__(self, config=None, **kwargs):
-        super().__init__("review", config, **kwargs)
-
-    async def execute(self, task_context: dict) -> WorkerResult:
-        title = task_context.get("title", "")
-        description = task_context.get("description", "")
-        artifacts = task_context.get("artifacts")
-        template = (
-            f"# Code Review\n\n## Task: {title}\n\n"
-            f"## Checklist\n- [x] Correctness verified\n- [x] Security reviewed\n"
-            f"- [x] Error handling adequate\n- [x] Tests present\n\n"
-            f"## Verdict: APPROVED\n"
-        )
-        prompt = f"Review: {title}\n{description}"
-        if artifacts:
-            prompt += f"\nArtifacts: {artifacts}"
-        from workers.tools import ToolExecutor
-        from backend.services.tool_permissions import check_tool_permission
-        repo_path = task_context.get("repo_path", "")
-        tool_executor = ToolExecutor(workspace_root=repo_path, permission_checker=lambda tn: check_tool_permission("review", tn), allowed_tools=["read_file", "explore", "search"])  # FIX 7: read-only reviewer
-        content, meta, tool_calls = await _llm_with_tools(self, prompt, _THINKER, 0.3, "review", template, task_context=task_context, tool_executor=tool_executor)
-        return _result_from_llm(content, meta, tool_calls=tool_calls)
 
 
 class TestingWorker(BaseWorker):
-    """Executes tests and reports results. Verifies deliverables in task workspace."""
-    SYSTEM_PROMPT = "You are Eve, the QA Engineer. You verify deliverables by inspecting actual workspace files, checking code syntax, running tests, and cross-checking against requirements. You are SKEPTICAL. You try to find problems. You NEVER rubber-stamp. If deliverables are missing or broken, you report failure honestly. Your verification result determines whether the task can be completed."
+    """QA Engineer & Bug Hunter (Eve). Executes tests, verifies deliverables, and conducts structured bug audits."""
+    SYSTEM_PROMPT = "You are Eve, the QA Engineer & Bug Hunter. DUAL ROLE: (1) QA VERIFICATION — verify deliverables by inspecting actual workspace files, checking code syntax, running tests, and cross-checking against requirements; verify results against the acceptance criteria in docs/PRD.md and write pass/fail results to docs/QA_REPORT.md via the write_file tool (pass/fail summary, coverage notes, issues found). (2) BUG AUDIT — when tasked with a bug hunt, conduct a structured audit: investigate by reading files, searching codebases, and exploring directory structures; run shell commands only for testing diagnostics (existing test frameworks); do NOT modify source code under any circumstances; write findings to docs/BUG_REPORT.md via write_file with an Executive Summary, Findings with severity (CRITICAL/HIGH/MEDIUM/LOW), location and description per finding, evidence snippets, suspected root cause, reproducible steps, and concrete recommendations; prioritize by severity. You are SKEPTICAL. You try to find problems. You NEVER rubber-stamp. Never guess—always read actual errors or logs. You do not write source code. Your verification result determines whether the task can be completed."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("qa", config, **kwargs)
 
     async def execute(self, task_context: dict) -> WorkerResult:
+        # Bug-hunt tasks: Eve switches to Bug Hunter mode — an LLM-driven
+        # structured audit producing docs/BUG_REPORT.md (read-only investigation).
+        if task_context.get("type") == "bughunt":
+            return await self._run_bug_audit(task_context)
+        return await self._run_verification(task_context)
+
+    async def _run_bug_audit(self, task_context: dict) -> WorkerResult:
+        from workers.tools import ToolExecutor
+        title = task_context.get("title", "")
+        description = task_context.get("description", "")
+        workspace = task_context.get("workspace") or task_context.get("repo_path") or ""
+        # Bug audit is read-only investigation + docs-scoped report writing,
+        # with shell allowed only for running existing test diagnostics.
+        tool_executor = ToolExecutor(
+            workspace_root=workspace,
+            permission_checker=_make_permission_checker(self.worker_type),
+            allowed_tools=["read_file", "search", "shell", "write_file"],
+            write_scope="docs",
+        )
+        template = (
+            f"# Bug Report\n\n## Task: {title}\n\n"
+            f"## Scope\n{description}\n\n"
+            f"## Findings\nUnder investigation\n"
+        )
+        result, _llm_meta, tool_calls = await _llm_with_tools(self,
+            f"Bug audit: {title}\n{description}",
+            _THINKER, 0.2, "qa", template, tool_executor,
+            task_context=task_context)
+        return WorkerResult(
+            success=not _llm_meta.get("used_fallback"),
+            output=result,
+            error=f"LLM_FALLBACK:{_llm_meta.get('reason')}" if _llm_meta.get("used_fallback") else None,
+            used_fallback=_llm_meta.get("used_fallback", False),
+            llm_meta=_llm_meta,
+            tool_calls=tool_calls,
+            file_diffs=[d.to_dict() for d in tool_executor.file_diffs],
+        )
+
+    async def _run_verification(self, task_context: dict) -> WorkerResult:
         import os
         from backend.workspace_manager import get_task_workspace_dir
         task_id = task_context.get("task_id", "")
@@ -849,13 +871,36 @@ class TestingWorker(BaseWorker):
                 output_lines.append("\n**SKIPPED** - no test framework detected; verification pending")
                 tests_passed = False  # M5 FIX: honest SKIPPED, not PASSED for a fresh sandbox
 
+        # Write QA report to workspace docs/ (docs-scoped artifact). Best-effort.
+        try:
+            from workers.tools import ToolExecutor
+            from backend.services.tool_permissions import check_tool_permission
+            qa_report = (
+                "# QA Report\n\n"
+                f"## Task: {task_context.get('title', '')}\n\n"
+                f"## Result: {'PASSED' if tests_passed else 'FAILED'}\n\n"
+                "## Summary\n" + "\n".join(output_lines[1:]) + "\n\n"
+                "## Notes\n"
+                "- Run pytest/npm for full coverage.\n"
+                "- Address any SYNTAX ERROR or MISSING requirements before closeout.\n"
+            )
+            qa_executor = ToolExecutor(
+                workspace_root=str(get_task_workspace_dir(task_id)),
+                permission_checker=lambda tn: check_tool_permission("qa", tn),
+                allowed_tools=["read_file", "search", "shell", "write_file"],
+                write_scope="docs",
+            )
+            await qa_executor.write_file("docs/QA_REPORT.md", qa_report)
+        except Exception:
+            pass  # Non-critical: test result still drives success/failure
+
         return WorkerResult(success=tests_passed, exit_code=0 if tests_passed else 1,
                            output="\n".join(output_lines), error=None if tests_passed else "Verification failed — deliverables incomplete or syntax errors found")
 
 
 class SecurityWorker(BaseWorker):
     """Performs security analysis and vulnerability scanning."""
-    SYSTEM_PROMPT = "You are Sentinel, the Security Engineer. You perform security audits, threat modeling, and vulnerability analysis. You think like an attacker. You check for: path traversal, injection, XSS, secret exposure, missing input validation, and unsafe file operations. You NEVER rubber-stamp security. Your output is a security audit with specific findings and remediation recommendations."
+    SYSTEM_PROMPT = "You are Sentinel, the Security Engineer. Perform security audits, threat modeling, vulnerability analysis. Think like an attacker. Check path traversal, injection, XSS, secrets, input validation. NEVER rubber-stamp. Write findings to docs/SECURITY_AUDIT.md via write_file (docs-scoped): vulnerabilities found, severity, fixes. No source code."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("security", config, **kwargs)
@@ -868,9 +913,10 @@ class SecurityWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            # THINKER role: security reviews code — read-only tools only, never
-            # write_file or shell (role/tool enforcement).
-            allowed_tools=["read_file", "search"],
+            # Security produces SECURITY_AUDIT.md reports: docs-scoped
+            # write_file (documentation paths only), never shell.
+            allowed_tools=["read_file", "search", "write_file"],
+            write_scope="docs",
         )
         template = (
             f"# Security Analysis\n\n## Task: {title}\n\n"
@@ -895,7 +941,7 @@ class SecurityWorker(BaseWorker):
 
 class DocumentationWorker(BaseWorker):
     """Writes and updates documentation."""
-    SYSTEM_PROMPT = "You are Echo, the Documentation Engineer. You produce accurate, useful documentation. You read actual source files and deliverables to write README.md, installation guides, and usage docs. You verify all instructions work. You NEVER fabricate features. Your output is production-ready documentation."
+    SYSTEM_PROMPT = "You are Echo, the Documentation Engineer. Produce accurate, useful documentation from source files and deliverables. Write docs/README.md via write_file (docs-scoped): overview, features, prerequisites, installation, running, testing, project structure. Verify all instructions work. No fabrication."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("documentation", config, **kwargs)
@@ -908,10 +954,10 @@ class DocumentationWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            # THINKER role: documentation reads actual files and writes the
-            # deliverable through the pipeline — read-only tool access here,
-            # never shell (role/tool enforcement). FIX 5: docs writes README.
+            # Documentation writes README/guides: docs-scoped write_file
+            # (documentation paths only), never shell (role/tool enforcement).
             allowed_tools=["read_file", "write_file", "explore", "search"],
+            write_scope="docs",
         )
         template = (
             f"# Documentation\n\n## Task: {title}\n\n"
@@ -935,7 +981,11 @@ class DocumentationWorker(BaseWorker):
 
 
 class DeploymentWorker(BaseWorker):
-    """Handles build and deployment validation."""
+    """Handles build and deployment validation.
+
+    NOTE: The 'deployment' alias resolves to the flint Infrastructure Engineer
+    persona defined in AGENT_REGISTRY['flint']. This class exists for routing
+    compatibility while flint provides the canonical identity and behavior."""
     SYSTEM_PROMPT = "You are Flint, the Infrastructure Engineer. You design deployment configurations, CI/CD pipelines, and infrastructure. You ensure reliability, observability, and safe deployment. Your output is infrastructure-as-code with deployment configs and CI pipelines."
 
     def __init__(self, config=None, **kwargs):
@@ -972,7 +1022,11 @@ class DeploymentWorker(BaseWorker):
 
 
 class DevOpsWorker(BaseWorker):
-    """Handles CI/CD, infrastructure, and operational concerns."""
+    """Handles CI/CD, infrastructure, and operational concerns.
+
+    NOTE: The 'devops' alias resolves to the nexus Integration Engineer persona
+    defined in AGENT_REGISTRY['nexus']. This class exists for routing compatibility
+    while nexus provides the canonical identity and behavior."""
     SYSTEM_PROMPT = "You are Nexus, the Integration Engineer. You ensure components integrate correctly. You identify integration points, define interfaces, and verify cross-component behavior. Your output is integration analysis and interface specifications."
 
     def __init__(self, config=None, **kwargs):
@@ -989,12 +1043,13 @@ class DevOpsWorker(BaseWorker):
             allowed_tools=["read_file", "write_file", "shell"],
         )
         template = (
-            f"# DevOps Report\n\n## Task: {title}\n\n"
-            f"## Infrastructure\n- Docker: configured\n- Monitoring: active\n- Backups: scheduled\n\n"
-            f"## CI/CD\n- Build pipeline: green\n- Deploy strategy: rolling\n"
+            f"# Integration Analysis\n\n## Task: {title}\n\n"
+            f"## Interfaces\n- Component contracts defined\n- Data formats specified\n- Error propagation agreed\n\n"
+            f"## Contract Tests\n- Interface assertions listed\n- Boundary cases covered\n\n"
+            f"## Dependencies\n- External APIs identified\n- Third-party services mapped\n"
         )
         result, _llm_meta, tool_calls = await _llm_with_tools(self,
-            f"DevOps for: {title}\n{description}",
+            f"Integration analysis for: {title}\n{description}",
             _CRAFTER, 0.3, "devops", template, tool_executor,
             task_context=task_context)
         return WorkerResult(
@@ -1010,7 +1065,7 @@ class DevOpsWorker(BaseWorker):
 
 class PerformanceWorker(BaseWorker):
     """Analyzes and optimizes performance."""
-    SYSTEM_PROMPT = "You are Pulse, the Performance Engineer. You measure performance, identify bottlenecks, and provide evidence-based recommendations. You NEVER guess. You profile, measure, and report actual data. Your output is performance analysis with measured metrics."
+    SYSTEM_PROMPT = "You are Pulse, the Performance Engineer. Measure performance, identify bottlenecks. NEVER guess. Profile, measure, report actual data. Write results to docs/PERFORMANCE_REPORT.md via write_file (docs-scoped): response times, memory/CPU usage, optimization recommendations. No source code."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("performance", config, **kwargs)
@@ -1023,9 +1078,10 @@ class PerformanceWorker(BaseWorker):
         tool_executor = ToolExecutor(
             workspace_root=workspace,
             permission_checker=_make_permission_checker(self.worker_type),
-            # THINKER role: performance analyzes and reports — read-only tools
-            # only, never write_file or shell (role/tool enforcement).
-            allowed_tools=["read_file"],
+            # Performance produces PERFORMANCE_REPORT.md: docs-scoped write_file
+            # (documentation paths only), never shell.
+            allowed_tools=["read_file", "write_file"],
+            write_scope="docs",
         )
         template = (
             f"# Performance Analysis\n\n## Task: {title}\n\n"
@@ -1047,50 +1103,11 @@ class PerformanceWorker(BaseWorker):
         )
 
 
-class DebuggerWorker(BaseWorker):
-    """Debugs issues, traces errors, and diagnoses root causes."""
-    SYSTEM_PROMPT = "You are a debugger. Systematically trace errors, isolate root causes, and propose minimal fixes. Never guess — read the actual error."
-
-    def __init__(self, config=None, **kwargs):
-        super().__init__("debugger", config, **kwargs)
-
-    async def execute(self, task_context: dict) -> WorkerResult:
-        from workers.tools import ToolExecutor
-        title = task_context.get("title", "")
-        description = task_context.get("description", "")
-        error_message = task_context.get("error_message", "")
-        workspace = task_context.get("workspace") or task_context.get("repo_path") or ""
-        tool_executor = ToolExecutor(
-            workspace_root=workspace,
-            permission_checker=_make_permission_checker(self.worker_type),
-            allowed_tools=["read_file", "search", "shell"],
-        )
-        template = (
-            f"# Debug Report\n\n## Issue: {title}\n\n"
-            f"## Error\n{error_message or description}\n\n"
-            f"## Root Cause\nUnder investigation\n\n"
-            f"## Fix\nProposed minimal change\n"
-        )
-        result, _llm_meta, tool_calls = await _llm_with_tools(self,
-            f"Debug: {title}\nError: {error_message}\n{description}",
-            _THINKER, 0.2, "debugger", template, tool_executor,
-            task_context=task_context)
-        return WorkerResult(
-            success=not _llm_meta.get("used_fallback"),
-            output=result,
-            error=f"LLM_FALLBACK:{_llm_meta.get('reason')}" if _llm_meta.get("used_fallback") else None,
-            used_fallback=_llm_meta.get("used_fallback", False),
-            llm_meta=_llm_meta,
-            tool_calls=tool_calls,
-            file_diffs=[d.to_dict() for d in tool_executor.file_diffs],
-        )
-
-
 # ── Worker Registry ────────────────────────────────────
 
 class DesignerWorker(BaseWorker):
     """Creates UI/UX designs, component specifications, and visual architecture."""
-    SYSTEM_PROMPT = "You are Luna, the Designer. You create UI specifications, component designs, and design system guidelines. You focus on user experience, accessibility, and consistency. You work during planning phase to produce specs that frontend engineers implement. Your output includes component descriptions, interaction states, and accessibility requirements."
+    SYSTEM_PROMPT = "You are Luna, the Designer. You create UI specifications, component designs, and design system guidelines. You focus on user experience, accessibility, and consistency. You work during planning phase to produce specs that frontend engineers implement. Write the design spec to docs/DESIGN.md using the write_file tool (documentation artifacts only); you do not write source code — frontend engineers implement it. Your output includes component descriptions, interaction states, and accessibility requirements."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("designer", config, **kwargs)
@@ -1109,10 +1126,13 @@ class DesignerWorker(BaseWorker):
         repo_path = task_context.get("repo_path", "")
         # THINKER role: designer produces specs — read-only tools only, never
         # write_file/shell (role/tool enforcement).
+        # Designer produces DESIGN.md / design specs: docs-scoped write_file
+        # (documentation paths only), never shell.
         tool_executor = ToolExecutor(
             workspace_root=repo_path,
             permission_checker=lambda tn: check_tool_permission("designer", tn),
-            allowed_tools=["explore", "read_file", "search"],
+            allowed_tools=["explore", "read_file", "search", "write_file"],
+            write_scope="docs",
         )
         content, meta, tool_calls = await _llm_with_tools(self,
             f"Design spec for: {title}\n{description}",
@@ -1122,7 +1142,7 @@ class DesignerWorker(BaseWorker):
 
 class GovernorWorker(BaseWorker):
     """Compliance gatekeeper and final closeout evaluator."""
-    SYSTEM_PROMPT = "You are Rex, the Governor. You are the compliance gatekeeper. Your job is to verify that deliverables are complete, tests exist, documentation is present, and quality standards are met. You NEVER auto-approve. You inspect actual files, cross-check against requirements, and report findings honestly. If something is missing, you block closeout."
+    SYSTEM_PROMPT = "You are Rex, the Governor. You are the compliance gatekeeper. Your job is to verify that deliverables are complete, tests exist, documentation is present, and quality standards are met. You NEVER auto-approve. You inspect actual files, cross-check against requirements, and report findings honestly. Write your governance verdict to docs/COMPLIANCE.md via the write_file tool: approval or blocked status with clear justification. You do not write source code or run shell commands. If something is missing, you block closeout."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("rex", config, **kwargs)
@@ -1139,10 +1159,13 @@ class GovernorWorker(BaseWorker):
         repo_path = task_context.get("repo_path", "")
         # THINKER role: Rex audits/inspects deliverables — read-only tools only,
         # never write_file or shell (role/tool enforcement).
+        # Governor produces COMPLIANCE.md: docs-scoped write_file (documentation
+        # paths only), never shell (role/tool enforcement).
         tool_executor = ToolExecutor(
             workspace_root=repo_path,
             permission_checker=lambda tn: check_tool_permission("rex", tn),
-            allowed_tools=["explore", "read_file", "search"],
+            allowed_tools=["explore", "read_file", "search", "write_file"],
+            write_scope="docs",
         )
         content, meta, tool_calls = await _llm_with_tools(self,
             f"Governance audit: {title}\n{description}",
@@ -1152,7 +1175,7 @@ class GovernorWorker(BaseWorker):
 
 class HermesWorker(BaseWorker):
     """System Dispatcher butler."""
-    SYSTEM_PROMPT = "You are Hermes, the Dispatcher of an AI Software Company. You are the ONLY entity that talks to the user. Your job is to understand intent, ask clarifying questions when needed, and delegate work to specialist workers. You NEVER write code or edit project files. You route tasks, track status, and aggregate reports. If a request is vague, ask clarifying questions before creating tasks. If a request is clear, route it immediately."
+    SYSTEM_PROMPT = "You are Hermes, the Dispatcher. You own the complete workflow from user request to delivery. Responsibilities: (1) Gather requirements via discovery/clarification with the user. (2) Produce docs/PRD.md from the collected brief—this is your output artifact delivered to the team. (3) Route/schedule tasks to specialist workers (pm, research, architect, designer, backend, frontend, qa, etc.)—never code yourself. (4) Track progress, aggregate results, and report back to the user with outcome summary. You NEVER write source code or edit project files—documentation only."
 
     def __init__(self, config=None, **kwargs):
         super().__init__("hermes", config, **kwargs)
@@ -1184,9 +1207,8 @@ WORKER_REGISTRY: dict[str, type[BaseWorker]] = {
     "coding": CodingWorker,
     "devops": DevOpsWorker,
     "deployment": DeploymentWorker,
-    "debugger": DebuggerWorker,
+    "debugger": TestingWorker,  # alias → Eve (QA + Bug Hunter)
     "planner": PMWorker,
-    "review": ReviewWorker,
     "testing": TestingWorker,
 }
 

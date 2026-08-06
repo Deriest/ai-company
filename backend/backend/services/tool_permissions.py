@@ -23,6 +23,13 @@ _permissions_cache: dict[str, dict] = {}
 _READ_ONLY_TOOLS = {"read_file", "explore", "search", "web_fetch",
                     "git_status", "git_diff", "git_log"}
 
+# Roles that produce DOCUMENTATION artifacts (PRD, RESEARCH, ARCHITECTURE,
+# DESIGN, SECURITY_AUDIT, PERFORMANCE_REPORT, README). They get write_file —
+# but the ToolExecutor is constructed with write_scope="docs" so only
+# documentation paths can actually be written. Shell is always denied.
+DOCS_WRITER_ROLES = ("pm", "research", "architect", "designer",
+                     "security", "performance", "documentation")
+
 
 def _load_permissions() -> dict[str, dict]:
     """Load tool permissions from agent registry."""
@@ -50,7 +57,7 @@ def _load_permissions() -> dict[str, dict]:
     # Conservative read-only defaults for worker types NOT in AGENT_REGISTRY
     # (worker aliases with no corresponding agent definition). These roles must
     # not write files or run shell commands.
-    for role_name in ("review", "planner", "testing"):
+    for role_name in ("planner", "testing"):
         if role_name not in _permissions_cache:
             _permissions_cache[role_name] = {
                 "allowed": {"read_file", "explore", "search"},
@@ -59,7 +66,7 @@ def _load_permissions() -> dict[str, dict]:
             }
 
     # Coder aliases that should allow write/shell (not in AGENT_REGISTRY).
-    for role_name in ("coding", "devops", "deployment", "debugger"):
+    for role_name in ("coding", "devops", "deployment"):
         if role_name not in _permissions_cache:
             _permissions_cache[role_name] = {
                 "allowed": {"read_file", "write_file", "shell", "explore", "search"},
@@ -67,37 +74,65 @@ def _load_permissions() -> dict[str, dict]:
                 "prohibited": set(),
             }
 
-    # Explicit overrides where the raw registry data contradicts intended
-    # role behavior (registry entries list write_file/shell in both allowed
-    # and restricted, which the check treats as deny).
-    # Read-only roles: rex (governor), review, security — no write_file/shell.
-    for role_name in ("rex", "review", "security"):
+    # Debugger: bug-audit role — allows write_file (docs-scoped, enforced by
+    # ToolExecutor write_scope="docs" so only docs/BUG_REPORT.md-style paths
+    # can be written) plus shell for running existing diagnostics/tests.
+    _permissions_cache["debugger"] = {
+        "allowed": {"read_file", "write_file", "shell", "explore", "search"},
+        "restricted": set(),
+        "prohibited": set(),
+    }
+
+    # ── Explicit role policies (override raw registry data) ──────────────
+    # Docs-scoped writer roles: artifact-producing thinkers. They get
+    # write_file (the ToolExecutor enforces write_scope="docs" so only
+    # documentation paths can be written) but NEVER shell.
+    _docs_writer_tools = {
+        "pm": {"read_file", "explore", "search", "write_file"},
+        "research": {"read_file", "explore", "search", "web_fetch", "write_file"},
+        "architect": {"read_file", "explore", "search", "write_file"},
+        "designer": {"read_file", "explore", "search", "write_file"},
+        "security": {"read_file", "search", "write_file"},
+        "performance": {"read_file", "write_file"},
+        "documentation": {"read_file", "write_file", "explore", "search"},
+    }
+    for role_name, tools in _docs_writer_tools.items():
+        _permissions_cache[role_name] = {
+            "allowed": tools,
+            "restricted": set(),
+            "prohibited": {"shell"},
+        }
+
+    # QA: runs tests (shell) AND writes QA_REPORT.md (docs-scoped write_file).
+    _permissions_cache["qa"] = {
+        "allowed": {"read_file", "explore", "search", "shell", "write_file"},
+        "restricted": set(),
+        "prohibited": set(),
+    }
+
+    # Rex (governor): docs-scoped write_file for COMPLIANCE.md, never shell.
+    _permissions_cache["rex"] = {
+        "allowed": {"read_file", "explore", "search", "write_file"},
+        "restricted": set(),
+        "prohibited": {"shell"},
+    }
+
+    # Read-only roles: hermes (router) — no write_file, no shell.
+    # (review worker removed in round-6 audit — QA covers code review)
+    for role_name in ("hermes",):
         _permissions_cache[role_name] = {
             "allowed": {"read_file", "explore", "search"},
             "restricted": set(),
             "prohibited": {"write_file", "shell"},
         }
-    # Coder roles: backend/frontend — allow write_file + shell.
-    for role_name in ("backend", "frontend"):
+
+    # Coder roles: full write_file + shell.
+    for role_name in ("backend", "frontend", "database", "nexus", "flint"):
         _permissions_cache[role_name] = {
             "allowed": {"read_file", "write_file", "shell", "explore", "search"},
             "restricted": set(),
             "prohibited": set(),
         }
-    # Flint/deployment: infrastructure role that produces Dockerfiles/CI configs
-    # needs write_file (FIX 6).
-    _permissions_cache["flint"] = {
-        "allowed": {"read_file", "write_file", "shell", "explore", "search"},
-        "restricted": set(),
-        "prohibited": set(),
-    }
-    # Documentation (FIX 5): prompt says "write README" so it needs write_file,
-    # but never shell.
-    _permissions_cache["documentation"] = {
-        "allowed": {"read_file", "write_file", "explore", "search"},
-        "restricted": set(),
-        "prohibited": {"shell"},
-    }
 
     return _permissions_cache
 
@@ -105,13 +140,14 @@ def _load_permissions() -> dict[str, dict]:
 def check_tool_permission(worker_type: str, tool_name: str) -> bool:
     """Check if a worker is allowed to use a specific tool.
 
-    NOTE (M1 fix): the permission cache now loads from AgentDefinition.tools
-    (previously it checked a nonexistent 'tool_permissions' attribute, so the
-    cache never populated and every check was permissive). Roles not present in
-    AGENT_REGISTRY now default to a conservative read-only set (no write_file
-    or shell) instead of the old permissive default. The stricter default-deny
-    policy still lives in backend.services.tool_executor.check_permission
-    (used by AgentRunner).
+    NOTE (M1 fix + docs-scoped writing): the permission cache loads from
+    AgentDefinition.tools. Docs-writer roles (pm, research, architect,
+    designer, security, performance, documentation) allow write_file but deny
+    shell; the ToolExecutor is constructed with write_scope="docs" so only
+    documentation paths can actually be written. QA allows write_file and shell.
+    Rex allows write_file but denies shell. Coders allow write_file and shell.
+    hermes denies both. Unknown worker types default to a
+    conservative read-only set.
 
     Returns True if:
     - The worker has no permissions defined AND the tool is read-only (conservative default)

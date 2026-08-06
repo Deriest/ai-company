@@ -12,6 +12,101 @@ from storage.models import Task, TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
 
+# Keywords used to infer a worker type from structured plan requirement text
+# (mirrors taskgraph.decomposer.WORKER_TYPE_MAP heuristics).
+_WORKER_KEYWORDS = {
+    "database": "database",
+    "schema": "database",
+    "migration": "database",
+    "api": "backend",
+    "endpoint": "backend",
+    "backend": "backend",
+    "server": "backend",
+    "auth": "backend",
+    "frontend": "frontend",
+    "ui": "frontend",
+    "component": "frontend",
+    "page": "frontend",
+    "test": "qa",
+    "coverage": "qa",
+    "security": "security",
+    "audit": "security",
+    "doc": "documentation",
+    "readme": "documentation",
+    "deploy": "devops",
+    "devops": "devops",
+    "ci": "devops",
+}
+
+# Parent context keys inherited by subtasks so they run in the same
+# conversation/workspace scope as the parent task.
+_INHERITED_CONTEXT_KEYS = (
+    "conversation_id",
+    "workspace",
+    "repo_path",
+    "project_slug",
+    "model_tier",
+)
+
+
+def _infer_worker_type(text: str) -> str:
+    """Infer a worker type from requirement text via keyword heuristics."""
+    lower = (text or "").lower()
+    for keyword, worker in _WORKER_KEYWORDS.items():
+        if keyword in lower:
+            return worker
+    return "backend"
+
+
+def specs_from_plan_data(plan_data: dict) -> list[dict]:
+    """Build subtask specs from a structured EngineeringPlan.
+
+    The production planning stage persists a structured plan (engineering_goal,
+    effort_estimates=[{requirement_id, complexity, ...}], optional
+    functional_requirements=[{id, description, ...}]) rather than free-form
+    architect markdown. This converts that real shape into subtask specs.
+
+    Returns [] when the plan yields fewer than 2 subtasks (nothing to
+    decompose).
+    """
+    if not isinstance(plan_data, dict):
+        return []
+
+    estimates = plan_data.get("effort_estimates") or []
+    requirements = plan_data.get("functional_requirements") or []
+    goal = str(plan_data.get("engineering_goal") or "").strip()
+
+    # Index functional requirements by id for description enrichment
+    req_by_id = {}
+    for req in requirements:
+        if isinstance(req, dict) and req.get("id"):
+            req_by_id[str(req["id"])] = req
+
+    specs = []
+    for i, est in enumerate(estimates):
+        if not isinstance(est, dict):
+            continue
+        req_id = str(est.get("requirement_id") or f"REQ-{i + 1}")
+        req = req_by_id.get(req_id, {})
+        description = str(req.get("description") or est.get("description") or "").strip()
+        title = f"{req_id}: {description[:120]}" if description else f"{req_id}: {goal[:100] or 'Implementation step'}"
+        complexity = str(est.get("complexity") or "medium")
+        specs.append({
+            "title": title.strip(),
+            "worker_type": _infer_worker_type(description or title),
+            "depends_on": [],
+            "description": f"{description} (complexity: {complexity})"[:500] if description else f"Goal: {goal}"[:500],
+            "order": len(specs) + 1,
+        })
+
+    # A single requirement is not a decomposition — fall back to goal-based
+    # split only when there is a goal and no estimates at all.
+    if len(specs) <= 1:
+        return []
+
+    return specs
+
+
 
 def parse_decomposition(architect_output: str) -> list[dict]:
     """Parse architect LLM output into a list of subtask specs.
@@ -111,13 +206,36 @@ def parse_decomposition(architect_output: str) -> list[dict]:
     return subtasks
 
 
-async def decompose_task(session: AsyncSession, parent_task: Task, architect_output: str) -> list[Task]:
+async def decompose_task(session: AsyncSession, parent_task: Task, architect_output: str, plan_data: dict | None = None) -> list[Task]:
     """Decompose a parent task into subtasks based on architect output.
 
-    Creates child Task rows with parent_task_id set.
-    Returns the created subtask list.
+    Args:
+        session: Async database session
+        parent_task: Parent Task to decompose
+        architect_output: Free-form architect output (Markdown sections, JSON, numbered lists)
+        plan_data: Optional structured EngineeringPlan dict fallback with effort_estimates
+                   and functional_requirements. Used when architect_output doesn't parse
+                   into multiple subtasks. This handles the real production shape where the
+                   planning stage persists a structured plan rather than free-form markdown.
+
+    Returns:
+        List of created subtask Tasks (empty if no decomposition or only one spec).
+
+    Context Inheritance:
+        Subtasks inherit conversation/workspace/repo_path keys from the parent's context so
+        they execute in the same sandbox scope as the parent task (see executor sandbox
+        resolution which keys off context["conversation_id"]).
     """
     specs = parse_decomposition(architect_output)
+
+    # Fallback to structured plan parsing when architect output is unparseable
+    # or yields too few specs. This handles the actual production shape where the
+    # planning stage persists a structured EngineeringPlan rather than free-form markdown.
+    if len(specs) <= 1 and plan_data:
+        logger.info(f"Task {parent_task.id[:8]}: falling back to structured plan parsing")
+        plan_specs = specs_from_plan_data(plan_data)
+        if plan_specs and len(plan_specs) > 1:
+            specs = plan_specs
 
     if not specs:
         logger.info(f"Task {parent_task.id[:8]}: no decomposition parseable, treating as single task")
@@ -130,8 +248,13 @@ async def decompose_task(session: AsyncSession, parent_task: Task, architect_out
     logger.info(f"Task {parent_task.id[:8]}: decomposing into {len(specs)} subtasks")
     created = []
 
-    # Map subtask titles to IDs for dependency resolution
+    # Map subtask titles to IDs for dependency resolution (lowercase key)
     title_to_id = {}
+
+    # Inherit conversation/workspace/repo_path context from parent so subtasks
+    # execute in the same sandbox scope as the parent task.
+    parent_ctx = parent_task.context or {}
+    inherited = {k: v for k, v in parent_ctx.items() if k in _INHERITED_CONTEXT_KEYS}
 
     for spec in specs:
         subtask = Task(
@@ -143,7 +266,7 @@ async def decompose_task(session: AsyncSession, parent_task: Task, architect_out
             worker_type=spec["worker_type"],
             approval_required=parent_task.approval_required,
             progress=0,
-            context={"parent_task_id": parent_task.id, "decomposed": True},
+            context={**inherited, "parent_task_id": parent_task.id, "decomposed": True},
             parent_task_id=parent_task.id,
             subtask_order=spec["order"],
             depends_on=[],

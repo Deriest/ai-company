@@ -89,26 +89,27 @@ class TestToolPermissionsM1:
         clear_cache()
         yield
 
-    def test_rex_denies_shell_and_write(self):
-        """Read-only role rex denies write_file/shell per M1 spec."""
+    def test_rex_allows_docs_write_denies_shell(self):
+        """Rex (governor) is a docs-scoped writer: allows write_file, denies shell."""
         from backend.services.tool_permissions import check_tool_permission
-        assert check_tool_permission("rex", "shell") is False
-        assert check_tool_permission("rex", "write_file") is False
+        assert check_tool_permission("rex", "shell") is False, "rex denies shell"
+        assert check_tool_permission("rex", "write_file") is True, "rex allows docs-scoped write_file"
         assert check_tool_permission("rex", "read_file") is True
         assert check_tool_permission("rex", "explore") is True
 
-    def test_review_denies_shell_and_write(self):
-        """Read-only role review denies write_file/shell per M1 spec."""
+    def test_unknown_worker_conservative_readonly_default(self):
+        """Unknown worker types default to conservative read-only (read_file allowed, write/shell denied)."""
         from backend.services.tool_permissions import check_tool_permission
         assert check_tool_permission("review", "shell") is False
         assert check_tool_permission("review", "write_file") is False
         assert check_tool_permission("review", "read_file") is True
 
-    def test_security_denies_shell_and_write(self):
-        """Security role explicitly made read-only per M1 spec."""
+    def test_security_denies_shell_allows_docs_write(self):
+        """Security role: docs-scoped write_file allowed, shell denied (docs-writer policy)."""
         from backend.services.tool_permissions import check_tool_permission
         assert check_tool_permission("security", "shell") is False
-        assert check_tool_permission("security", "write_file") is False
+        # Security now produces SECURITY_AUDIT.md reports via docs-scoped write_file
+        assert check_tool_permission("security", "write_file") is True
         assert check_tool_permission("security", "read_file") is True
 
     def test_backend_allows_shell_and_write(self):

@@ -12,6 +12,7 @@ import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
   Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList, FolderOpen,
+  Sparkles, ChevronDown,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
@@ -22,6 +23,9 @@ import { type ProjectRecord } from '../lib/api/projects'
 import { ProjectPicker } from './ProjectPicker'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
+import { WorkflowSelector, WorkflowStepper, WorkflowModeBanner } from './WorkflowSelector'
+import { readPreferredWorkflow, writePreferredWorkflow, getWorkflow } from '../lib/workflows'
+import type { WorkflowType, WorkflowTag } from '../lib/api/chat'
 
 // ── Virtual list (windowing) ─────────────────────────────
 // Only the visible window of messages is rendered (a 1000-message conversation
@@ -50,6 +54,8 @@ interface AssistantMessageState {
   deliverables?: DeliverableSummary
   /** Backend asked clarifying questions (missing project/workspace) — render as a block. */
   clarify?: ClarifyPayload
+  /** Workflow type selected by the user (applies to this turn). */
+  workflow?: WorkflowType
 }
 
 type AgentMode = 'build' | 'plan'
@@ -552,6 +558,21 @@ export const MessageRow = memo(function MessageRow({ message, state, onPickWorks
             if (clarify) {
               return <ClarifyBlock payload={clarify} onPickWorkspaceFolder={onPickWorkspaceFolder} />
             }
+            // Workflow stepper: when this turn runs a specific workflow, show the
+            // phase pipeline (only the phases that workflow allows) instead of a
+            // bare "thinking…" line. Activity is derived from tool calls + content.
+            if (state?.workflow && isStreaming) {
+              const status = state.streamStatus === 'queued' ? 'queued' : 'executing'
+              const toolProgress = Math.min(state.toolCalls.length / 6, 1) * 0.6
+              const contentProgress = Math.min(contentText.length / 2000, 1) * 0.4
+              const activity = Math.min(toolProgress + contentProgress, 0.99)
+              return (
+                <div className="space-y-2">
+                  <WorkflowStepper type={state.workflow} status={status} activity={activity} />
+                  {contentText && <MarkdownContent content={contentText} />}
+                </div>
+              )
+            }
             if (isStreaming && !contentText) {
               return (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -688,6 +709,12 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   // (`workspace` = repo_path, `project_id` = id) so the dispatcher creates
   // project folders in the user's chosen location instead of the app data dir.
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
+  // ── Workflow selection ────────────────────────────────────
+  // The next message is tagged with the selected workflow type (if any). When
+  // unset the backend auto-triages the task type. Selection persists in state
+  // until cleared; the preferred workflow is restored from localStorage.
+  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowType | null>(() => readPreferredWorkflow())
+  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false)
   const [fetchingModels, setFetchingModels] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -1155,6 +1182,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     const tempUserMsg: MessageRecord = {
       id: genId('temp'), conversation_id: convId, role: 'user', content: promptText,
       status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), attachments: [],
+      // Persist the selected workflow on the user message so it survives reloads
+      // and can be rendered as a badge/tag in the UI.
+      message_metadata: selectedWorkflow ? { workflow: selectedWorkflow } : undefined,
     }
     const tempAsstId = genId('temp-ast')
     const tempAsstMsg: MessageRecord = {
@@ -1164,11 +1194,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     setMessages(prev => [...prev, tempUserMsg, tempAsstMsg])
     setAssistantStates(prev => {
       const next = new Map(prev)
-      next.set(tempAsstId, { content: '', toolCalls: [], fileDiffs: [], shellOutputs: new Map(), todos: [], filesModified: [], isStreaming: true })
+      next.set(tempAsstId, { content: '', toolCalls: [], fileDiffs: [], shellOutputs: new Map(), todos: [], filesModified: [], isStreaming: true, workflow: selectedWorkflow ?? undefined })
       return next
     })
     streamMsgIdRef.current = tempAsstId
     streamContentRef.current = ''
+
+    // Build workflow tags from the selected workflow type. Empty when the user
+    // left it on auto (backend will triage the task type itself).
+    const workflowTags: WorkflowTag[] = selectedWorkflow
+      ? [{ workflow: selectedWorkflow }]
+      : []
 
     try {
       // Use executeAgent — goes through ConversationEngine → Dispatcher → Orchestrator → Workers
@@ -1184,6 +1220,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           attachments: attachmentPayload,
           workspace: activeProject?.repo_path || projectRoot || undefined,
           project_id: activeProject?.id || undefined,
+          // Tag the task with the chosen workflow so the dispatcher runs the
+          // right phase pipeline (bugfix/build/etc). Omit when auto.
+          tags: workflowTags.length ? workflowTags : undefined,
         },
         {
           onChunk: (chunk) => {
@@ -1403,6 +1442,23 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     } catch { /* selection cancelled */ }
   }, [])
 
+  // ── Workflow selection handlers ───────────────────────────
+  // Selecting a card tags the next message with the workflow type and
+  // (when the composer is empty) pre-fills it with an example prompt so new
+  // users get a starting point. The preference is persisted to localStorage.
+  const handleSelectWorkflow = useCallback((wf: { type: WorkflowType; example: string }) => {
+    setSelectedWorkflow(wf.type)
+    writePreferredWorkflow(wf.type)
+    setWorkflowPanelOpen(false)
+    // Only pre-fill when the composer is empty — never overwrite user text.
+    setInput(prev => prev.trim() ? prev : wf.example)
+  }, [])
+
+  const handleClearWorkflow = useCallback(() => {
+    setSelectedWorkflow(null)
+    setWorkflowPanelOpen(false)
+  }, [])
+
   return (
     <div className="flex flex-col absolute inset-0">
       <div className="flex min-h-0 flex-1">
@@ -1575,7 +1631,56 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
                 </button>
+
+                {/* Workflow selector chip — shows the active mode or "Auto". Opens
+                    the task-type card panel above the composer. */}
+                <button onClick={() => setWorkflowPanelOpen(o => !o)}
+                  aria-label="Select workflow type"
+                  aria-expanded={workflowPanelOpen}
+                  title="Choose a task workflow (build / bugfix / audit / …)"
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[8px] font-medium transition-colors",
+                    selectedWorkflow
+                      ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                      : "border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}>
+                  <Sparkles className="size-2.5" />
+                  {selectedWorkflow ? (getWorkflow(selectedWorkflow)?.label ?? selectedWorkflow) : 'Auto'}
+                  <ChevronDown className={cn("size-2.5 transition-transform", workflowPanelOpen && "rotate-180")} />
+                </button>
               </div>
+
+              {/* Workflow task-type selector panel (cards) */}
+              {workflowPanelOpen && (
+                <div className="mb-2 rounded-lg border border-border/60 bg-card/80 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Choose a workflow
+                    </span>
+                    <button onClick={() => setWorkflowPanelOpen(false)} aria-label="Close workflow selector"
+                      className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground">
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                  <WorkflowSelector
+                    selected={selectedWorkflow}
+                    onSelect={(wf) => handleSelectWorkflow(wf)}
+                  />
+                  <button onClick={handleClearWorkflow}
+                    className="mt-2 text-[10px] text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline">
+                    Use auto-detection (no explicit workflow)
+                  </button>
+                </div>
+              )}
+
+              {/* Mode banner — shows the selected workflow + pipeline for the next message */}
+              {selectedWorkflow && !workflowPanelOpen && (
+                <WorkflowModeBanner
+                  type={selectedWorkflow}
+                  onChangeType={() => setWorkflowPanelOpen(true)}
+                  onClear={handleClearWorkflow}
+                />
+              )}
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
               {attachWarnings.length > 0 && (

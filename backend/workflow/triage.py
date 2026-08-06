@@ -136,6 +136,36 @@ GUARDRAIL_PATTERNS = {
 }
 
 
+# ── Per-task-type workflow plans ─────────────────────────
+# Maps each task type to the execution phases it is allowed to run
+# (subset of workflow.fsm.EXECUTION_PHASES). Any execution phase NOT in
+# the plan is skipped with reason "not in <type> workflow". Level-based
+# skips (QUICK/STANDARD/EXTENDED) are composed with the plan: the final
+# skip set is the union of both.
+WORKFLOW_PLANS: dict[str, list[str]] = {
+    # Full lifecycle build
+    "build": ["discovery", "investigate", "planning", "implementation", "verification", "closeout"],
+    "feature": ["discovery", "investigate", "planning", "implementation", "verification", "closeout"],
+    # Root cause -> fix -> regression check; no formal discovery/planning/closeout
+    "bugfix": ["investigate", "implementation", "verification"],
+    # Maintain behavior while restructuring
+    "refactor": ["investigate", "implementation", "verification"],
+    # Read-only audit: investigate + verify, NO implementation (no code changes)
+    "bughunt": ["investigate", "verification"],
+    # Test-only tasks run verification only
+    "test": ["verification"],
+    # Documentation tasks land in closeout
+    "docs": ["closeout"],
+    # Infrastructure: no discovery, no docs closeout
+    "infra": ["investigate", "planning", "implementation", "verification"],
+    # Research stops after investigation + planning
+    "research": ["investigate", "planning"],
+}
+
+# Audit team for bughunt tasks (read-only investigation + evidence gathering)
+BUGHUNT_AUDIT_TEAM = ["research", "security", "qa"]
+
+
 def perform_smart_triage(
     text: str,
     task_type: str = "feature",
@@ -188,7 +218,14 @@ def perform_smart_triage(
     risk = min_risk
     reason = ""
 
-    if is_full_system_build or task_type in ("infra", "research"):
+    if task_type == "bughunt":
+        # Bug hunt is a read-only audit: STANDARD depth, no implementation.
+        calculated_level = ExecutionLevel.STANDARD
+        scope = "bounded"
+        risk = "low"
+        reason = "Bug hunt audit task classified for STANDARD read-only investigation"
+
+    elif is_full_system_build or task_type in ("infra", "research"):
         calculated_level = ExecutionLevel.FULL
         scope = "architecture_system"
         risk = "high"
@@ -228,6 +265,11 @@ def perform_smart_triage(
 
     # 4. Workforce Selection
     selected_workers = list(enforced_workers)
+    if task_type == "bughunt":
+        # Audit team: debugger leads, research/security/qa gather evidence.
+        for w in BUGHUNT_AUDIT_TEAM:
+            if w not in selected_workers:
+                selected_workers.append(w)
     if worker_hint and worker_hint not in selected_workers:
         selected_workers.append(worker_hint)
 
@@ -271,6 +313,31 @@ def perform_smart_triage(
             ]
         required_verification = ["unit", "integration", "security", "performance", "closeout_gate"]
         skip_phases = {}
+
+    # 5. Compose workflow-plan skips: any execution phase NOT in the plan for
+    # this task_type is skipped. Union with level-based skips (never removes
+    # existing skips), so QUICK bugfix narrows to implementation+verification.
+    plan_phases = WORKFLOW_PLANS.get(task_type)
+    if plan_phases is not None:
+        from workflow.fsm import EXECUTION_PHASES
+        for phase in EXECUTION_PHASES:
+            if phase not in plan_phases and phase not in skip_phases:
+                skip_phases[phase] = f"not in {task_type} workflow"
+
+    # 6. Guardrail un-skip: a guardrail-enforced worker is meaningless if its
+    # phase is skipped. For each enforced worker, find the phase(s) containing
+    # it and remove them from skip_phases. QUICK minimal paths stay intact
+    # EXCEPT when a guardrail fired (guardrail presence means the task needs
+    # that specialist).
+    if enforced_workers and skip_phases:
+        from workflow.fsm import PHASE_WORKERS
+        for w in enforced_workers:
+            containing = [ph for ph, entries in PHASE_WORKERS.items()
+                          if any(e.get("worker") == w for e in entries)]
+            for ph in containing:
+                if ph in skip_phases:
+                    skip_phases.pop(ph)
+                    logger.info(f"Guardrail worker {w} un-skipped phase {ph}")
 
     # Deduplicate selected_workers preserving order
     deduped_workers = []

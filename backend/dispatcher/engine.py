@@ -125,6 +125,37 @@ class DispatcherEngine:
         if not resolved_project_id:
             resolved_project_id = await self._ensure_sandbox_project()
 
+        # PRD Materialization: Dispatcher creates docs/PRD.md from the EngineeringBrief
+        # Primary ownership: the dispatcher is the hub that gathers requirements → 
+        # produces PRD → delivers to workers. Keep executor-level materialization as
+        # fallback for direct execute_task callers.
+        prd_path = None
+        try:
+            brief = await self._resolve_brief(graph_model)
+            if brief:
+                from shared.workspace import sandbox_workspace_dir
+                from storage.models import Project
+
+                # Determine workspace: use project.repo_path if set, else a stable sandbox per-graph
+                proj_res = await self.session.execute(
+                    select(Project).where(Project.id == resolved_project_id)
+                )
+                project_obj = proj_res.scalar_one_or_none()
+                if project_obj and project_obj.repo_path:
+                    workspace_path = project_obj.repo_path
+                else:
+                    workspace_path = sandbox_workspace_dir(graph_model.id)
+                    # Create the directory
+                    import os
+                    os.makedirs(workspace_path, exist_ok=True)
+
+                # Materialize PRD
+                from backend.services.prd_writer import materialize_prd
+                prd_path = materialize_prd(workspace_path, brief)
+                logger.info(f"Dispatcher {graph_model.id[:8]}: PRD.md written -> {prd_path or 'N/A'}")
+        except Exception as e:
+            logger.warning(f"Dispatcher {graph_model.id[:8]}: Failed to materialize PRD.md (non-fatal): {e}")
+
         # Schedule tasks
         scheduled = TaskScheduler.schedule_tasks(execution_order, task_results)
 
@@ -262,14 +293,15 @@ class DispatcherEngine:
         return DispatcherResult(
             state=DispatcherState.DISPATCHER_COMPLETE.value,
             result=dispatch_result,
-            message=self._build_dispatch_message(dispatch_result, len(nodes)),
+            message=self._build_dispatch_message(dispatch_result, len(nodes), prd_path),
             metadata={
-                "execution_id": session_model.id,  # Use the actual persisted row id
+                "execution_id": session_model.id,
                 "graph_id": graph_id,
                 "total_tasks": len(nodes),
                 "completed_tasks": completed,
                 "failed_tasks": len(nodes) - completed,
                 "success_rate": dispatch_result.success_rate,
+                "prd_path": prd_path,  # Path where PRD.md was materialized
             },
         )
 
@@ -325,29 +357,56 @@ class DispatcherEngine:
         task_type = node_data.get("task_type", "feature")
         worker_type = node_data.get("worker_type", "coding")
 
-        child_task = Task(
-            project_id=project_id,
-            # parent_task_id intentionally left unset — the graph node is the
-            # source of truth, not a single parent task.
-            title=title,
-            description=description,
-            type=task_type,
-            status=TaskStatus.CREATED.value,
-            worker_type=worker_type,
-            approval_required=False,
-            progress=0,
-            context={
-                "source": "dispatcher_dispatch",
-                "graph_id": execution_id_prefix,
-                "node_id": node_id,
-                "graph_node": node_data,
-                "execution_level": "STANDARD",
-                "phase_semantics": {},
-            },
-        )
         session = session or self.session
-        session.add(child_task)
-        await session.flush()
+
+        # Subtask-aware execution: graph nodes produced by workflow decomposition
+        # carry the ID of an already-persisted subtask Task row ("subtask_id").
+        # Execute that row directly so parent/child linkage, status, depends_on
+        # and subtask_order bookkeeping stay real instead of forking a copy.
+        # Defensive: any lookup failure falls back to creating a fresh child task.
+        child_task = None
+        subtask_id = node_data.get("subtask_id")
+        if subtask_id:
+            try:
+                child_task = await session.get(Task, subtask_id)
+            except Exception as e:
+                logger.warning(f"Subtask lookup failed for node {node_id}: {e}")
+                child_task = None
+            if child_task is not None:
+                child_ctx = dict(child_task.context or {})
+                child_ctx["source"] = "dispatcher_dispatch"
+                child_ctx["graph_id"] = execution_id_prefix
+                child_ctx["node_id"] = node_id
+                child_ctx["graph_node"] = node_data
+                child_task.context = child_ctx
+                # Reset to CREATED so re-dispatch after failure can re-execute
+                child_task.status = TaskStatus.CREATED.value
+                child_task.error_message = None
+                await session.flush()
+
+        if child_task is None:
+            child_task = Task(
+                project_id=project_id,
+                # parent_task_id intentionally left unset — the graph node is the
+                # source of truth, not a single parent task.
+                title=title,
+                description=description,
+                type=task_type,
+                status=TaskStatus.CREATED.value,
+                worker_type=worker_type,
+                approval_required=False,
+                progress=0,
+                context={
+                    "source": "dispatcher_dispatch",
+                    "graph_id": execution_id_prefix,
+                    "node_id": node_id,
+                    "graph_node": node_data,
+                    "execution_level": "STANDARD",
+                    "phase_semantics": {},
+                },
+            )
+            session.add(child_task)
+            await session.flush()
 
         try:
             result = await execute_task(session, child_task)
@@ -386,6 +445,22 @@ class DispatcherEngine:
             logger.warning(f"Dispatch project resolution failed: {e}")
         return None
 
+    async def _resolve_brief(self, graph_model: TaskGraphModel):
+        """Resolve EngineeringBrief from the graph's pipeline chain.
+
+        Returns the EngineeringBrief object or None if not found.
+        This is used by PRD materialization for the dispatcher.
+        """
+        try:
+            from storage.models import EngineeringPlan, EngineeringBrief, DiscoverySession
+            plan = await self.session.get(EngineeringPlan, graph_model.plan_id)
+            if plan:
+                brief = await self.session.get(EngineeringBrief, plan.brief_id)
+                return brief
+        except Exception as e:
+            logger.debug(f"Dispatcher brief resolution failed: {e}")
+        return None
+
     async def _ensure_sandbox_project(self) -> str:
         """Create a sandbox project so task execution always has a home."""
         from storage.models import Project
@@ -413,7 +488,7 @@ class DispatcherEngine:
         except Exception:
             pass
 
-    def _build_dispatch_message(self, result: DispatchResult, total_tasks: int) -> str:
+    def _build_dispatch_message(self, result: DispatchResult, total_tasks: int, prd_path: str | None) -> str:
         """Build user-facing dispatch message from REAL per-node results."""
         completed = sum(1 for e in result.task_results.values() if e.status == "completed")
         failed = sum(1 for e in result.task_results.values() if e.status == "failed")
@@ -423,6 +498,8 @@ class DispatcherEngine:
             f"- Tasks: {completed}/{total_tasks} completed",
             f"- Success rate: {result.success_rate:.0%}",
         ]
+        if prd_path:
+            lines.append(f"- PRD delivered to workers: {prd_path}")
         if failed:
             failed_nodes = [
                 n for n, e in result.task_results.items() if e.status == "failed"

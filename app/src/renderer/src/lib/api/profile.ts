@@ -19,6 +19,8 @@ export interface ProfileDto {
   githubToken?: string | null;
   /** Legacy snake_case — tolerated on read, never sent by this client. */
   github_token?: string | null;
+  /** User's preferred workflow type (persisted by the backend when supported). */
+  preferred_workflow?: string | null;
 }
 
 export interface LocalProfile {
@@ -31,6 +33,8 @@ export interface LocalProfile {
    * ""/absent otherwise (mirrors the backend GET /profile masking).
    */
   githubToken?: string | null;
+  /** User's preferred workflow type (build / bugfix / …); null when unset. */
+  preferredWorkflow?: string | null;
   appVersion: string;
   onboardingCompleted: boolean;
   createdAt: string | null;
@@ -68,6 +72,7 @@ export function mapProfile(raw: ProfileDto): Partial<LocalProfile> {
   if (raw.projectRoot) out.projectRoot = raw.projectRoot;
   const token = raw.githubToken ?? raw.github_token;
   if (token !== undefined) out.githubToken = token;
+  if (raw.preferred_workflow) out.preferredWorkflow = raw.preferred_workflow;
   return out;
 }
 
@@ -96,12 +101,14 @@ export const profileApi = {
    * `githubToken` semantics on the wire (`github_token`): a value stores the
    * (encrypted) token, "" clears it, and omitting it keeps the stored one.
    */
-  async update(data: { displayName?: string; appVersion?: string; projectRoot?: string; githubToken?: string }): Promise<LocalProfile> {
-    const { githubToken, ...rest } = data;
+  async update(data: { displayName?: string; appVersion?: string; projectRoot?: string; githubToken?: string; preferredWorkflow?: string }): Promise<LocalProfile> {
+    const { githubToken, preferredWorkflow, ...rest } = data;
     const payload: Record<string, unknown> = { ...rest };
     // Wire quirk: writes expect snake_case `github_token` even though reads
     // return camelCase `githubToken`.
     if (githubToken !== undefined) payload.github_token = githubToken;
+    // preferred_workflow is snake_case on the wire (matches backend column name).
+    if (preferredWorkflow !== undefined) payload.preferred_workflow = preferredWorkflow;
     const raw = await apiClient.patch<ProfileDto>('/profile', payload);
     return mapProfile(raw) as LocalProfile;
   },

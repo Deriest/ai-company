@@ -13,6 +13,7 @@ class ChatRequest(BaseModel):
     model_id: Optional[str] = None
     worker_role: Optional[str] = "thinker"
     model_tier: Optional[str] = None
+    tags: Optional[list[dict]] = None  # frontend can send workflow tags (e.g., {"workflow": "bughunt"})
     attachments: Optional[List[Dict[str, Any]]] = None
     workspace: Optional[str] = None
     temperature: Optional[float] = 0.4

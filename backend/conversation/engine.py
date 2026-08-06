@@ -58,6 +58,10 @@ INTENT_CHAT = "chat"
 # ── Task type detection patterns (fallback) ────────────
 
 TASK_PATTERNS: list[tuple[str, str, re.Pattern]] = [
+    # Bug-hunt (read-only audit) MUST be checked before the generic bugfix
+    # pattern since it also contains the word "bug".
+    (TaskType.BUGHUNT.value, "qa",
+     re.compile(r"\b(cari\s+bug|bug\s+hunt|find\s+bugs?|audit\s+(kode|code|bug)|scan\s+(for\s+)?bugs?|carikan\s+bug|cari\s+masalah|bug\s+audit)\b", re.I)),
     (TaskType.BUGFIX.value, "backend",
      re.compile(r"\b(fix|bug|error|broken|crash|fail|issue|defect)\b", re.I)),
     (TaskType.BUGFIX.value, "frontend",
@@ -455,6 +459,48 @@ class ConversationEngine:
                         logger.info(f"Pipeline background: task {task_id} found, starting pipeline...")
                         result = await run_engineering_pipeline(bg_session, bg_task)
                         await bg_session.commit()
+                        # Append a user-facing summary message to the conversation
+                        try:
+                            conv_id = getattr(task, 'context', {}).get('conversation_id')
+                            if conv_id:
+                                from storage.models import Conversation
+                                conv_res = await bg_session.execute(
+                                    select(Conversation).where(Conversation.id == conv_id)
+                                )
+                                conv = conv_res.scalar_one_or_none()
+                                if conv:
+                                    # Build dispatcher's report to user
+                                    if result.success:
+                                        msg_lines = [
+                                            "**Dispatcher Report — Pipeline Complete**",
+                                            f"- Outcome: success",
+                                        ]
+                                        # List artifacts from PRD and any deliverables
+                                        if result.brief_id or result.graph_id:
+                                            msg_lines.append("- Artifacts produced: docs/PRD.md + per-task deliverables")
+                                        msg_lines.append("\nNext step: review docs/PRD.md and generated files.")
+                                    else:
+                                        error_stage = result.error.split(":")[0] if result.error else "unknown"
+                                        msg_lines = [
+                                            "**Dispatcher Report — Pipeline Failed**",
+                                            f"- Outcome: failed at stage `{error_stage}`",
+                                            f"- Error: {result.error[:200]}",
+                                        ]
+                                    summary_msg = "\n".join(msg_lines)
+                                    from storage.models import Message
+                                    assistant_msg = Message(
+                                        conversation_id=conv_id,
+                                        role="assistant",
+                                        content=summary_msg,
+                                        intent="dispatcher_report",
+                                        meta={"pipeline": {"stage": result.stage}},
+                                    )
+                                    bg_session.add(assistant_msg)
+                                    await bg_session.commit()  # Commit message so it survives session rollback
+                                    logger.info(f"Pipeline summary message written to conv {conv_id}")
+                        except Exception as e:
+                            # Non-critical: don't crash pipeline reporting
+                            logger.warning(f"Failed to append pipeline summary message: {e}")
                         logger.info(
                             f"Pipeline finished for task {task_id}: "
                             f"success={result.success} stage={result.stage}"
@@ -489,7 +535,7 @@ class ConversationEngine:
         # M6 FIX: triage_res.level is an ExecutionLevel enum — comparing it to a
         # plain string was always True, so QUICK tasks incorrectly required
         # approval. Compare against the enum member.
-        approval_required = task_type not in ("test", "docs") and triage_res.level != ExecutionLevel.QUICK
+        approval_required = task_type not in ("test", "docs", "bughunt") and triage_res.level != ExecutionLevel.QUICK
         task = Task(
             project_id=project_id,
             title=title,
@@ -570,7 +616,7 @@ class ConversationEngine:
         """
         task_type, worker = self._classify_task(content)
         title = self._extract_title(content)
-        approval_required = task_type not in ("test", "docs")
+        approval_required = task_type not in ("test", "docs", "bughunt")
         return task_type, worker, title, approval_required
 
     async def _handle_status(self, conversation: Conversation) -> tuple[str, dict]:

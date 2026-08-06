@@ -40,6 +40,7 @@ class Role(str, PyEnum):
 class TaskType(str, PyEnum):
     FEATURE = "feature"
     BUGFIX = "bugfix"
+    BUGHUNT = "bughunt"
     REFACTOR = "refactor"
     DOCS = "docs"
     INFRA = "infra"

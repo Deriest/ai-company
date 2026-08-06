@@ -42,6 +42,7 @@ PHASE_WORKERS: dict[str, list[dict]] = {
     "investigate": [
         {"worker": "pm", "tier": "thinker"},
         {"worker": "research", "tier": "thinker"},
+        # Note: qa performs both verification AND bughunt audits; no separate debugger role
     ],
     "planning": [
         {"worker": "architect", "tier": "thinker"},
@@ -58,6 +59,7 @@ PHASE_WORKERS: dict[str, list[dict]] = {
     "verification": [
         {"worker": "qa", "tier": "sprinter"},
         {"worker": "performance", "tier": "sprinter"},
+        {"worker": "security", "tier": "thinker"},  # bughunt audit team member — verify audit results
     ],
     "closeout": [
         {"worker": "rex", "tier": "sprinter"},
@@ -191,7 +193,7 @@ def allowed_workers_for_phase(
     # merge guardrail-enforced workers with the normal phase workers.
     # Previously this REPLACED normal workers, causing architect/etc to be
     # skipped when security was enforced by guardrails.
-    if selected_workers and p in ("implementation", "planning", "verification", "closeout"):
+    if selected_workers and p in ("implementation", "planning", "verification", "closeout", "investigate"):
         phase_allowed = set(w for entry in plan for w in [entry["worker"]])
         # Guardrail workers from selected_workers that belong to this phase
         guardrail_in_phase = [w for w in selected_workers if w in phase_allowed]

@@ -70,8 +70,81 @@ class DependencyAnalyzer:
                         required=True,
                     ))
 
+        # Add phase-based barrier edges so nodes in the same phase run in parallel
+        # while phases run sequentially (phase P depends on all nodes in phase P-1)
+        edges = cls._add_phase_barrier_edges(nodes, edges)
+
         # Deduplicate edges
         edges = cls._deduplicate_edges(edges)
+
+        return edges
+
+    @classmethod
+    def _add_phase_barrier_edges(cls, nodes: list[TaskNode], edges: list[TaskEdge]) -> list[TaskEdge]:
+        """Add phase-based barrier edges to enable phase-parallelism alignment.
+
+        Maps each node's worker_type to its FSM phase and adds edges so that
+        every node in phase P depends on ALL nodes in the immediately preceding
+        phase that exists in the graph (phase barrier). Nodes within the same
+        phase share no edges → detect_parallelism puts them in one concurrent group.
+
+        Args:
+            nodes: List of task nodes
+            edges: Existing edges
+
+        Returns:
+            Updated list of edges with phase barriers added
+        """
+        from workflow.fsm import PHASE_WORKERS, PHASE_ORDER
+
+        # Build worker→phase lookup (use FIRST occurrence, default unknown workers to "implementation")
+        # Skip 'discovery' phase since it's a routing/clarification phase, not a real execution phase
+        # for task graph purposes. This ensures 'pm' maps to 'investigate' (where it runs with research).
+        worker_to_phase = {}
+        
+        # Map workers to phases using FIRST occurrence (some workers like 'pm' appear in multiple phases)
+        # Skip discovery phase to get the "real" execution phase for workers
+        for phase_name, phase_workers in PHASE_WORKERS.items():
+            if phase_name == "discovery":
+                continue  # Skip discovery phase
+            for entry in phase_workers:
+                worker = entry["worker"]
+                if worker not in worker_to_phase:  # Only first occurrence
+                    worker_to_phase[worker] = phase_name
+
+        # Group nodes by their FSM phase
+        phase_groups = {}  # phase_name -> list of node_ids
+        for node in nodes:
+            worker_type = getattr(node, 'worker_type', None)
+            if not worker_type:
+                continue
+            
+            # Map worker_type to phase (default to "implementation" for unknown)
+            phase = worker_to_phase.get(worker_type, "implementation")
+            
+            if phase not in phase_groups:
+                phase_groups[phase] = []
+            phase_groups[phase].append(node.node_id)
+
+        # Add barrier edges between consecutive phases that exist in the graph
+        # Order phases by PHASE_ORDER for deterministic results
+        ordered_phases = [p for p in PHASE_ORDER if p in phase_groups]
+        
+        for i in range(1, len(ordered_phases)):
+            prev_phase = ordered_phases[i - 1]
+            curr_phase = ordered_phases[i]
+            
+            # Every node in current phase depends on ALL nodes in previous phase
+            for prev_node_id in phase_groups[prev_phase]:
+                for curr_node_id in phase_groups[curr_phase]:
+                    # Avoid self-edges
+                    if prev_node_id != curr_node_id:
+                        edges.append(TaskEdge(
+                            from_node=prev_node_id,
+                            to_node=curr_node_id,
+                            dependency_type="blocks",
+                            required=True,
+                        ))
 
         return edges
 

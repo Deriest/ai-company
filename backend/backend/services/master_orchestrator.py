@@ -162,6 +162,13 @@ class MasterOrchestrator:
                 "trace_id": trace,
             })
 
+            # ── Stage 2.5: Decomposition (defensive) ───────────
+            # Complex multi-step requests are broken into subtasks here, after
+            # the engineering plan exists and before the TaskGraph is built.
+            # Any failure falls back to single-task execution — the pipeline
+            # is never broken by decomposition.
+            subtasks = await self._maybe_decompose(task, plan_id, brief_id)
+
             # ── Stage 3: TaskGraph ──────────────────────────────
             await self._publish("pipeline.stage.started", task_id, {
                 "stage": PipelineStage.TASKGRAPH,
@@ -169,7 +176,21 @@ class MasterOrchestrator:
                 "trace_id": trace,
             })
 
-            graph_id = await self._run_taskgraph(plan_id)
+            # Prefer a graph built from the decomposed subtasks (each subtask
+            # becomes a graph node carrying its subtask_id so the dispatcher
+            # executes the persisted subtask rows with their dependencies).
+            # Fall back to the plan-derived graph when decomposition produced
+            # nothing or graph construction fails.
+            graph_id = None
+            if subtasks:
+                graph_id = await self._run_taskgraph_from_subtasks(plan_id, subtasks)
+                if not graph_id:
+                    logger.warning(
+                        f"Task {task_id}: subtask graph generation failed; "
+                        "falling back to plan-derived graph"
+                    )
+            if not graph_id:
+                graph_id = await self._run_taskgraph(plan_id)
             if not graph_id:
                 return PipelineResult(
                     success=False,
@@ -384,6 +405,213 @@ class MasterOrchestrator:
 
         logger.warning(f"Planning failed for brief {brief_id}")
         return None
+
+    # ── Stage 2.5: Decomposition (subtasks) ────────────────────────
+
+    async def _maybe_decompose(self, task: Task, plan_id: str, brief_id: str | None = None) -> list[Task]:
+        """Try to decompose the parent task into subtasks, defensively falling back to [].
+
+        Skip decomposition if:
+          - Task is already a subtask (parent_task_id set)
+          - Execution level is QUICK (too trivial)
+
+        Args:
+            task: Parent task
+            plan_id: Engineering Plan ID (loaded below)
+            brief_id: Optional brief ID; used to fetch functional_requirements
+
+        Returns:
+            List of created subtask Tasks (empty when skipped/failed/no-op).
+        """
+        # Already a subtask → skip
+        if getattr(task, "parent_task_id", None):
+            logger.debug(f"Task {task.id[:8]}: already a subtask, skipping decomposition")
+            return []
+
+        # QUICK tasks are trivial — no churn needed
+        ctx = task.context or {}
+        level = str(ctx.get("execution_level") or (ctx.get("triage") or {}).get("level") or "").upper()
+        if level == "QUICK":
+            logger.info(f"Task {task.id[:8]}: QUICK-level execution, skipping decomposition")
+            return []
+
+        try:
+            from workflow.decomposition import decompose_task
+            from storage.models import EngineeringBrief as EBORM
+
+            # Load the engineering plan
+            plan_res = await self.session.execute(
+                select(EngineeringPlanORM).where(EngineeringPlanORM.id == plan_id)
+            )
+            plan = plan_res.scalar_one_or_none()
+            if not plan:
+                logger.warning(f"Task {task.id[:8]}: plan not found; cannot decompose")
+                return []
+
+            # Architect output: render plan into markdown-like format parse_decomposition expects
+            architect_output = f"# {plan.engineering_goal}\n\n## Technical Approach\n\n{plan.technical_approach}"
+
+            # Structured plan data fallback (the real production shape)
+            effort_estimates = plan.effort_estimates or []
+            plan_data = {
+                "effort_estimates": effort_estimates,
+                "engineering_goal": plan.engineering_goal,
+            }
+
+            # Fetch functional requirements from the brief (if available) for better descriptions
+            if brief_id:
+                try:
+                    brief_res = await self.session.execute(
+                        select(EBORM).where(EBORM.id == brief_id)
+                    )
+                    brief = brief_res.scalar_one_or_none()
+                    if brief:
+                        plan_data["functional_requirements"] = brief.functional_requirements or []
+                except Exception as e:
+                    logger.debug(f"Failed to load brief for functional requirements: {e}")
+
+            # Call decompose_task with both free-form architect text AND structured fallback
+            subtasks = await decompose_task(self.session, task, architect_output, plan_data=plan_data)
+
+            if not subtasks:
+                logger.warning(f"Task {task.id[:8]}: decomposition produced no subtasks; using single-task path")
+            else:
+                logger.info(f"Task {task.id[:8]}: successfully decomposed into {len(subtasks)} subtasks")
+
+            return subtasks
+
+        except Exception as e:
+            # Cleanup any partially created subtasks (flushed but potentially not committed yet)
+            logger.warning(f"Task {task.id[:8]}: decomposition failed ({e}); rolling back partials and using single-task path")
+            try:
+                partials = await self.session.execute(select(Task).where(Task.parent_task_id == task.id))
+                for st in partials.scalars().all():
+                    await self.session.delete(st)
+                # Clear decomposed flags on parent (if set pre-failure)
+                parent_ctx = task.context or {}
+                if parent_ctx.get("decomposed"):
+                    parent_ctx.pop("decomposed", None)
+                    parent_ctx.pop("subtask_ids", None)
+                    task.context = parent_ctx
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(task, "context")
+                await self.session.flush()
+            except Exception as cleanup_err:
+                logger.error(f"Task {task.id[:8]}: partial cleanup failed ({cleanup_err})")
+            return []
+
+    async def _run_taskgraph_from_subtasks(self, plan_id: str, subtasks: list[Task]) -> Optional[str]:
+        """Build a TaskGraphModel directly from existing subtask Task rows.
+
+        Each subtask becomes a graph node carrying its task ID (so the dispatcher can
+        execute the persisted subtask row rather than creating a child). Dependencies
+        are inherited from subtask.depends_on. Phase-based barriers add edges from
+        earlier-phase workers to later-phase workers (implementation → verification).
+
+        Defensive: returns None on any failure.
+
+        Args:
+            plan_id: Engineering Plan ID (for graph persistence)
+            subtasks: List of Task rows (from decomposition)
+
+        Returns:
+            Graph ID if successful, None on failure.
+        """
+        from taskgraph.models import TaskNode, TaskGraph
+        from taskgraph.dependency import DependencyAnalyzer
+        from taskgraph.validator import GraphValidator
+
+        try:
+            # Build nodes from subtasks
+            nodes = []
+            for i, st in enumerate(subtasks):
+                # Map worker to task_type
+                worker = getattr(st, "worker_type", "backend") or "backend"
+                task_type = "testing" if worker in ("qa", "performance") else \
+                           ("documentation" if worker == "documentation" else \
+                            ("review" if worker == "review" else "coding"))
+
+                # Filter depends_on to only include sibling subtask IDs
+                deps_on = getattr(st, "depends_on", []) or []
+                sibling_ids = [t.id for t in subtasks]
+                filtered_deps = [d for d in deps_on if d in sibling_ids]
+
+                node = TaskNode(
+                    node_id=st.id,  # use task.id as node_id so dispatcher knows it's an existing subtask
+                    title=st.title,
+                    description=st.description or "",
+                    task_type=task_type,
+                    worker_type=worker,
+                    dependencies=filtered_deps,
+                    priority=1,
+                    estimated_effort="medium",
+                )
+                nodes.append(node)
+
+            if len(nodes) <= 1:
+                logger.debug(f"Only 1 subtask; graph construction skipped")
+                return None
+
+            # Analyze dependencies: explicit deps + task-type edges + phase barriers
+            edges = DependencyAnalyzer.analyze_dependencies(nodes)
+
+            # Validate graph before persisting
+            validation = GraphValidator.validate(nodes, edges)
+            if not validation.is_valid:
+                logger.warning(f"Subtask graph invalid: {'; '.join(validation.errors)}")
+                return None
+
+            # Detect parallelism groups
+            execution_order = DependencyAnalyzer.detect_parallelism(nodes, edges)
+            critical_path = DependencyAnalyzer.find_critical_path(nodes, edges)
+
+            # Build graph
+            graph = TaskGraph(
+                plan_id=plan_id,
+                nodes=nodes,
+                edges=edges,
+                execution_order=execution_order,
+                critical_path=critical_path,
+                status="validated",
+            )
+
+            # Persist TaskGraphModel with richer node serialization including subtask_id/description
+            graph_model = TaskGraphModel(
+                id=graph.graph_id,
+                plan_id=plan_id,
+                nodes=[
+                    {
+                        "node_id": n.node_id,
+                        "title": n.title,
+                        "description": n.description,
+                        "worker_type": n.worker_type,
+                        "task_type": n.task_type,
+                        "dependencies": n.dependencies,
+                        "subtask_id": n.node_id,  # key field so dispatcher executes the existing subtask row
+                    }
+                    for n in graph.nodes
+                ],
+                edges=[
+                    {"from_node": e.from_node, "to_node": e.to_node, "dependency_type": e.dependency_type}
+                    for e in graph.edges
+                ],
+                execution_order=execution_order,
+                critical_path=critical_path,
+                recovery_points=[],
+                estimated_duration="",
+                parallelism_factor=1.0,
+                status="validated",
+            )
+            self.session.add(graph_model)
+            await self.session.flush()
+            logger.info(f"Subtask graph persisted: graph_id={graph.graph_id}, nodes={len(nodes)}")
+            return graph.graph_id
+
+        except Exception as e:
+            logger.error(f"Taskgraph generation from subtasks failed: {e}", exc_info=True)
+            return None
+
+    # ── Stage 3: TaskGraph ──────────────────────────────────────────────
 
     async def _run_taskgraph(self, plan_id: str) -> Optional[str]:
         """Run TaskGraph Engine → produce execution DAG."""
