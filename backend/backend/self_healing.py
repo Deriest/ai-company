@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.models import Lease, LeaseStatus, Message, Task, Worker, WorkerStatus
@@ -135,8 +135,49 @@ class SelfHealingEngine:
                     await self.session.commit()
                     from backend.routes.conversations import _dispatch_created_task
 
+                    # Find which of these "created" parents are owned by
+                    # MasterOrchestrator (they have child/decomposed subtasks).
+                    child_parent_ids: set[str] = set()
+                    if created:
+                        child_res = await self.session.execute(
+                            select(Task.parent_task_id).where(
+                                Task.parent_task_id.in_([str(c.id) for c in created])
+                            )
+                        )
+                        child_parent_ids = {
+                            str(r[0]) for r in child_res.all() if r[0] is not None
+                        }
+
                     for t in created:
                         tid = str(t.id)
+                        tctx = t.context or {}
+                        # Skip tasks owned by MasterOrchestrator: their parent
+                        # row stays "created" while the pipeline executes
+                        # children, so re-dispatching would duplicate execution.
+                        if (
+                            tctx.get("brief_id")
+                            or tctx.get("graph_id")
+                            or tctx.get("dispatch_id")
+                            or tid in child_parent_ids
+                        ):
+                            repairs.append(f"Skipped orchestrated parent {tid[:8]} (not re-dispatched)")
+                            continue
+                        # Atomic claim (TOCTOU fix): only dispatch if this exact
+                        # task is STILL 'created'. A guarded UPDATE prevents two
+                        # concurrent self-healing runs / dispatchers from
+                        # double-claiming the same task.
+                        # Atomic claim: only dispatch if this task is still 'created'.
+                        # Use 'investigate' (the first FSM phase) instead of 'in_progress'
+                        # because TaskStatus has no IN_PROGRESS value — valid statuses:
+                        # created/investigate/planning/implementation/verification/closeout/test/review/documentation/completed/cancelled/blocked/failed
+                        claim = await self.session.execute(
+                            update(Task)
+                            .where(Task.id == tid, Task.status == "created")
+                            .values(status="investigate")
+                        )
+                        if claim.rowcount != 1:
+                            repairs.append(f"Skipped task {tid[:8]} (already claimed)")
+                            continue
                         redispatched.append(tid)
                         # L7: hold a strong reference so the task is not
                         # garbage-collected before it completes.
@@ -144,6 +185,8 @@ class SelfHealingEngine:
                         _self_healing_tasks.add(task_ref)
                         task_ref.add_done_callback(_self_healing_tasks.discard)
                         repairs.append(f"Re-dispatched task {tid[:8]}")
+                    # Persist the atomic claim updates (status -> in_progress).
+                    await self.session.commit()
                 else:
                     await self.session.commit()
             else:

@@ -189,37 +189,21 @@ export function useBoot(opts: UseBootOptions): BootState {
         if (stored.password) await window.aic.storeSet("password", null);
       }
 
+      // SECURITY: the JWT is kept strictly in-memory. It is NEVER written to
+      // state.json or any disk-persistent store (storeSet("token", ...) is
+      // deliberately removed). A fresh per-install login runs on every boot —
+      // the identity comes from the main-process identity.json (or the dev
+      // fallback), not from a stored token.
       let restoredToken: string | null = null;
-      if (typeof stored?.token === "string" && stored.token) {
-        configureClient({ baseUrl: engineUrl, token: stored.token });
-        try {
-          await api.me();
-          restoredToken = stored.token;
-          setToken(restoredToken);
-        } catch {
-          // Token is stale or JWT secret changed — clear stale token immediately
-          restoredToken = null;
-          setToken(null);
-          if (window.aic) await window.aic.storeSet("token", null);
-        }
-      }
-
-      if (!restoredToken) {
-        try {
-          // Per-install identity from the main process; DESKTOP_IDENTITY is
-          // only the non-Electron dev fallback.
-          const identity = (await window.aic?.getIdentity?.()) ?? DESKTOP_IDENTITY;
-          const res = await api.login(identity.username, identity.password);
-          restoredToken = res.access_token;
-          setToken(restoredToken);
-          configureClient({ baseUrl: engineUrl, token: restoredToken });
-          setUserLabel(res.username || res.user?.username || "you");
-          if (window.aic) {
-            await window.aic.storeSet("token", restoredToken);
-          }
-        } catch {
-          setBootDetail("Engine not ready for sign-in yet");
-        }
+      try {
+        const identity = (await window.aic?.getIdentity?.()) ?? DESKTOP_IDENTITY;
+        const res = await api.login(identity.username, identity.password);
+        restoredToken = res.access_token;
+        setToken(restoredToken);
+        configureClient({ baseUrl: engineUrl, token: restoredToken });
+        setUserLabel(res.username || res.user?.username || "you");
+      } catch {
+        setBootDetail("Engine not ready for sign-in yet");
       }
 
       // Restore workspace/chat state via callback
@@ -239,7 +223,7 @@ export function useBoot(opts: UseBootOptions): BootState {
         openTabs: restoredTabs,
       });
 
-      const firstRun = !stored?.token && !(Array.isArray(stored?.recentProjects) && stored.recentProjects.length);
+      const firstRun = !restoredToken && !(Array.isArray(stored?.recentProjects) && stored.recentProjects.length);
       const nextView = pickStartupView({
         lastView: typeof stored?.lastView === "string" ? stored.lastView : null,
         hasProject: Boolean(root),
@@ -265,7 +249,7 @@ export function useBoot(opts: UseBootOptions): BootState {
   useEffect(() => {
     if (!window.aic?.onUpdateStateChanged) return;
     const off = window.aic.onUpdateStateChanged((s) => setUpdateState(s));
-    void window.aic.updateGetState?.().then((s) => s && setUpdateState(s));
+    void window.aic.updateGetState?.().then((s) => s && setUpdateState(s)).catch(() => {});
     return () => {
       off?.();
     };

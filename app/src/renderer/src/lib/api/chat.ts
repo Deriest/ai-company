@@ -1,3 +1,5 @@
+import { getApiToken } from "./client";
+
 // PERF-FIX: cache the backend port after the first IPC round-trip so every
 // stream call doesn't pay a getBackendStatus IPC hop. The cache is bounded
 // by a TTL so a backend restart onto a different port (8000-8099) is picked
@@ -150,7 +152,10 @@ export const chatApi = {
       const open = async () =>
         fetch(`http://127.0.0.1:${await getBackendPort()}/chat/execute`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(getApiToken() ? { Authorization: `Bearer ${getApiToken()}` } : {}),
+          },
           body: JSON.stringify(payload),
           signal: ac.signal,
         });

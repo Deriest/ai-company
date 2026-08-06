@@ -165,7 +165,7 @@ def _get_normal_workers_for_phase(phase: str, target_worker: str) -> list[str]:
         return ["backend", "frontend"]
 
     if p == "verification":
-        return ["qa", "performance"]
+        return ["qa", "performance", "security"]
 
     if p == "closeout":
         return ["rex", "documentation", "pm"]
@@ -212,8 +212,6 @@ def allowed_workers_for_phase(
 
     if p == "investigate":
         # Research is reachable for all task types that need investigation
-        if tw in ("fullstack", "architect", "pm", "coding", "research", "backend", "frontend", "database"):
-            return ["pm", "research"]
         return ["pm", "research"]
 
     if p == "planning":
@@ -237,7 +235,7 @@ def allowed_workers_for_phase(
         return ["backend", "frontend"]
 
     if p == "verification":
-        return ["qa", "performance"]
+        return ["qa", "performance", "security"]
 
     if p == "closeout":
         return ["rex", "documentation", "pm"]

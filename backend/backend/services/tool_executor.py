@@ -15,6 +15,39 @@ from backend.services.path_utils import resolve_workspace_path
 # proc.communicate() hang forever — so they are detached instead.
 _BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
 
+# Hard ceiling for any shell subprocess, even if the caller (or model) requests
+# a larger timeout. Foreground commands are bound by this in run_shell.
+MAX_SHELL_TIMEOUT = 300
+
+# ── Shell command safety denylist ────────────────────────
+# Pragmatic guard against obviously destructive / exfiltration commands. Each
+# entry is (compiled regex, human reason); matched case-insensitively against
+# the raw command BEFORE the shell is spawned. This is NOT a substitute for a
+# full argv allowlist / sandbox — legit multi-command agent usage (git, build,
+# test) must keep working, so we only block clearly catastrophic patterns.
+# A full allowlist-based sandbox is documented as future work in run_shell.
+_SHELL_DENYLIST = [
+    (re.compile(r"\brm\s+-rf\s+/(?:\s|$)", re.I), "rm -rf / (delete filesystem root)"),
+    (re.compile(r"\brm\s+-rf\s+~(?:\s|$)", re.I), "rm -rf ~ (delete home directory)"),
+    (re.compile(r"\brm\s+-rf\s+\$HOME(?:\s|$)", re.I), "rm -rf $HOME (delete home directory)"),
+    (re.compile(r"\bmkfs\b", re.I), "mkfs (format a filesystem)"),
+    (re.compile(r"\bdd\s+if=", re.I), "dd if= (raw disk read/copy)"),
+    (re.compile(r">\s*/dev/sd", re.I), "write to raw block device /dev/sd*"),
+    (re.compile(r"\b(?:curl|wget|aria2c)\b.*\|\s*(?:sh|bash)\b", re.I | re.S), "pipe downloaded script to shell"),
+    (re.compile(r":\s*\(\s*\)\s*\{.*\};:", re.I | re.S), "fork bomb"),
+    (re.compile(r"\bchmod\s+-R\s+777\s+/(?:\s|$)", re.I), "chmod -R 777 / (world-writable root)"),
+]
+
+
+def _denylisted_shell_command(command: str) -> str | None:
+    """Return a human-readable reason if the command is blocked, else None."""
+    if not command:
+        return None
+    for pattern, reason in _SHELL_DENYLIST:
+        if pattern.search(command):
+            return reason
+    return None
+
 
 def _close_proc_pipes(proc) -> None:
     """Close stdout/stderr pipes so orphaned writers hit EPIPE instead of
@@ -194,9 +227,27 @@ class WorkerToolExecutor:
         long-running server (e.g. `python -m http.server 8080 &`) never holds
         the output pipes open — which would otherwise hang proc.communicate()
         forever. Foreground commands keep the existing behavior.
+
+        Safety hardening (pragmatic, without breaking legit multi-command agent
+        usage like git/build/test):
+        - A command denylist rejects obviously destructive/exfil patterns
+          (rm -rf /, mkfs, dd if=, curl|sh, fork bomb, ...) before spawning.
+        - A hard timeout ceiling (MAX_SHELL_TIMEOUT) bounds every subprocess.
+        - cwd defaults to the workspace root (never the process cwd).
+        NOTE: full argv-allowlist / sandboxing of the shell is future work; we
+        deliberately keep shell=True so multi-command agents keep working.
         """
+        command = command or ""
+        blocked = _denylisted_shell_command(command)
+        if blocked:
+            return ToolResult(
+                tool="run_shell", success=False, output="",
+                error=f"Command blocked by safety denylist: {blocked}",
+            )
+        timeout = min(int(timeout or 30), MAX_SHELL_TIMEOUT)
+
         proc = None
-        is_background = bool(_BG_TOKEN_RE.search(command or ""))
+        is_background = bool(_BG_TOKEN_RE.search(command))
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -356,17 +407,28 @@ AGENT_TOOLS = [
     }
 ]
 
-# Permission rules per worker type
-# Format: worker_type → allowed tools
-# G3 FIX: workers NOT in this dict get a minimal read-only set (default-deny)
-# instead of full access. Every known worker is enumerated explicitly so no
-# capability is silently lost.
+# ── Tool permission model (registry-first) ───────────────
+#
+# SINGLE SOURCE OF TRUTH: For canonical agents (those defined in
+# agents/registry.py) and the tool_permissions roles derived from the registry,
+# tool access is computed from the registry via backend.services.tool_permissions
+# (see _registry_allowed_tools below). This means an agent whose registry entry
+# restricts/prohibits "shell" is NOT granted run_shell, and an agent not granted
+# mcp_call cannot use mcp_* tools.
+#
+# WORKER_PERMISSIONS below is a DEPRECATED legacy map kept ONLY for backward
+# compatibility with non-registry worker aliases (model-tier names like
+# "crafter"/"sprinter"/"thinker" and legacy aliases like "coding"/"devops"/
+# "fullstack"). It is consulted ONLY as a fallback when the worker is neither a
+# canonical agent nor a tool_permissions-defined role. It must NOT be used for
+# canonical agents — registry-derived permissions always win for those.
 _FULL_TOOLS = frozenset({"read_file", "write_file", "list_directory", "search_files", "run_shell", "mcp_call"})
 _READ_ONLY_TOOLS = frozenset({"read_file", "list_directory", "search_files"})
 _READ_WRITE_TOOLS = frozenset({"read_file", "write_file", "list_directory", "search_files"})
 
+# DEPRECATED: legacy fallback for non-registry worker aliases only.
 WORKER_PERMISSIONS: dict[str, set[str]] = {
-    # Read-only / research & planning workers
+    # Read-only / research & planning aliases
     "research": set(_READ_ONLY_TOOLS),
     "pm": set(_READ_ONLY_TOOLS),
     "designer": set(_READ_ONLY_TOOLS),
@@ -377,14 +439,14 @@ WORKER_PERMISSIONS: dict[str, set[str]] = {
     "reviewer": set(_READ_ONLY_TOOLS),
     # Read + write (no shell / no mcp)
     "documentation": set(_READ_WRITE_TOOLS),
-    # Implementation / verification / iteration workers
+    # Implementation / verification / iteration aliases
     "qa": set(_FULL_TOOLS),
     "security": set(_FULL_TOOLS),
     "performance": set(_FULL_TOOLS),
     "sprinter": set(_FULL_TOOLS),
     "crafter": set(_FULL_TOOLS),
     "testing": set(_FULL_TOOLS),
-    # Full-access engineering workers
+    # Full-access engineering aliases
     "backend": set(_FULL_TOOLS),
     "frontend": set(_FULL_TOOLS),
     "coding": set(_FULL_TOOLS),
@@ -403,37 +465,87 @@ WORKER_PERMISSIONS: dict[str, set[str]] = {
 # Default-deny minimal set for unknown worker types.
 DEFAULT_MINIMAL_TOOLS = frozenset(_READ_ONLY_TOOLS)
 
+# Map executor tool names → logical registry/permission tool names.
+# The registry (and tool_permissions) reason about logical tools like
+# "shell"/"explore"/"search"; the executor exposes them as
+# "run_shell"/"list_directory"/"search_files".
+_EXECUTOR_TO_LOGICAL = {
+    "read_file": "read_file",
+    "write_file": "write_file",
+    "list_directory": "explore",
+    "search_files": "search",
+    "run_shell": "shell",
+    "mcp_call": "mcp_call",
+}
+_LOGICAL_TO_EXECUTOR = {v: k for k, v in _EXECUTOR_TO_LOGICAL.items()}
+
+
+def _registry_allowed_tools(worker_type: str) -> Optional[set]:
+    """Return the worker's allowed executor tools derived from the registry.
+
+    Delegates to backend.services.tool_permissions.get_allowed_tools, which
+    loads each canonical agent's ToolPermissions from AGENT_REGISTRY (plus a
+    small set of registry-derived role policies). Returns None when the worker
+    is neither a canonical agent nor a tool_permissions-defined role, so the
+    caller falls back to the legacy WORKER_PERMISSIONS map.
+    """
+    from backend.services.tool_permissions import get_allowed_tools
+    logical = get_allowed_tools(worker_type)
+    if logical is None:
+        return None
+    executor_tools = set()
+    for name in logical:
+        mapped = _LOGICAL_TO_EXECUTOR.get(name)
+        if mapped:
+            executor_tools.add(mapped)
+    return executor_tools
+
 
 def check_permission(worker_type: str, tool_name: str, allowed_plugin_tools: list[str] | None = None) -> bool:
     """Check if a worker is allowed to use a tool. Returns True if allowed.
 
-    BUG-17 FIX: Workers with 'mcp_call' permission can also use mcp_* prefixed tools.
-    G3 FIX: unknown worker types default-deny to the minimal read-only set,
-    and plugin tools (plugin_* / plugin_cmd_*) are auto-granted for workers the
-    plugin is assigned to (the caller passes the exact plugin tool names).
+    Permission model (registry-first):
+    - Plugin tools assigned to the worker are auto-granted.
+    - Canonical agents (and tool_permissions roles) derive their tools from the
+      registry via `_registry_allowed_tools`. An agent whose registry entry
+      restricts/prohibits "shell" is NOT granted run_shell; an agent not granted
+      mcp_call cannot use mcp_* prefixed tools.
+    - Non-canonical legacy aliases fall back to WORKER_PERMISSIONS.
+    - Unknown worker types default-deny to DEFAULT_MINIMAL_TOOLS (read-only).
     """
-    # G3: auto-grant the plugin's own tools for assigned workers.
+    # Auto-grant the plugin's own tools for assigned workers.
     if allowed_plugin_tools and tool_name in allowed_plugin_tools:
         return True
 
+    registry_tools = _registry_allowed_tools(worker_type)
+    if registry_tools is not None:
+        # Canonical / registry-derived worker — registry is the source of truth.
+        if tool_name in registry_tools:
+            return True
+        # mcp_* prefixed tools require mcp_call permission.
+        if tool_name.startswith("mcp_") and "mcp_call" in registry_tools:
+            return True
+        return False
+
+    # Legacy fallback for non-registry aliases (crafter, coding, devops, ...).
     allowed = WORKER_PERMISSIONS.get(worker_type)
     if allowed is None:
-        allowed = DEFAULT_MINIMAL_TOOLS  # G3: default-deny, not full access
+        allowed = DEFAULT_MINIMAL_TOOLS  # default-deny, not full access
 
-    # Direct match
     if tool_name in allowed:
         return True
-
-    # BUG-17 FIX: mcp_* prefixed tools require mcp_call permission
     if tool_name.startswith("mcp_") and "mcp_call" in allowed:
         return True
-
     return False
 
 
 def get_tools_for_worker(worker_type: str) -> list:
-    """Get tool definitions filtered by worker type permissions."""
+    """Get tool definitions filtered by worker permissions (registry-first)."""
+    registry_tools = _registry_allowed_tools(worker_type)
+    if registry_tools is not None:
+        return [t for t in AGENT_TOOLS if t["function"]["name"] in registry_tools]
+
     allowed = WORKER_PERMISSIONS.get(worker_type)
     if allowed is None:
-        allowed = DEFAULT_MINIMAL_TOOLS  # G3: default-deny for unknown workers
+        allowed = DEFAULT_MINIMAL_TOOLS  # default-deny for unknown workers
     return [t for t in AGENT_TOOLS if t["function"]["name"] in allowed]

@@ -115,3 +115,44 @@ async def test_known_workers_are_explicitly_enumerated():
     for worker, allowed in WORKER_PERMISSIONS.items():
         assert allowed, f"worker {worker} has an empty permission set"
         assert allowed <= WORKER_PERMISSIONS["crafter"] or allowed <= WORKER_PERMISSIONS["research"]
+
+
+# ── Registry permission-alignment regression (QA-verify) ──────────────────
+
+def test_registry_agent_with_prohibited_shell_cannot_run_shell():
+    """rex is a registry agent whose ToolPermissions prohibits 'shell'."""
+    assert check_permission("rex", "run_shell") is False
+
+
+def test_registry_docs_writer_roles_cannot_run_shell():
+    """Docs-writer roles restrict shell by policy (registry + override)."""
+    for worker in ("research", "pm", "architect", "designer", "security", "documentation"):
+        assert check_permission(worker, "run_shell") is False
+
+
+def test_registry_agent_with_allowed_tools_can_execute_them():
+    """backend is a registry agent that explicitly allows shell + write_file."""
+    assert check_permission("backend", "run_shell") is True
+    assert check_permission("backend", "write_file") is True
+    assert check_permission("backend", "read_file") is True
+
+
+def test_registry_allowed_tools_survive_get_tools_for_worker():
+    """The allowed-tool list a worker gets honors the registry restriction."""
+    rex_tools = {t["function"]["name"] for t in get_tools_for_worker("rex")}
+    assert "run_shell" not in rex_tools
+    assert "read_file" in rex_tools
+
+    backend_tools = {t["function"]["name"] for t in get_tools_for_worker("backend")}
+    assert "run_shell" in backend_tools
+    assert "write_file" in backend_tools
+
+
+def test_unknown_non_registry_worker_default_deny_read_only():
+    """Unknown / non-registry workers get conservative read-only permissions."""
+    assert check_permission("ghost_worker", "run_shell") is False
+    assert check_permission("ghost_worker", "write_file") is False
+    assert check_permission("ghost_worker", "mcp_call") is False
+    # Read-only tools remain available.
+    assert check_permission("ghost_worker", "read_file") is True
+    assert check_permission("ghost_worker", "list_directory") is True

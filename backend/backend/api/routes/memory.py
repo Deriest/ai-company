@@ -15,11 +15,16 @@ from backend.services.memory_service import memory_service
 
 @router.post("/memory")
 async def store_memory(payload: dict, db: AsyncSession = Depends(get_db)):
+    scope = payload.get("scope")
+    key = payload.get("key")
+    value = payload.get("value")
+    if not scope or not key or value is None:
+        raise HTTPException(status_code=400, detail="scope, key and value are required")
     entry = await memory_service.store(
         db,
-        scope=payload["scope"],
-        key=payload["key"],
-        value=payload["value"],
+        scope=scope,
+        key=key,
+        value=value,
         scope_id=payload.get("scope_id"),
         category=payload.get("category"),
         importance=payload.get("importance", 0.5),
@@ -57,8 +62,11 @@ async def forget_memory(entry_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/memory/compress")
 async def compress_memory(payload: dict, db: AsyncSession = Depends(get_db)):
+    scope = payload.get("scope")
+    if not scope:
+        raise HTTPException(status_code=400, detail="scope is required")
     result = await memory_service.compress(
-        db, scope=payload["scope"],
+        db, scope=scope,
         scope_id=payload.get("scope_id"),
         threshold=payload.get("threshold", 0.3),
     )

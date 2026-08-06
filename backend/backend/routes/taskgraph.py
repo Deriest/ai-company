@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
+from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.taskgraph.api")
 
@@ -21,6 +22,7 @@ class GraphRequest(BaseModel):
 async def generate_graph(
     req: GraphRequest,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """Generate a Task Graph from a Plan."""
     from taskgraph.engine import TaskGraphEngine

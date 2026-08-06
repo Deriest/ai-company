@@ -28,6 +28,10 @@ const taskStatusTone: Record<string, 'muted' | 'success' | 'warning' | 'destruct
 }
 
 export function OrchestrationView() {
+  // Client-side pagination: the list API exposes no limit/offset, so we cap the
+  // number of rendered session rows and reveal more with "Show more". This
+  // keeps the DOM bounded for large orchestration histories.
+  const PAGE_SIZE = 50
   const [sessions, setSessions] = useState<OrchestrationSessionRecord[]>([])
   const [selected, setSelected] = useState<OrchestrationSessionDetail | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -35,6 +39,7 @@ export function OrchestrationView() {
   const [newMode, setNewMode] = useState('sequential')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const loadSessions = useCallback(async () => {
     try {
@@ -174,7 +179,7 @@ export function OrchestrationView() {
               </button>
             </div>
             {sessions.length === 0 && <p className="text-xs text-muted-foreground">No sessions found.</p>}
-            {sessions.map((s) => (
+            {sessions.slice(0, visibleCount).map((s) => (
               <button
                 key={s.id}
                 onClick={() => loadDetail(s.id)}
@@ -191,6 +196,14 @@ export function OrchestrationView() {
                 {s.createdAt && <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(s.createdAt).toLocaleString()}</p>}
               </button>
             ))}
+            {sessions.length > visibleCount && (
+              <button
+                onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                className="w-full rounded-lg border border-border py-2 text-xs text-muted-foreground hover:bg-muted"
+              >
+                Show more ({sessions.length - visibleCount} remaining)
+              </button>
+            )}
           </div>
 
           {/* Session detail */}

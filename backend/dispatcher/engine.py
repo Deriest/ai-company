@@ -383,6 +383,12 @@ class DispatcherEngine:
                 child_task.status = TaskStatus.CREATED.value
                 child_task.error_message = None
                 await session.flush()
+                # ROOT-CAUSE FIX (mirrors the fresh-child path below): commit the
+                # reuse-branch mutations BEFORE execute_task. The executor runs
+                # long worker LLM calls; keeping this session's write txn open
+                # across the run would hold the SQLite write lock for the whole
+                # execution and block every other request's write.
+                await session.commit()
 
         if child_task is None:
             child_task = Task(
@@ -407,6 +413,12 @@ class DispatcherEngine:
             )
             session.add(child_task)
             await session.flush()
+            # ROOT-CAUSE FIX: commit the child task creation BEFORE
+            # execute_task. The executor runs long worker LLM calls; keeping
+            # this session's write txn open across the run would hold the
+            # SQLite write lock for the whole execution and block every other
+            # request's write ("database is locked").
+            await session.commit()
 
         try:
             result = await execute_task(session, child_task)
@@ -414,9 +426,16 @@ class DispatcherEngine:
             return result
         except Exception as e:
             logger.error(f"Node execution failed: {node_id}: {e}")
-            child_task.status = TaskStatus.FAILED.value
-            child_task.error_message = str(e)
-            await session.flush()
+            try:
+                child_task.status = TaskStatus.FAILED.value
+                child_task.error_message = str(e)
+                await session.flush()
+                # Commit the FAILED status so the task is not stuck in a
+                # rolled-back transaction / forever in its prior state.
+                await session.commit()
+            except Exception as commit_err:
+                # A commit failure must not mask the original execution error.
+                logger.error(f"Failed to persist FAILED status for node {node_id}: {commit_err}")
             return {"success": False, "error": str(e)}
 
     async def _resolve_project_id(self, graph_model: TaskGraphModel) -> str | None:

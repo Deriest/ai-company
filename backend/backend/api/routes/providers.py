@@ -7,8 +7,12 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 from datetime import datetime, timezone
 import logging
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.models.schema import Provider, ProviderModel
 from backend.schemas.api_models_v2 import (
     ProviderCreate, ProviderUpdate, ProviderWithModelsResponse,
@@ -171,7 +175,11 @@ async def list_providers(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/providers", response_model=ProviderWithModelsResponse)
-async def create_provider(provider: ProviderCreate, db: AsyncSession = Depends(get_db)):
+async def create_provider(
+    provider: ProviderCreate,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     # Round-6 FIX: reject duplicate names with a clear 409 instead of creating
     # silent duplicate rows. POST /providers/config already upserts by name, so
     # the two creation paths must not diverge — a re-added or double-submitted
@@ -212,7 +220,12 @@ async def create_provider(provider: ProviderCreate, db: AsyncSession = Depends(g
 
 
 @router.patch("/providers/{id}", response_model=ProviderWithModelsResponse)
-async def update_provider(id: str, update: ProviderUpdate, db: AsyncSession = Depends(get_db)):
+async def update_provider(
+    id: str,
+    update: ProviderUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     result = await db.execute(select(Provider).where(Provider.id == id))
     provider = result.scalars().first()
     if not provider:
@@ -244,7 +257,11 @@ async def update_provider(id: str, update: ProviderUpdate, db: AsyncSession = De
 
 
 @router.delete("/providers/{id}")
-async def delete_provider(id: str, db: AsyncSession = Depends(get_db)):
+async def delete_provider(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     result = await db.execute(select(Provider).where(Provider.id == id))
     provider = result.scalars().first()
     if not provider:
@@ -269,7 +286,11 @@ async def delete_provider(id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/providers/{id}/test", response_model=ProviderTestResponse)
-async def test_provider(id: str, db: AsyncSession = Depends(get_db)):
+async def test_provider(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     # Can test existing provider
     result = await db.execute(select(Provider).where(Provider.id == id))
     provider = result.scalars().first()
@@ -280,9 +301,70 @@ async def test_provider(id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/providers/test-ephemeral", response_model=ProviderTestResponse)
-async def test_ephemeral_provider(data: ProviderCreate):
+async def test_ephemeral_provider(
+    data: ProviderCreate,
+    _auth: str = Depends(require_current_user),
+):
     # Test before creating
+    _validate_provider_url(data.endpoint)
     return await _run_test(data.endpoint, data.apiKey)
+
+
+def _validate_provider_url(base_url: str) -> None:
+    """S3 FIX: reject SSRF targets in a client-supplied provider endpoint.
+
+    Narrowly blocks non-http(s) schemes and hostnames that resolve to
+    loopback / link-local / cloud-metadata addresses. Applied only to the
+    client-supplied ``test-ephemeral`` input; DB-persisted provider URLs are
+    vetted at create time and are left untouched so stored local providers
+    (e.g. Ollama on 127.0.0.1) keep working.
+    """
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Endpoint is required")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=400, detail="Endpoint must use http or https"
+        )
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid endpoint")
+    # Resolve the host and reject dangerous address ranges DNS may point to.
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        # Unresolvable host — let the provider client surface the network error.
+        return
+    # RFC1918 private ranges (never routable on the public internet, so a
+    # legit provider endpoint would never resolve into them).
+    rfc1918 = (
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    )
+    # IPv6 unique-local (fc00::/7). NOTE: ``is_unique_local`` only exists on
+    # IPv6Address in Python 3.13+, so a getattr fallback would silently return
+    # False on 3.11/3.12 and let fc00::/7 through — check the network directly.
+    ipv6_ula = ipaddress.ip_network("fc00::/7")
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (
+            ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_private  # covers RFC1918, CGNAT, and IPv6 fc00::/7 ULA
+            or any(ip in net for net in rfc1918)  # RFC1918 private ranges
+            or ip in ipv6_ula  # IPv6 unique-local (explicit, version-safe)
+            or ip in ipaddress.ip_network("169.254.169.0/24")
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Endpoint resolves to a blocked (loopback/link-local/private/metadata) address",
+            )
 
 
 async def _run_test(base_url: str, api_key: str) -> ProviderTestResponse:
@@ -335,7 +417,11 @@ async def _run_test(base_url: str, api_key: str) -> ProviderTestResponse:
 
 
 @router.post("/providers/{id}/fetch-models", response_model=ProviderWithModelsResponse)
-async def fetch_provider_models(id: str, db: AsyncSession = Depends(get_db)):
+async def fetch_provider_models(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     result = await db.execute(select(Provider).where(Provider.id == id))
     provider = result.scalars().first()
     if not provider:

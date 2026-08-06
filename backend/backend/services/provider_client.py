@@ -297,10 +297,16 @@ class ProviderClient:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+        # SSRF hardening: never follow redirects on provider requests. A hostile
+        # or misconfigured endpoint could otherwise redirect us to a loopback /
+        # private / metadata address after validation has already passed. httpx
+        # defaults to not following redirects, but we pin it explicitly so the
+        # property is guaranteed regardless of httpx version changes.
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers=headers,
-            timeout=httpx.Timeout(10.0, read=30.0)
+            timeout=httpx.Timeout(10.0, read=30.0),
+            follow_redirects=False,
         )
 
     async def close(self):

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 import logging
+import secrets
 
 from backend.config import settings
 # NOTE: plaintext compare — the identity file stores a random hex password,
@@ -36,9 +37,21 @@ class LoginResponse(BaseModel):
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     """Authenticate against the per-install desktop identity."""
+    # Timing-safe comparison: plaintext `!=` leaks the correct length/prefix via
+    # short-circuit timing. compare_digest runs in constant time regardless of
+    # how many bytes match. Both sides are the per-install random hex credential,
+    # so we compare the raw strings (encode to utf-8 bytes). If this ever becomes
+    # a hashed password, compare the hash digests with compare_digest instead.
+    # TODO(future work): add per-username brute-force lockout / rate limiting here
+    # (e.g. exponential backoff after N failed attempts) — not added yet to avoid
+    # disrupting the existing test suite.
     if (
-        body.username != settings.IDENTITY_USERNAME
-        or body.password != settings.IDENTITY_PASSWORD
+        not secrets.compare_digest(
+            body.username.encode("utf-8"), settings.IDENTITY_USERNAME.encode("utf-8")
+        )
+        or not secrets.compare_digest(
+            body.password.encode("utf-8"), settings.IDENTITY_PASSWORD.encode("utf-8")
+        )
     ):
         # Log the failed username (never the password) for brute-force visibility.
         logger.warning("Login failed: username=%s", body.username)

@@ -37,6 +37,35 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+# SQLite in WAL mode permits only ONE writer at a time. When parallel phase
+# workers (each with its OWN session, run via asyncio.gather) commit their
+# worker.started/completed/failed events nearly simultaneously, a writer can
+# block past busy_timeout and raise "database is locked". This is a real,
+# transient concurrency condition — the correct fix is to retry the commit with
+# a short backoff, NOT to serialize the workers or swallow other errors.
+#
+# The retry logic lives in the shared storage.lock_retry module so other
+# subsystems (llm/provider, observability/audit) reuse the same backoff policy.
+async def _commit_with_lock_retry(
+    session: AsyncSession, reapply=None, attempts: int = 12
+) -> None:
+    """Commit *session*, retrying on the transient SQLite "database is locked"
+    OperationalError. Only the locked condition is retried and re-raised by
+    type; any other error propagates immediately. Backoff is 0.05s * attempt.
+
+    When a locked failure occurs during flush, SQLAlchemy rolls back the
+    transaction and expunges the pending objects (e.g. Lease/Event), so a bare
+    retry would commit an empty transaction and silently drop the writes.
+    ``reapply`` — an optional async callable — is invoked after rollback to
+    re-establish the pending objects before the next attempt.
+    """
+    from storage.lock_retry import commit_with_lock_retry
+
+    return await commit_with_lock_retry(
+        session, reapply=reapply, attempts=attempts, base_delay=0.05
+    )
+
+
 async def _emit_event(session: AsyncSession, task_id: str, event_type: str, actor: str, target: str, data: dict, severity: str = "info"):
     """Emit an Event to the database AND broadcast via WebSocket for live observability."""
     event = Event(
@@ -67,6 +96,10 @@ async def _emit_event(session: AsyncSession, task_id: str, event_type: str, acto
         await automation_service.fire_event(session, event_type, context)
     except Exception as e:
         logger.debug(f"Automation hook fire failed for {event_type}: {e}")
+
+    # Return the created Event so callers can re-add it after a lock-retry
+    # rollback (the pending object would otherwise be silently dropped).
+    return event
 
 
 async def execute_task(session: AsyncSession, task: Task) -> dict:
@@ -214,6 +247,15 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
         phase_results = {}
         phase_semantics[phase] = "FULLY_EXECUTED"
 
+        # ROOT-CAUSE FIX: commit the main session's pending writes (task
+        # status/progress/root-event) BEFORE the worker gather. The gather runs
+        # long LLM/subprocess calls (up to 120s+ per worker) and each worker
+        # uses its OWN session, so holding this session's uncommitted write txn
+        # open across the gather would keep the SQLite write lock for the whole
+        # run — blocking every other request's write ("database is locked").
+        # Release the lock now; post-merge task state is committed afterward.
+        await session.commit()
+
         # With-Phase Parallelism: Run all workers concurrently within the phase.
         # SESSION SAFETY: Each worker gets its own AsyncSession derived from the
         # executor session's bind (async_sessionmaker pattern from dispatcher/engine.py).
@@ -249,11 +291,15 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 )
                 worker_session.add(lease)
 
-                await _emit_event(
+                started_event = await _emit_event(
                     worker_session, str(task.id), EventType.WORKER_STARTED.value, f"worker:{wtype}", f"task:{task.id}",
                     {"phase": phase, "task_title": task.title, "lease_phase": phase, "prev": prev_event_target}, "info"
                 )
-                await worker_session.commit()
+
+                async def _reapply_started():
+                    worker_session.add_all([lease, started_event])
+
+                await _commit_with_lock_retry(worker_session, reapply=_reapply_started)
 
                 worker_instance = worker_cls()
                 worker_instance.agent_id = wtype
@@ -377,7 +423,15 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 verification_failed_local = False
                 fallback_used_local = False
                 worker_result = {}
-                
+                # Handoff payload for this worker, built locally and RETURNED to
+                # the main loop (never written to the shared handoffs_dict/ctx/
+                # task.context inside the worker) to avoid a lost-update race
+                # across concurrent worker coroutines.
+                worker_handoff = None
+                # Holder for the terminal event created on the success OR
+                # failure path, so the lock-retry can re-add it after rollback.
+                final_event = None
+
                 try:
                     result = await worker_instance.run_with_timeout(task_ctx, timeout=worker_timeout)
                     worker_result = {
@@ -404,7 +458,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                                 error_msg=result.error or "unknown error",
                                 previous_output=result.output or "",
                             )
-                            worker_session.add(Event(
+                            recovery_event = Event(
                                 type=EventType.WORKER_FAILED.value,
                                 actor=f"recovery:{wtype}",
                                 target=f"task:{task.id}",
@@ -415,8 +469,13 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                                     "feedback": decision.feedback_prompt[:200],
                                 },
                                 severity="warn"
-                            ))
-                            await worker_session.commit()
+                            )
+                            worker_session.add(recovery_event)
+
+                            async def _reapply_recovery():
+                                worker_session.add(recovery_event)
+
+                            await _commit_with_lock_retry(worker_session, reapply=_reapply_recovery)
 
                             if not decision.should_proceed:
                                 break
@@ -467,7 +526,9 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     doc_filename = f"{phase}/{wtype}-deliverable.md"
                     output_text = result.output if result.output else "(no output produced)"
                     doc_content = f"# Deliverable: {task.title}\n\n**Phase**: {phase.upper()}\n**Worker**: {wtype.title()}\n\n## Output\n\n{output_text}"
-                    saved_path = save_deliverable_file(task.id, doc_filename, doc_content)
+                    saved_path = await asyncio.to_thread(
+                        save_deliverable_file, task.id, doc_filename, doc_content
+                    )
                     lease.artifact_path = saved_path
 
                     if result.output and not getattr(result, "used_fallback", False):
@@ -480,17 +541,18 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                             logger.info(f"Extracted {len(extracted)} source files for task {task.id[:8]} (repo={effective_repo_path}): {extracted}")
 
                     if result.success and result.output:
-                        handoffs_dict[phase] = {
+                        # Build the handoff locally and rely on the main loop to
+                        # merge it after asyncio.gather returns, so concurrent
+                        # worker coroutines never mutate the shared handoffs_dict
+                        # / ctx / task.context (lost-update race).
+                        worker_handoff = {
                             "worker": wtype,
                             "output": result.output[:1000],
                             "extracted": worker_result.get("extracted_files", []),
                         }
-                        ctx["handoffs"] = handoffs_dict
-                        task.context = ctx
-                        flag_modified(task, 'context')
 
                     event_type = EventType.WORKER_COMPLETED.value if result.success else EventType.WORKER_FAILED.value
-                    await _emit_event(
+                    final_event = await _emit_event(
                         worker_session, str(task.id), event_type, f"worker:{wtype}", f"task:{task.id}",
                         {
                             "phase": phase,
@@ -511,22 +573,40 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     if phase == "verification":
                         verification_failed_local = True
                     
-                    worker_session.add(Event(
+                    final_event = Event(
                         type=EventType.WORKER_FAILED.value,
                         actor=f"worker:{wtype}",
                         target=f"task:{task.id}",
                         data={"phase": phase, "error": str(e)[:300]},
                         severity="error"
-                    ))
+                    )
+                    worker_session.add(final_event)
                     logger.error(f"Worker {wtype} exception: {e}")
 
-                await worker_session.commit()
+                # Snapshot the lease's terminal fields so a lock-retry can
+                # re-apply them after rollback (rollback reverts in-memory attrs).
+                _lease_terminal = {
+                    "status": lease.status,
+                    "exit_code": lease.exit_code,
+                    "error_message": lease.error_message,
+                    "finished_at": lease.finished_at,
+                    "artifact_path": getattr(lease, "artifact_path", None),
+                }
+
+                async def _reapply_final():
+                    for _k, _v in _lease_terminal.items():
+                        setattr(lease, _k, _v)
+                    if final_event is not None:
+                        worker_session.add(final_event)
+
+                await _commit_with_lock_retry(worker_session, reapply=_reapply_final)
                 
                 return wtype, {
                     "result": worker_result,
                     "verification_failed": verification_failed_local,
                     "fallback_used": fallback_used_local,
-                    "event_target": f"worker:{wtype}:{phase}:{task.id}"
+                    "event_target": f"worker:{wtype}:{phase}:{task.id}",
+                    "handoff": worker_handoff,
                 }
 
         # Execute all workers concurrently with return_exceptions=True
@@ -554,8 +634,12 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     phase_verification_failed = True
                 if meta.get("fallback_used"):
                     phase_fallback_used = True
-                # Merge handoffs from successful workers
-                if phase in handoffs_dict:
+                # Merge handoffs sequentially (after the gather) so concurrent
+                # worker coroutines never mutate the shared handoffs_dict/ctx/
+                # task.context. Last-writer-wins per phase key is accepted.
+                handoff = meta.get("handoff")
+                if handoff is not None:
+                    handoffs_dict[phase] = handoff
                     ctx["handoffs"] = handoffs_dict
                     task.context = ctx
                     flag_modified(task, 'context')

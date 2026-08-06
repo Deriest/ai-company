@@ -172,7 +172,11 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
         saved = await providersApi.create({ name, endpoint, apiKey });
       }
       onSaved(saved);
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

@@ -4,12 +4,17 @@
  * are set at runtime via `configureClient`.
  */
 
+import { setApiToken } from "./api/client";
+
 let baseUrl = "http://127.0.0.1:8000";
 let authToken = "";
 
 export function configureClient(opts: { baseUrl: string; token: string | null }) {
   baseUrl = opts.baseUrl.replace(/\/$/, "");
   authToken = opts.token ?? "";
+  // Keep the shared apiClient token in sync so the api/*.ts modules (providers,
+  // conversations, jobs, etc.) also carry the per-install Bearer token.
+  setApiToken(authToken || null);
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -100,7 +105,14 @@ export function connectWs(
 
   function currentWsUrl(): string {
     const wsBase = baseUrl.replace(/^http/, "ws");
-    return `${wsBase}/ws/${channel}` + (authToken ? `?token=${encodeURIComponent(authToken)}` : "");
+    // SECURITY: NEVER append the JWT as a query param (?token=...) — it can
+    // leak into logs, proxies, and the browser history. The desktop backend
+    // allows unauthenticated localhost connections (backend/routes/websocket.py
+    // accepts localhost without a token), so no credential is sent on the wire.
+    // TODO(auth): if localhost auth is ever required, pass the token via a
+    // WebSocket subprotocol (new WebSocket(url, ["auth.jwt", token])) instead
+    // of a query string.
+    return `${wsBase}/ws/${channel}`;
   }
 
   async function connect() {

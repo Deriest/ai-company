@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.models.schema import Provider
 from backend.services.crypto import encrypt, decrypt
 from backend.services.provider_client import ProviderClient, ProviderAPIError, ProviderConnectionError, ProviderTimeoutError
+from backend.api.routes.providers import _validate_provider_url
 
 router = APIRouter()
 
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/providers/test-connection")
-async def test_provider_connection(payload: dict):
+async def test_provider_connection(payload: dict, _auth: str = Depends(require_current_user)):
     """Test connection to a provider endpoint without saving."""
     endpoint = payload.get("endpoint", "").strip()
     api_key = payload.get("api_key", "").strip()
@@ -43,6 +45,10 @@ async def test_provider_connection(payload: dict):
 
     endpoint = endpoint.rstrip("/")
 
+    # SSRF guard: reject loopback/link-local/metadata/private/ULA hostnames
+    # before making any outbound request to the client-supplied endpoint.
+    _validate_provider_url(endpoint)
+
     client = ProviderClient(endpoint, api_key)
     try:
         result = await client.test_connection()
@@ -66,7 +72,10 @@ async def test_provider_connection(payload: dict):
         return {"success": False, "error": str(e), "error_type": "unknown"}
 
 @router.get("/providers/health")
-async def provider_health(db: AsyncSession = Depends(get_db)):
+async def provider_health(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Check health of all configured providers."""
     result = await db.execute(select(Provider).where(Provider.enabled == True))
     providers = result.scalars().all()
@@ -95,7 +104,7 @@ async def provider_health(db: AsyncSession = Depends(get_db)):
     return health
 
 @router.get("/providers/config")
-async def get_env_config():
+async def get_env_config(_auth: str = Depends(require_current_user)):
     """Get current provider config from persistent JSON file, fallback to .env/settings."""
     # Try reading from persistent engine_config.json first
     data_dir = os.environ.get("AIC_DATA_DIR", "")
@@ -137,7 +146,7 @@ async def get_env_config():
     }
 
 @router.post("/providers/config")
-async def update_env_config(payload: dict):
+async def update_env_config(payload: dict, _auth: str = Depends(require_current_user)):
     """Update provider config and reload provider_manager live.
 
     QA-SEC FIX (P0 #5): the API key is never persisted in plaintext to .env or
@@ -336,7 +345,12 @@ async def update_env_config(payload: dict):
     return {"success": True}
 
 @router.put("/providers/{provider_id}/config")
-async def update_provider_config(provider_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def update_provider_config(
+    provider_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Update provider configuration (name, endpoint, api_key, enabled)."""
     result = await db.execute(select(Provider).where(Provider.id == provider_id))
     provider = result.scalar_one_or_none()

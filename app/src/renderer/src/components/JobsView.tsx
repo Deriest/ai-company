@@ -30,6 +30,9 @@ const statusFilters: { label: string; value: JobStatus | 'all' }[] = [
 const jobTypes: JobType[] = ['orchestration', 'chat', 'tool', 'custom']
 
 export function JobsView() {
+  // Pagination: cap the initial fetch at PAGE_SIZE jobs and reveal more with the
+  // "Load more" button (avoids rendering unbounded lists for large job history).
+  const PAGE_SIZE = 100
   const [jobs, setJobs] = useState<JobRecord[]>([])
   const [filter, setFilter] = useState<JobStatus | 'all'>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -37,6 +40,7 @@ export function JobsView() {
   const [showCreate, setShowCreate] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [limit, setLimit] = useState(PAGE_SIZE)
 
   // Create form
   const [newTitle, setNewTitle] = useState('')
@@ -45,13 +49,13 @@ export function JobsView() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const params = filter !== 'all' ? { status: filter } : undefined
+      const params = filter !== 'all' ? { status: filter, limit } : { limit }
       const data = await jobsApi.list(params)
       setJobs(data)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [filter])
+  }, [filter, limit])
 
   useEffect(() => { loadJobs() }, [loadJobs])
 
@@ -192,7 +196,7 @@ export function JobsView() {
             {statusFilters.map((f) => (
               <button
                 key={f.value}
-                onClick={() => setFilter(f.value)}
+                onClick={() => { setFilter(f.value); setLimit(PAGE_SIZE) }}
                 className={cn(
                   'rounded-md px-3 py-1 text-sm transition-colors',
                   filter === f.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
@@ -295,6 +299,14 @@ export function JobsView() {
               )}
             </Card>
           ))}
+          {jobs.length >= limit && (
+            <button
+              onClick={() => setLimit((l) => l + PAGE_SIZE)}
+              className="w-full rounded-lg border border-border py-2 text-sm text-muted-foreground hover:bg-muted"
+            >
+              Load more
+            </button>
+          )}
         </div>
       </div>
     </div>

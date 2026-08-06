@@ -16,8 +16,12 @@ from backend.models.orchestration import WorkflowDefinition, Checkpoint
 
 @router.post("/workflows")
 async def create_workflow(payload: dict, db: AsyncSession = Depends(get_db)):
+    name = payload.get("name")
+    dag = payload.get("dag")
+    if not name or not dag:
+        raise HTTPException(status_code=400, detail="name and dag are required")
     wf = await orchestrator_service.create_workflow(
-        db, name=payload["name"], dag=payload["dag"], description=payload.get("description", "")
+        db, name=name, dag=dag, description=payload.get("description", "")
     )
     return {"id": wf.id, "name": wf.name, "description": wf.description, "dag": wf.dag, "version": wf.version}
 

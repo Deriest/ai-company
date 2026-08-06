@@ -116,7 +116,7 @@ export function BootSplash({ phase, detail, backendStatus, onRetry }: {
             {logFile && (
               <button
                 type="button"
-                onClick={() => window.aic?.openPath?.(logFile)}
+                onClick={() => void window.aic?.openPath?.(logFile)?.catch(() => {})}
                 className="mt-4 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Open backend startup log"
               >

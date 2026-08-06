@@ -16,6 +16,12 @@ import tempfile
 # Must be set before backend.config / backend.database.session are imported.
 _TEST_DATA_DIR = tempfile.mkdtemp(prefix="aic-test-data-")
 os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
+# Enable the deterministic test flag so the auth fail-open (and the
+# localhost Host-header allowlist for httpx ASGITransport "test") applies
+# during the test run but never at runtime. Read by backend/api/dependencies.py
+# and backend/main.py. MUST be set here, before backend.config is imported,
+# so the modules observe it consistently.
+os.environ["AIC_TESTING"] = "1"
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession

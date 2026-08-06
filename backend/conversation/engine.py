@@ -187,6 +187,13 @@ class ConversationEngine:
         )
         self.session.add(user_msg)
         await self.session.flush()
+        # ROOT-CAUSE FIX: commit the user message immediately so this session's
+        # write lock is released before the intent-detection / response-
+        # generation LLM calls below. Holding the insert txn open across the
+        # LLM calls would block every other request's write ("database is
+        # locked"). The assistant message is still persisted by the caller's
+        # final commit.
+        await self.session.commit()
 
         # Get conversation history for context
         history = await self._get_conversation_history(conversation, limit=10)
@@ -959,41 +966,56 @@ class ConversationEngine:
         from storage.models import AuditLog, Event as EventModel, Metric
 
         async def _do_record():
-            try:
-                async with _async_session() as s:
-                    if metadata.get("task_id"):
-                        s.add(AuditLog(
-                            actor=f"user:{(conversation.context or {}).get('user_id', 'anonymous')}",
-                            action="task.create",
-                            resource_type="task",
-                            resource_id=metadata["task_id"],
-                            result="success",
-                            details={"title": truncate_content(content, 200), "worker": metadata.get("worker"),
-                                      "type": metadata.get("task_type"), "task_code": metadata.get("task_code")},
+            from sqlalchemy.exc import OperationalError
+            for attempt in range(1, 7):
+                try:
+                    async with _async_session() as s:
+                        if metadata.get("task_id"):
+                            s.add(AuditLog(
+                                actor=f"user:{(conversation.context or {}).get('user_id', 'anonymous')}",
+                                action="task.create",
+                                resource_type="task",
+                                resource_id=metadata["task_id"],
+                                result="success",
+                                details={"title": truncate_content(content, 200), "worker": metadata.get("worker"),
+                                          "type": metadata.get("task_type"), "task_code": metadata.get("task_code")},
+                            ))
+
+                        s.add(EventModel(
+                            type="conversation.message",
+                            data={"intent": intent, "content_preview": content[:100],
+                                  "conversation_id": conversation.id, "task_id": metadata.get("task_id"),
+                                  "model": metadata.get("model", ""), "actor": "user"},
+                            severity="info",
+                            trace_id=metadata.get("trace_id"),
                         ))
 
-                    s.add(EventModel(
-                        type="conversation.message",
-                        data={"intent": intent, "content_preview": content[:100],
-                              "conversation_id": conversation.id, "task_id": metadata.get("task_id"),
-                              "model": metadata.get("model", ""), "actor": "user"},
-                        severity="info",
-                        trace_id=metadata.get("trace_id"),
-                    ))
-
-                    total_tokens = metadata.get("total_tokens", 0)
-                    if total_tokens > 0:
-                        s.add(Metric(
-                            name="llm.tokens.used",
-                            value=float(total_tokens),
-                            unit="tokens",
-                            labels={"provider": metadata.get("provider", ""),
-                                    "model": metadata.get("model", ""),
-                                    "purpose": intent},
-                        ))
-                    await s.commit()
-            except Exception as e:
-                logger.debug(f"Failed to record audit: {e}")
+                        total_tokens = metadata.get("total_tokens", 0)
+                        if total_tokens > 0:
+                            s.add(Metric(
+                                name="llm.tokens.used",
+                                value=float(total_tokens),
+                                unit="tokens",
+                                labels={"provider": metadata.get("provider", ""),
+                                        "model": metadata.get("model", ""),
+                                        "purpose": intent},
+                            ))
+                        await s.commit()
+                    return
+                except OperationalError as exc:
+                    msg = str(exc.orig) if exc.orig is not None else str(exc)
+                    if "locked" not in msg.lower():
+                        logger.debug(f"Failed to record audit: {exc}")
+                        return
+                    if attempt == 6:
+                        logger.warning(
+                            f"Failed to record audit after {attempt} retries (write locked): {msg}"
+                        )
+                        return
+                    await asyncio.sleep(0.05 * attempt)
+                except Exception as e:
+                    logger.debug(f"Failed to record audit: {e}")
+                    return
 
         # Fire-and-forget: schedule in background, don't block the response
         # BUG-07 FIX: Store in module-level set to prevent GC when engine is destroyed

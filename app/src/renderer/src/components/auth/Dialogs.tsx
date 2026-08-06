@@ -187,7 +187,7 @@ export function BugReportDialog({ open, onClose }: DialogProps) {
                 const issueUrl = new URL("https://github.com/Deriest/ai-company/issues/new");
                 issueUrl.searchParams.set("title", `[Bug] ${title.trim()}`);
                 issueUrl.searchParams.set("body", `${description.trim()}\n\n---\nVersion: ${sys.version}\nOS: ${sys.os}`);
-                await window.aic?.openExternal?.(issueUrl.toString());
+                await window.aic?.openExternal?.(issueUrl.toString())?.catch(() => {});
                 setLoading(false);
                 setDone(true);
               }}

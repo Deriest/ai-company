@@ -6,7 +6,7 @@ export default defineConfig({
     // Default to node; component tests opt into jsdom per-file with a
     // `// @vitest-environment jsdom` comment.
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "src/renderer/src") },

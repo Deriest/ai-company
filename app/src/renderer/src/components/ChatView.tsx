@@ -144,7 +144,28 @@ function renderInline(text: string): React.ReactNode {
       // Only render http(s) links as anchors — data:/file:/javascript: URLs
       // are rendered as plain text to avoid unsafe navigation.
       if (/^https?:\/\//i.test(href)) {
-        nodes.push(<a key={key++} href={href} className="text-primary underline" target="_blank" rel="noreferrer">{first.match[1]}</a>)
+        // Open trusted external links through the main process (window.open /
+        // target=_blank are denied by setWindowOpenHandler). Only allow the
+        // same allowlist enforced in main.ts's aic:open-external handler; any
+        // other https URL is left inert (preventDefault) rather than navigating.
+        const ALLOWED = /^https:\/\/(github\.com|raw\.githubusercontent\.com|api\.github\.com)\//
+        nodes.push(
+          <a
+            key={key++}
+            href={href}
+            className="text-primary underline"
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => {
+              e.preventDefault()
+              if (window.aic?.openExternal && ALLOWED.test(href)) {
+                void window.aic.openExternal(href)
+              }
+            }}
+          >
+            {first.match[1]}
+          </a>,
+        )
       } else {
         nodes.push(<span key={key++}>{first.match[0]}</span>)
       }
@@ -160,28 +181,58 @@ function escapeHtml(s: string): string {
 
 function highlightCode(code: string, language: string): string {
   const safe = escapeHtml(code)
-  if (['js', 'ts', 'jsx', 'tsx', 'javascript', 'typescript'].includes(language)) {
-    return safe
-      .replace(/\b(const|let|var|function|return|import|export|from|class|extends|if|else|for|while|do|switch|case|break|continue|new|this|typeof|instanceof|async|await|try|catch|throw|finally|yield|of|in)\b/g, '<span class="text-purple-400">$1</span>')
-      .replace(/\b(true|false|null|undefined|NaN|Infinity)\b/g, '<span class="text-orange-400">$1</span>')
-      .replace(/(["'`])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
-      .replace(/\/\/.*$/gm, '<span class="text-muted-foreground/50">$&</span>')
-      .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
+  const isJs = ['js', 'ts', 'jsx', 'tsx', 'javascript', 'typescript'].includes(language)
+  const isPy = ['py', 'python'].includes(language)
+  const isJson = ['json'].includes(language)
+  if (!isJs && !isPy && !isJson) return safe
+
+  // FIX: single-pass tokenizer. The old chain-of-replace approach ran each regex
+  // over the already-marked output, so the injected `<span class="...">` markup
+  // got re-matched (e.g. the string regex matched the class quotes and `\b\d+\b`
+  // matched the `400` in `text-purple-400`), corrupting class attributes. Here
+  // every token class is matched against the ORIGINAL escaped source only, and
+  // we emit the span in the same pass — injected markup is never re-processed.
+  const keywordRe = isPy
+    ? /\b(def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|yield|lambda|pass|break|continue|raise|global|nonlocal|and|or|not|is|in|async|await|self)\b/
+    : isJson
+      ? null
+      : /\b(const|let|var|function|return|import|export|from|class|extends|if|else|for|while|do|switch|case|break|continue|new|this|typeof|instanceof|async|await|try|catch|throw|finally|yield|of|in)\b/
+  const literalRe = /\b(true|false|null|undefined|NaN|Infinity)\b/
+  const stringRe = /(["'`])(?:(?!\1).)*?\1/
+  const commentRe = isPy ? /#[^\n]*/ : /\/\/[^\n]*/
+  const numberRe = isJson ? /\b\d+\.?\d*\b/ : /\b\d+\b/
+
+  const parts: string[] = []
+  let i = 0
+  while (i < safe.length) {
+    const rest = safe.slice(i)
+    // Compute every candidate token, then pick the one that starts earliest so
+    // the injected span markup is never re-processed.
+    const candidates: { index: number; cls: string; src: string }[] = []
+    for (const [re, cls] of [
+      [commentRe, 'text-muted-foreground/50'],
+      [stringRe, 'text-emerald-400'],
+      [keywordRe, 'text-purple-400'],
+      [literalRe, 'text-orange-400'],
+      [numberRe, 'text-orange-400'],
+    ] as const) {
+      if (!re) continue
+      const m = re.exec(rest)
+      if (m) candidates.push({ index: m.index, cls, src: m[0] })
+    }
+    let best: { index: number; cls: string; src: string } | null = null
+    for (const c of candidates) {
+      if (!best || c.index < best.index) best = c
+    }
+    if (!best) {
+      parts.push(rest)
+      break
+    }
+    if (best.index > 0) parts.push(rest.slice(0, best.index))
+    parts.push(`<span class="${best.cls}">${best.src}</span>`)
+    i += best.index + best.src.length
   }
-  if (['py', 'python'].includes(language)) {
-    return safe
-      .replace(/\b(def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|yield|lambda|pass|break|continue|raise|global|nonlocal|and|or|not|is|in|True|False|None|async|await|self)\b/g, '<span class="text-purple-400">$1</span>')
-      .replace(/(#.*$)/gm, '<span class="text-muted-foreground/50">$1</span>')
-      .replace(/(["'])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
-      .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
-  }
-  if (['json'].includes(language)) {
-    return safe
-      .replace(/(["'])(?:(?!\1).)*?\1/g, '<span class="text-emerald-400">$&</span>')
-      .replace(/\b(\d+\.?\d*)\b/g, '<span class="text-orange-400">$1</span>')
-      .replace(/\b(true|false|null)\b/g, '<span class="text-orange-400">$1</span>')
-  }
-  return safe
+  return parts.join('')
 }
 
 function CodeBlock({ language, code }: { language: string; code: string }) {

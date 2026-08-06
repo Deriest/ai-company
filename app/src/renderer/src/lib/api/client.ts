@@ -19,6 +19,19 @@ const URL_CACHE_TTL_MS = 30_000;
 let cachedBaseUrl: string | null = null;
 let cachedBaseUrlAt = 0;
 
+// Shared per-install auth token. Both `apiClient` and `runtimeClient` carry it;
+// `configureClient` in runtimeClient.ts pushes the token here via setApiToken so
+// every REST call in src/renderer/src/lib/api/*.ts sends the Bearer header.
+let authToken: string | null = null;
+
+export function setApiToken(t: string | null): void {
+  authToken = t;
+}
+
+export function getApiToken(): string | null {
+  return authToken;
+}
+
 export function invalidateBaseUrlCache(): void {
   cachedBaseUrl = null;
   cachedBaseUrlAt = 0;
@@ -41,7 +54,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const suffix = path.startsWith("/") ? path : `/${path}`;
   const options: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
   };
   if (body !== undefined) {
     options.body = JSON.stringify(body);

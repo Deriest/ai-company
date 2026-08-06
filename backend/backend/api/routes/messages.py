@@ -178,8 +178,11 @@ async def get_attachment(attachment_id: str, db: AsyncSession = Depends(get_db))
             status_code=404,
             detail="Attachment binary not found (created before binary storage existed)",
         )
+    # S4 FIX: strip CR/LF and other control chars from the stored filename so
+    # it cannot inject headers into the Content-Disposition value.
+    safe_name = "".join(c for c in (att.file_name or "") if ord(c) >= 32 and c not in '"\r\n')
     return Response(
         content=data,
         media_type=att.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{att.file_name}"'},
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )

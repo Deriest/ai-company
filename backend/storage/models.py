@@ -200,6 +200,11 @@ class Milestone(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (
+        # Composite index for heartbeat/staleness queries that filter by
+        # status and sort/look up by started_at.
+        Index("ix_task_status_started", "status", "started_at"),
+    )
     id = Column(String, primary_key=True, default=_uuid)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
     milestone_id = Column(String, ForeignKey("milestones.id"), nullable=True)
@@ -271,6 +276,10 @@ class Worker(Base):
 class Lease(Base):
     """Worker lease — authorization for a worker to execute on a task in a phase."""
     __tablename__ = "leases"
+    __table_args__ = (
+        # Composite index for heartbeat queries that detect stale ACTIVE leases.
+        Index("ix_lease_status_created", "status", "created_at"),
+    )
     id = Column(String, primary_key=True, default=_uuid)
     task_id = Column(String, ForeignKey("tasks.id"), nullable=False, index=True)
     worker_id = Column(String, ForeignKey("workers.id"), nullable=False)

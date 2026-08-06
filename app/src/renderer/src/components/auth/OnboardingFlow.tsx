@@ -45,8 +45,13 @@ export function OnboardingFlow({ onComplete }: Props) {
     if (token) {
       try { await profileApi.update({ githubToken: token }) } catch { /* non-blocking */ }
     }
-    const p = await profileApi.get();
-    if (p) onComplete(p);
+    try {
+      const p = await profileApi.get();
+      if (p) onComplete(p);
+    } catch {
+      // Continue gracefully instead of dead-ending the first-run flow on a
+      // profile fetch error — the profile is re-synced later.
+    }
   };
 
   if (step === "name") {

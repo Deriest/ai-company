@@ -14,6 +14,7 @@ from sqlalchemy.future import select
 from typing import List
 
 from backend.database.session import get_db, AsyncSessionLocal
+from backend.api.dependencies import require_current_user
 from backend.models.ai_runtime import Artifact
 from backend.models.conversation import Attachment
 from backend.services.attachment_store import (
@@ -472,7 +473,11 @@ async def chat_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)
 # ---------------------------------------------------------------------------
 
 @router.post("/chat/execute")
-async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat_execute_endpoint(
+    payload: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Execute a task request with full pipeline visibility.
     
     Streams: intent detection, discovery, planning, task graph,
@@ -1085,7 +1090,11 @@ async def chat_execute_endpoint(payload: ChatRequest, db: AsyncSession = Depends
 # ---------------------------------------------------------------------------
 
 @router.post("/chat/stream")
-async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat_stream_endpoint(
+    payload: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     # WP-01: Intent detection (via shared patterns — single source of truth)
     from shared.intent_patterns import classify_intent
     user_content = payload.messages[-1].content if payload.messages else ""
@@ -1166,13 +1175,12 @@ async def chat_stream_endpoint(payload: ChatRequest, db: AsyncSession = Depends(
             workspace_root, _ws_resolved = await resolve_conversation_workspace(
                 ws_session, None, payload.conversation_id
             )
-        # QA-E2E FIX: pass the worker_type so the chat tool path uses the
-        # worker's real permission set (write_file/shell for dev roles) instead
-        # of falling back to the read-only default. Permission gating is still
-        # enforced via check_permission inside ToolExecutor.
+        # S1 FIX: do NOT pass the client-supplied worker_role into the chat
+        # tool path — it is untrusted and previously granted shell/write_file
+        # for coder roles. The chat tool path always uses the safe read-only
+        # default allowlist (see _chat_permission_checker).
         tool_service = ToolAwareChatService(
             workspace_root=workspace_root,
-            worker_type=payload.worker_role,
         )
 
         async def tool_event_generator():

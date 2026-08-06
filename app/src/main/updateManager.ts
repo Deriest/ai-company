@@ -262,6 +262,18 @@ export async function sha256File(filePath: string): Promise<string> {
   });
 }
 
+/**
+ * QA-SEC: the staged installer filename comes from an unsigned manifest. Return
+ * the basename only if it avoids path separators, shell metacharacters, and
+ * control/whitespace characters. Spaces are allowed (legit names like
+ * "AIC ADE Setup-win64.exe" are staged with spaces and are safe in the argv/
+ * joined-path forms used at install). Returns null so callers can reject.
+ */
+function sanitizeStagedFilename(file: string): string | null {
+  const base = path.basename(file);
+  return /^[A-Za-z0-9._ -]+$/.test(base) ? base : null;
+}
+
 export class UpdateManager {
   private state: UpdateState;
   private listeners = new Set<UpdateListener>();
@@ -495,8 +507,15 @@ export class UpdateManager {
       this.abortDownload = false;
       const dir = path.join(this.appAdapter.getPath("userData"), "aic-ade", "updates", "staged");
       fs.mkdirSync(dir, { recursive: true });
-      // Sanitize artifact filename — path.basename() blocks "../" traversal escapes.
-      const safeFilename = path.basename(artifact.filename || `update-${this.state.availableVersion}`);
+      // QA-SEC: sanitize artifact filename — path.basename() blocks "../"
+      // traversal escapes, and the shared sanitizer (same one used at install)
+      // rejects shell metacharacters. Fall back to a guaranteed-safe name if the
+      // manifest filename is rejected outright so a bad name is never staged.
+      const rawFilename = path.basename(artifact.filename || `update-${this.state.availableVersion}`);
+      const safeFilename =
+        sanitizeStagedFilename(rawFilename) ||
+        sanitizeStagedFilename(`update-${this.state.availableVersion}`) ||
+        "update";
       const tempDest = path.join(dir, `${safeFilename}.tmp`);
       const finalDest = path.join(dir, safeFilename);
       this.setState({
@@ -603,16 +622,32 @@ export class UpdateManager {
     }
 
     if (process.platform === "win32") {
+      // QA-SEC: the staged filename comes from an unsigned manifest — reject any
+      // filename outside the safe charset before it is interpolated into the
+      // batch script (Cmd.exe would otherwise evaluate shell metacharacters).
+      const safeBase = sanitizeStagedFilename(file);
+      if (!safeBase) {
+        this.setState({ status: "error", error: "Installer filename rejected (unsafe)." });
+        return;
+      }
       // Write a temp batch script that waits 2s then runs installer
       const batFile = file + '.update.bat';
-      fs.writeFileSync(batFile, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart "AIC ADE Update" "${file}"\r\ndel "%~f0"\r\n`);
+      fs.writeFileSync(batFile, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart "AIC ADE Update" "${path.join(path.dirname(file), safeBase)}"\r\ndel "%~f0"\r\n`);
       spawn('cmd', ['/c', batFile], { detached: true, stdio: 'ignore' }).unref();
       // Exit immediately so installer can overwrite files
       setImmediate(() => this.appAdapter.exit?.(0));
     } else if (process.platform === "linux" && file.endsWith(".AppImage")) {
+      // QA-SEC: validate the filename, then spawn the AppImage directly (no
+      // `sh -c` string interpolation) so shell metacharacters in a malicious
+      // filename can never be evaluated.
+      const safeBase = sanitizeStagedFilename(file);
+      if (!safeBase) {
+        this.setState({ status: "error", error: "Installer filename rejected (unsafe)." });
+        return;
+      }
       try { fs.chmodSync(file, 0o755); } catch {}
-      const cmd = `sleep 2 && "${file}"`;
-      spawn('sh', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
+      // Run after a short delay (same behaviour as the previous `sleep 2 &&`).
+      spawn('sh', ['-c', 'sleep 2 && exec "$1"', 'aic-update', file], { detached: true, stdio: 'ignore' }).unref();
       // Let the new AppImage take over — quit gracefully so the backend is
       // torn down via the normal will-quit path.
       setImmediate(() => this.appAdapter.quit?.());

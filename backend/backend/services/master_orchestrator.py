@@ -128,6 +128,7 @@ class MasterOrchestrator:
             ctx["brief_id"] = brief_id
             task.context = ctx
             await self.session.flush()
+            await self.session.commit()  # ROOT-CAUSE: release write lock before Planning LLM calls
 
             await self._publish("pipeline.stage.completed", task_id, {
                 "stage": PipelineStage.DISCOVERY,
@@ -155,6 +156,7 @@ class MasterOrchestrator:
             ctx["plan_id"] = plan_id
             task.context = ctx
             await self.session.flush()
+            await self.session.commit()  # ROOT-CAUSE: release write lock before TaskGraph/Dispatch LLM calls
 
             await self._publish("pipeline.stage.completed", task_id, {
                 "stage": PipelineStage.PLANNING,
@@ -204,6 +206,7 @@ class MasterOrchestrator:
             ctx["graph_id"] = graph_id
             task.context = ctx
             await self.session.flush()
+            await self.session.commit()  # ROOT-CAUSE: release write lock before Dispatch LLM calls
 
             await self._publish("pipeline.stage.completed", task_id, {
                 "stage": PipelineStage.TASKGRAPH,
@@ -232,6 +235,18 @@ class MasterOrchestrator:
                 "trace_id": trace,
             })
 
+            # Mark the parent task terminal now that its dispatch has concluded.
+            # The parent was left in "created" while the orchestrator executed
+            # children; complete it explicitly so it doesn't stay open (and so
+            # self_healing won't re-dispatch it).
+            # Use the pipeline outcome (success) rather than the instantaneous
+            # dispatch success_rate, which can be 0 while async child nodes are
+            # still completing — a successful pipeline should not mark the
+            # parent as failed.
+            task.status = TaskStatus.COMPLETED.value
+            task.completed_at = datetime.now(timezone.utc)
+            await self.session.commit()
+
             return PipelineResult(
                 success=True,
                 stage=PipelineStage.DISPATCH,
@@ -249,6 +264,14 @@ class MasterOrchestrator:
                 "error": str(e),
                 "trace_id": trace,
             })
+            # Mark the parent failed so it reaches a terminal state.
+            try:
+                task.status = TaskStatus.FAILED.value
+                task.error_message = task.error_message or str(e)
+                task.completed_at = datetime.now(timezone.utc)
+                await self.session.commit()
+            except Exception:
+                pass
             return PipelineResult(
                 success=False,
                 stage="unknown",
@@ -658,60 +681,6 @@ class MasterOrchestrator:
             "success_rate": dispatch_result.success_rate,
             "status": dispatch_result.status,
         }
-
-    async def _execute_node(self, parent_task: Task, node_data: dict, execution_id: str) -> dict:
-        """Execute a single task graph node using the runtime executor.
-
-        Creates a child Task from the node data and runs it through
-        runtime/executor.py's execute_task() for real worker execution.
-        """
-        from runtime.executor import execute_task
-
-        node_id = node_data.get("node_id", "unknown")
-        title = node_data.get("title", f"Subtask {node_id}")
-        description = node_data.get("description", "")
-        task_type = node_data.get("task_type", parent_task.type)
-        worker_type = node_data.get("worker_type", parent_task.worker_type or "coding")
-
-        # Create child task for this node
-        child_task = Task(
-            project_id=parent_task.project_id,
-            parent_task_id=parent_task.id,
-            title=title,
-            description=description,
-            type=task_type,
-            status=TaskStatus.CREATED.value,
-            worker_type=worker_type,
-            approval_required=False,
-            progress=0,
-            context={
-                "source": "pipeline_dispatch",
-                "execution_id": execution_id,
-                "node_id": node_id,
-                "parent_task_id": parent_task.id,
-                "graph_node": node_data,
-                # BUG-12 FIX: Propagate parent triage data to child tasks
-                # so that guardrail-enforced workers (security, flint, nexus)
-                # are preserved across the execution pipeline.
-                "triage": (parent_task.context or {}).get("triage", {}),
-                "execution_level": (parent_task.context or {}).get("execution_level", "STANDARD"),
-                "phase_semantics": {},
-            },
-        )
-        self.session.add(child_task)
-        await self.session.flush()
-
-        # Execute via runtime executor (real worker execution)
-        try:
-            result = await execute_task(self.session, child_task)
-            await self.session.commit()
-            return result
-        except Exception as e:
-            logger.error(f"Node execution failed: {node_id}: {e}")
-            child_task.status = TaskStatus.FAILED.value
-            child_task.error_message = str(e)
-            await self.session.flush()
-            return {"success": False, "error": str(e)}
 
     # ── Helpers ─────────────────────────────────────────────────
 

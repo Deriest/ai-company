@@ -12,6 +12,7 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.skill_engine import (
     list_skills, toggle_skill, assign_skill_workers, seed_builtin_skills,
 )
@@ -30,7 +31,11 @@ def _installed_skill_root() -> Path:
 
 
 @router.post("/skills/install-github")
-async def install_github_skill(payload: dict, db: AsyncSession = Depends(get_db)):
+async def install_github_skill(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Install one skill or a package of skills from a public GitHub repo."""
     requested = str(payload.get("repo_url", "")).strip().rstrip("/")
     path_hint = str(payload.get("skill_path", "")).strip().strip("/")
@@ -112,7 +117,12 @@ async def get_skills(enabled_only: bool = False, db: AsyncSession = Depends(get_
 
 
 @router.post("/skills/{skill_id}/toggle")
-async def toggle_skill_endpoint(skill_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def toggle_skill_endpoint(
+    skill_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Enable or disable a skill."""
     is_enabled = payload.get("enabled", True)
     success = await toggle_skill(db, skill_id, is_enabled)
@@ -122,7 +132,12 @@ async def toggle_skill_endpoint(skill_id: str, payload: dict, db: AsyncSession =
 
 
 @router.post("/skills/{skill_id}/assign")
-async def assign_workers_endpoint(skill_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def assign_workers_endpoint(
+    skill_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Update worker type assignments for a skill."""
     workers = payload.get("workers", [])
     success = await assign_skill_workers(db, skill_id, workers)
@@ -132,7 +147,11 @@ async def assign_workers_endpoint(skill_id: str, payload: dict, db: AsyncSession
 
 
 @router.post("/skills")
-async def create_custom_skill(payload: dict, db: AsyncSession = Depends(get_db)):
+async def create_custom_skill(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Create a custom user-defined skill."""
     skill_id = payload.get("skill_id", "")
     if not skill_id:
@@ -172,7 +191,11 @@ async def create_custom_skill(payload: dict, db: AsyncSession = Depends(get_db))
 
 
 @router.delete("/skills/{skill_id}")
-async def delete_skill(skill_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_skill(
+    skill_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Delete a custom skill (cannot delete built-in skills)."""
     res = await db.execute(select(SkillEntry).where(SkillEntry.skill_id == skill_id))
     skill = res.scalar_one_or_none()

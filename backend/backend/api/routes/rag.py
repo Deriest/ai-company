@@ -15,10 +15,14 @@ from backend.services.rag_service import rag_service
 
 @router.post("/rag/documents")
 async def load_rag_document(payload: dict, db: AsyncSession = Depends(get_db)):
+    title = payload.get("title")
+    content = payload.get("content")
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
     doc = await rag_service.load_document(
         db,
-        title=payload["title"],
-        content=payload["content"],
+        title=title,
+        content=content,
         source=payload.get("source", ""),
         content_type=payload.get("content_type", "text"),
         chunk_size=payload.get("chunk_size", 500),
@@ -48,13 +52,19 @@ async def delete_rag_document(doc_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/rag/retrieve")
 async def rag_retrieve(payload: dict, db: AsyncSession = Depends(get_db)):
-    results = await rag_service.retrieve(db, payload["query"], payload.get("top_k", 5))
+    query = payload.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    results = await rag_service.retrieve(db, query, payload.get("top_k", 5))
     return results
 
 @router.post("/rag/context")
 async def rag_build_context(payload: dict, db: AsyncSession = Depends(get_db)):
+    query = payload.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
     context = await rag_service.build_context(
-        db, payload["query"],
+        db, query,
         top_k=payload.get("top_k", 5),
         max_tokens=payload.get("max_tokens", 2000),
     )

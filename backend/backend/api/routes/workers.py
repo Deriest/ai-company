@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 from typing import List
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.models.schema import WorkerRuntime
 from backend.schemas.api_models_v2 import (
     WorkerRuntimeUpdate, WorkerRuntimeResponse, WorkerMetricsResponse,
@@ -62,7 +63,12 @@ async def list_worker_runtimes(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.patch("/runtime/workers/{role}", response_model=WorkerRuntimeResponse)
-async def update_worker_runtime(role: str, update: WorkerRuntimeUpdate, db: AsyncSession = Depends(get_db)):
+async def update_worker_runtime(
+    role: str,
+    update: WorkerRuntimeUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     runtime = await worker_runtime_service.get_worker(db, role)
 
     # BUG-03 FIX: Auto-create worker_runtime row if role doesn't exist yet
@@ -143,7 +149,12 @@ async def list_workers(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.patch("/workers/{id}")
-async def update_worker_by_id(id: str, payload: WorkerRuntimeUpdate, db: AsyncSession = Depends(get_db)):
+async def update_worker_by_id(
+    id: str,
+    payload: WorkerRuntimeUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     res = await db.execute(select(WorkerRuntime).where(WorkerRuntime.id == id))
     w = res.scalars().first()
     if not w:
@@ -179,7 +190,7 @@ _ALLOWED_EXECUTE_TOOLS = {"read_file", "write_file", "list_directory", "search_w
 
 
 @router.post("/tools/execute")
-async def execute_tool(payload: ToolExecuteRequest):
+async def execute_tool(payload: ToolExecuteRequest, _auth: str = Depends(require_current_user)):
     """Execute a tool only if it is on the allowlist.
 
     Rejects unknown tools with a clean 400 and never surfaces raw exceptions.

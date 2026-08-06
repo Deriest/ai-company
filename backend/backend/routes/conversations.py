@@ -9,13 +9,14 @@ SSE streaming for real-time chat responses.
 """
 import json
 import logging
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
+from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message, Project, Task, DiscoverySession
 from backend.models.conversation import Attachment
 from conversation.engine import ConversationEngine, LLMUnavailableError, LLMInferenceError
@@ -86,6 +87,7 @@ async def list_conversations(
 async def batch_conversations(
     req: BatchRequest,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     if req.action not in ("delete", "archive", "unarchive"):
         raise HTTPException(400, "Invalid action")
@@ -117,6 +119,7 @@ async def batch_conversations(
 async def create_conversation(
     req: ConversationCreate,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     conv = Conversation(
         project_id=req.project_id,
@@ -135,6 +138,7 @@ async def update_conversation(
     conversation_id: str,
     req: ConversationUpdate,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     result = await session.execute(
         select(Conversation).where(Conversation.id == conversation_id)
@@ -158,6 +162,7 @@ async def update_conversation(
 async def delete_conversation(
     conversation_id: str,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     result = await session.execute(
         select(Conversation).where(Conversation.id == conversation_id)
@@ -194,6 +199,7 @@ async def delete_conversation(
 async def clear_messages(
     conversation_id: str,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     result = await session.execute(
         select(Conversation).where(Conversation.id == conversation_id)
@@ -260,8 +266,8 @@ async def get_messages(
 async def send_message(
     conversation_id: str,
     req: MessageSend,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     result = await session.execute(
         select(Conversation).where(Conversation.id == conversation_id)
@@ -285,11 +291,9 @@ async def send_message(
         await session.rollback()
         raise HTTPException(500, f"Chat processing error: {str(e)}")
 
-    # Auto-dispatch task in background if one was created
-    task_id = (response.meta or {}).get("task_id") if hasattr(response, "meta") else None
-    if task_id:
-        background_tasks.add_task(_dispatch_created_task, task_id)
-
+    # The parent task is dispatched by conversation/engine._launch_pipeline
+    # (the canonical MasterOrchestrator pipeline), so no redundant dispatch
+    # is scheduled here. _dispatch_created_task remains defined for self_healing.
     return {
         "response": response.content,
         "intent": response.intent,
@@ -302,8 +306,8 @@ async def send_message(
 async def send_message_stream(
     conversation_id: str,
     req: MessageSend,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """SSE streaming endpoint for chat."""
     result = await session.execute(
@@ -334,11 +338,8 @@ async def send_message_stream(
         await session.rollback()
         raise HTTPException(500, f"Internal error: {str(e)}")
 
-    # Auto-dispatch task in background if one was created
-    task_id = (response.meta or {}).get("task_id") if hasattr(response, "meta") else None
-    if task_id:
-        background_tasks.add_task(_dispatch_created_task, task_id)
-
+    # The parent task is dispatched by conversation/engine._launch_pipeline
+    # (the canonical MasterOrchestrator pipeline); no redundant dispatch here.
     async def event_generator():
         content = response.content
         metadata = response.meta if hasattr(response, 'meta') else {}
@@ -359,19 +360,48 @@ async def _dispatch_created_task(task_id: str):
     """Background: dispatch a newly created task through the worker pipeline."""
     import asyncio as _aio
     from runtime.executor import execute_task
+    from sqlalchemy.exc import OperationalError
     await _aio.sleep(2)
-    try:
-        from storage.database import async_session as _db
-        async with _db() as s:
-            result = await s.execute(select(Task).where(Task.id == task_id))
-            task = result.scalar_one_or_none()
-            if not task:
-                logger.warning(f"Dispatch bg: task {task_id} not found")
+
+    # SQLite WAL allows a single writer. The request path commits the task row
+    # before returning (conversation/engine._launch_pipeline commits, and the
+    # stream handler commits before building the StreamingResponse), but other
+    # background work (a pipeline task, a concurrent request's brief write
+    # window, worker commits) can still legitimately hold the write lock for a
+    # few ms. Retry ONLY the "database is locked" OperationalError with a
+    # bounded backoff, reopening a fresh session each attempt; any other error
+    # is logged and returned immediately.
+    last_err = None
+    for attempt in range(1, 6):
+        try:
+            from storage.database import async_session as _db
+            async with _db() as s:
+                result = await s.execute(select(Task).where(Task.id == task_id))
+                task = result.scalar_one_or_none()
+                if not task:
+                    logger.warning(f"Dispatch bg: task {task_id} not found")
+                    return
+                task_code = f"TASK-{task.id[:8].upper()}"
+                logger.info(f"Dispatch bg: starting {task_code} ({task.worker_type})")
+                exec_result = await execute_task(s, task)
+                await s.commit()
+                logger.info(f"Dispatch bg: {task_code} complete — success={exec_result.get('success')}")
                 return
-            task_code = f"TASK-{task.id[:8].upper()}"
-            logger.info(f"Dispatch bg: starting {task_code} ({task.worker_type})")
-            exec_result = await execute_task(s, task)
-            await s.commit()
-            logger.info(f"Dispatch bg: {task_code} complete — success={exec_result.get('success')}")
-    except Exception as e:
-        logger.error(f"Dispatch bg failed for {task_id}: {e}", exc_info=True)
+        except OperationalError as e:
+            msg = str(e.orig) if e.orig is not None else str(e)
+            if "locked" not in msg.lower():
+                logger.error(f"Dispatch bg failed for {task_id}: {e}", exc_info=True)
+                return
+            last_err = e
+            logger.warning(
+                f"Dispatch bg: SQLite write locked (attempt {attempt}/5) for {task_id}: {msg}"
+            )
+            await _aio.sleep(0.2 * attempt)
+        except Exception as e:
+            logger.error(f"Dispatch bg failed for {task_id}: {e}", exc_info=True)
+            return
+
+    logger.error(
+        f"Dispatch bg failed for {task_id} after 5 lock-retry attempts: {last_err}",
+        exc_info=True,
+    )

@@ -155,24 +155,47 @@ class UsageTracker:
             pass  # No event loop — skip persistence
 
     async def _persist(self, record: UsageRecord) -> None:
-        """Persist usage record to database."""
-        try:
-            from storage.database import async_session
-            from storage.models import LLMUsageLog
-            async with async_session() as session:
-                session.add(LLMUsageLog(
-                    provider=record.provider,
-                    model=record.model,
-                    tier=record.tier,
-                    purpose=record.purpose,
-                    prompt_tokens=record.prompt_tokens,
-                    completion_tokens=record.completion_tokens,
-                    total_tokens=record.total_tokens,
-                    cost_estimate=record.cost_estimate,
-                ))
-                await session.commit()
-        except Exception as e:
-            logger.debug(f"Failed to persist LLM usage: {e}")
+        """Persist usage record to database.
+
+        Best-effort / fire-and-forget. SQLite WAL allows a single writer, so
+        this background insert can transiently contend with the pipeline's
+        writes. Retry ONLY the "database is locked" OperationalError with a
+        short backoff; any other error is logged and dropped.
+        """
+        import asyncio
+        from sqlalchemy.exc import OperationalError
+
+        for attempt in range(1, 7):
+            try:
+                from storage.database import async_session
+                from storage.models import LLMUsageLog
+                async with async_session() as session:
+                    session.add(LLMUsageLog(
+                        provider=record.provider,
+                        model=record.model,
+                        tier=record.tier,
+                        purpose=record.purpose,
+                        prompt_tokens=record.prompt_tokens,
+                        completion_tokens=record.completion_tokens,
+                        total_tokens=record.total_tokens,
+                        cost_estimate=record.cost_estimate,
+                    ))
+                    await session.commit()
+                return
+            except OperationalError as exc:
+                msg = str(exc.orig) if exc.orig is not None else str(exc)
+                if "locked" not in msg.lower():
+                    logger.debug(f"Failed to persist LLM usage: {exc}")
+                    return
+                if attempt == 6:
+                    logger.warning(
+                        f"Failed to persist LLM usage after {attempt} retries (write locked): {msg}"
+                    )
+                    return
+                await asyncio.sleep(0.05 * attempt)
+            except Exception as e:
+                logger.debug(f"Failed to persist LLM usage: {e}")
+                return
 
     def summary(self, since: datetime | None = None) -> dict:
         with self._lock:

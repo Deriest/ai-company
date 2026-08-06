@@ -26,6 +26,8 @@ class AuditRecorder:
         details: dict | None = None,
         ip_address: str | None = None,
     ) -> AuditLog:
+        from storage.lock_retry import commit_with_lock_retry
+
         async with async_session() as session:
             entry = AuditLog(
                 actor=actor,
@@ -37,7 +39,13 @@ class AuditRecorder:
                 ip_address=ip_address,
             )
             session.add(entry)
-            await session.commit()
+
+            async def _reapply():
+                # A lock-retry rollback expunges pending objects; re-add the
+                # entry so the retried commit persists it.
+                session.add(entry)
+
+            await commit_with_lock_retry(session, reapply=_reapply)
             await session.refresh(entry)
             return entry
 

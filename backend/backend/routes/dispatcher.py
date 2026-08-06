@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
+from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.dispatcher.api")
 
@@ -20,6 +21,7 @@ class DispatchRequest(BaseModel):
 async def dispatch_tasks(
     req: DispatchRequest,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """Dispatch tasks from a Task Graph."""
     from dispatcher.engine import DispatcherEngine

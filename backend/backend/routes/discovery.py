@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
+from backend.api.dependencies import require_current_user
 from storage.models import DiscoverySession, EngineeringBrief as EngineeringBriefModel
 
 logger = logging.getLogger("aic.discovery.api")
@@ -94,6 +95,7 @@ async def respond_to_clarification(
     session_id: str,
     req: ClarificationResponse,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """Respond to clarification questions."""
     from discovery.engine import DiscoveryEngine

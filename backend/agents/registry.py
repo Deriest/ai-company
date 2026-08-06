@@ -1,6 +1,6 @@
 """AIC Platform — Canonical Agent Registry.
 
-Single source of truth for 16 first-class agent definitions.
+Single source of truth for 15 first-class agent definitions.
 Each agent has identity, soul, tools, permissions, model policy, and heartbeat policy.
 
 This replaces scattered hardcoded definitions in:
@@ -96,7 +96,7 @@ class AgentDefinition:
     def name(self) -> str:
         return self.identity.name
 
-    def assemble_context(self, task_context: dict, phase: str, project_context: dict = None) -> dict:
+    def assemble_context(self, task_context: dict, phase: str, project_context: Optional[dict] = None) -> dict:
         """Assemble runtime context for this agent's LLM call.
 
         Returns a dict with system_prompt, user_context, and metadata.
@@ -194,8 +194,8 @@ _register(AgentDefinition(
         system_prompt="You are Rex, the Governor. You are the compliance gatekeeper. Your job is to verify that deliverables are complete, tests exist, documentation is present, and quality standards are met. You NEVER auto-approve. You inspect actual files, cross-check against requirements, verify tests exist and pass, and report findings honestly. You also review code quality and flag technical debt. If something is missing, you block closeout." + _ANTI_SLOP_BLOCK,
     ),
     tools=ToolPermissions(
-        allowed=["read_file", "explore", "read_file", "explore"],
-        restricted=["write_file", "write_file"],
+        allowed=["read_file", "explore"],
+        restricted=["write_file"],
         prohibited=["direct_implementation", "shell"],
     ),
     model=ModelPolicy(tier="sprinter", temperature=0.2, timeout=60),
@@ -366,8 +366,8 @@ _register(AgentDefinition(
         system_prompt="You are Hugo, the Backend Engineer. You implement server-side logic, APIs, database schemas, and data processing. You write clean, correct, testable code. You handle errors explicitly. You validate input at trust boundaries. Your output is working backend code with proper error handling.",
     ),
     tools=ToolPermissions(
-        allowed=["read_file", "write_file", "write_file", "shell", "shell", "shell"],
-        restricted=["shell"],
+        allowed=["read_file", "write_file", "shell"],
+        restricted=[],
         prohibited=["security_audit"],
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
@@ -394,8 +394,8 @@ _register(AgentDefinition(
         system_prompt="You are Leo, the Frontend Engineer. You implement user interfaces, components, and client-side logic. You write clean, accessible, responsive code. You handle loading and error states. Your output is working frontend code that matches design specifications.",
     ),
     tools=ToolPermissions(
-        allowed=["read_file", "write_file", "write_file", "shell", "shell", "shell"],
-        restricted=["shell"],
+        allowed=["read_file", "write_file", "shell"],
+        restricted=[],
         prohibited=["security_audit"],
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
@@ -486,8 +486,8 @@ _register(AgentDefinition(
         system_prompt="You are Nova, the Data Engineer. You design database schemas, data models, and persistence strategies. You ensure data integrity through constraints and proper typing. Your output is valid SQL schema with constraints and indexes.",
     ),
     tools=ToolPermissions(
-        allowed=["read_file", "write_file", "write_file", "explore"],
-        restricted=["shell", "write_file"],
+        allowed=["read_file", "write_file", "explore"],
+        restricted=[],
         prohibited=["direct_implementation"],
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
@@ -515,7 +515,7 @@ _register(AgentDefinition(
     ),
     tools=ToolPermissions(
         allowed=["read_file", "write_file", "explore", "shell"],
-        restricted=["shell", "write_file"],
+        restricted=[],
         prohibited=["direct_implementation"],
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
@@ -542,8 +542,8 @@ _register(AgentDefinition(
         system_prompt="You are Flint, the Infrastructure Engineer. You design deployment configurations, CI/CD pipelines, and infrastructure. You ensure reliability, observability, and safe deployment. Your output is infrastructure-as-code with deployment configs and CI pipelines.",
     ),
     tools=ToolPermissions(
-        allowed=["read_file", "write_file", "shell", "shell", "shell"],
-        restricted=["write_file"],
+        allowed=["read_file", "write_file", "shell"],
+        restricted=[],
         prohibited=["security_audit"],
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
@@ -590,7 +590,7 @@ def get_agent(agent_id: str) -> AgentDefinition | None:
 
 
 def get_all_agents() -> list[AgentDefinition]:
-    """Get all 16 canonical agents."""
+    """Get all 15 canonical agents."""
     return list(AGENT_REGISTRY.values())
 
 

@@ -11,7 +11,7 @@ import secrets
 import json
 import logging
 from pathlib import Path
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -123,16 +123,19 @@ def decrypt(text: str) -> str:
     # Try current key
     try:
         return _get_fernet().decrypt(text.encode()).decode()
-    except (InvalidToken, Exception):
-        pass
+    except Exception as e:
+        # B3 FIX: log the failure (including key-load OSErrors) so an unrelated
+        # error never silently falls through to the legacy key. A decrypt
+        # failure is expected for legacy values, so only log at debug level.
+        logger.debug("Current-key decrypt failed: %s", e)
 
     # Try legacy key (migration path)
     try:
         decrypted = _get_legacy_fernet().decrypt(text.encode()).decode()
         logger.warning("Decrypted with legacy key — consider re-encrypting")
         return decrypted
-    except (InvalidToken, Exception):
-        pass
+    except Exception as e:
+        logger.debug("Legacy-key decrypt failed: %s", e)
 
     raise ValueError("Unable to decrypt value (not encrypted with current or legacy key)")
 

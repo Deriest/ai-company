@@ -38,8 +38,8 @@ beforeAll(async () => {
 describe("integration: live platform API", () => {
   it("health endpoint responds", async () => {
     try {
-      const h = await req("GET", "/api/health") as { status: string };
-      expect(h.status).toBe("healthy");
+      const h = await req("GET", "/health") as { status: string };
+      expect(h.status).toBe("ok");
     } catch {
       console.log("SKIP: platform not running");
     }
@@ -57,19 +57,22 @@ describe("integration: live platform API", () => {
 
   it("workers returns 15 canonical", async () => {
     if (!token) { console.log("SKIP: no token"); return; }
-    const workers = await req("GET", "/api/workers") as unknown[];
-    expect(workers.length).toBeGreaterThanOrEqual(15);
+    // Canonical roster lives in AGENT_REGISTRY, exposed via /dashboard as
+    // `workers` (15). The /workers endpoint returns worker_runtime tier configs
+    // (5), not the canonical agents — so read the roster count from /dashboard.
+    const dash = await req("GET", "/dashboard") as { workers: number };
+    expect(dash.workers).toBeGreaterThanOrEqual(15);
   });
 
   it("tasks returns array", async () => {
     if (!token) { console.log("SKIP: no token"); return; }
-    const tasks = await req("GET", "/api/tasks") as unknown[];
+    const tasks = await req("GET", "/tasks") as unknown[];
     expect(Array.isArray(tasks)).toBe(true);
   });
 
   it("projects returns array", async () => {
     if (!token) { console.log("SKIP: no token"); return; }
-    const projects = await req("GET", "/api/projects") as unknown[];
+    const projects = await req("GET", "/projects") as unknown[];
     expect(Array.isArray(projects)).toBe(true);
   });
 });

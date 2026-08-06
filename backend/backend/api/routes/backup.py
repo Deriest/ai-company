@@ -19,11 +19,12 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from backend.config import settings
+from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ def _write_backup_zip(zip_path: Path, data_dir: Path, snapshot_path: Path | None
 
 
 @router.post("/backup/create")
-async def create_backup():
+async def create_backup(_auth: str = Depends(require_current_user)):
     """Create a full backup zip of the entire app data dir.
 
     Returns ``{filename, size, created_at}`` — never the absolute path.
@@ -182,7 +183,10 @@ def _safe_backup_filename(filename: str) -> bool:
 
 
 @router.post("/backup/validate")
-async def validate_backup(payload: BackupValidateRequest):
+async def validate_backup(
+    payload: BackupValidateRequest,
+    _auth: str = Depends(require_current_user),
+):
     """Validate an existing backup zip: manifest fields + aic.db presence."""
     if not _safe_backup_filename(payload.filename):
         raise HTTPException(status_code=400, detail="Invalid backup filename")
@@ -226,7 +230,7 @@ async def validate_backup(payload: BackupValidateRequest):
 
 
 @router.get("/backup/list")
-async def list_backups():
+async def list_backups(_auth: str = Depends(require_current_user)):
     """List available backups (filename, size, created_at)."""
     backups_dir = _backups_dir()
     if not backups_dir.is_dir():

@@ -33,6 +33,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Observability logger setup failed: {e}")
 
+    # SECURITY: if AIC_TESTING=1 is set, the auth dependency in
+    # backend/api/dependencies.py fail-opens (missing token == authenticated).
+    # This is a TEST-ONLY escape hatch — never set it in production.
+    if os.environ.get("AIC_TESTING") == "1":
+        logger.warning(
+            "AIC_TESTING=1 detected — auth fail-open is ACTIVE; never set this in production"
+        )
+
     await init_db()
     # Defensive self-heal for existing DBs: seed the workers table (Lease rows
     # FK -> workers.id). Idempotent — safe to run on every startup.
@@ -300,16 +308,70 @@ async def metrics_wrapper(request: Request, call_next):
 async def localhost_only_middleware(request: Request, call_next):
     """
     Enforce localhost-only access for desktop security.
-    Blocks requests from non-localhost clients.
+
+    Blocks requests from non-localhost clients. Two independent checks:
+    1. The client socket address must be local.
+    2. The Host header must resolve to a local host (blocks DNS rebinding,
+       where a hostile page's hostname resolves to 127.0.0.1 with an
+       attacker-controlled Host header).
     """
     client_host = request.client.host if request.client else ""
-    # Allow localhost, 127.0.0.1, ::1, and Electron internal
-    if client_host not in ("127.0.0.1", "localhost", "::1", "", "testclient"):
+    # Allow localhost, 127.0.0.1, ::1, and Electron internal. The httpx
+    # ASGITransport client host "testclient" is only permitted in test mode so
+    # it cannot be used to bypass the localhost-only guard at runtime.
+    allowed_client_hosts = {"127.0.0.1", "localhost", "::1", ""}
+    if _test_mode_enabled():
+        allowed_client_hosts.add("testclient")
+    if client_host not in allowed_client_hosts:
         return JSONResponse(
             status_code=403,
             content={"detail": "Access denied: desktop-only server"},
         )
+
+    # DNS-rebinding guard: the Host header must name a local host. Parse the
+    # host part exactly (strip port / IPv6 brackets) — the same logic the
+    # websocket endpoint uses — so tricks like "127.0.0.1.evil.com" are rejected.
+    host_header = request.headers.get("host", "")
+    if not _host_header_is_localhost(host_header):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Access denied: invalid Host header"},
+        )
+
     return await call_next(request)
+
+
+def _test_mode_enabled() -> bool:
+    """True when the deterministic pytest flag (AIC_TESTING=1) is active."""
+    return os.environ.get("AIC_TESTING") == "1"
+
+
+# Localhost hosts always allowed. "test"/"testserver" are the httpx
+# ASGITransport Host headers used by the test suite and are only permitted in
+# test mode (AIC_TESTING=1) so a hostile page cannot reach the server by
+# sending an arbitrary Host header at runtime.
+_LOCALHOST_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+if _test_mode_enabled():
+    _LOCALHOST_HOSTS = _LOCALHOST_HOSTS | frozenset({"test", "testserver"})
+
+
+def _host_header_is_localhost(host: str) -> bool:
+    """Parse a Host header and compare the host part exactly."""
+    if not host:
+        return False
+    raw = host.strip()
+    if raw.startswith("["):  # IPv6 literal, e.g. [::1]:8000
+        if "]" in raw:
+            raw = raw.split("]", 1)[0]
+        else:
+            raw = raw[1:]
+        raw = raw.lstrip("[")
+    elif raw.startswith("::") and ":" in raw:
+        # bare IPv6 literal, e.g. "::1" (no port)
+        raw = raw
+    else:
+        raw = raw.split(":", 1)[0]
+    return raw.strip().lower() in _LOCALHOST_HOSTS
 
 
 # Core routes

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -13,9 +13,14 @@ from backend.services.automation_service import automation_service
 
 @router.post("/hooks")
 async def create_hook(payload: dict, db: AsyncSession = Depends(get_db)):
+    event_type = payload.get("event_type")
+    name = payload.get("name")
+    action_type = payload.get("action_type")
+    if not event_type or not name or not action_type:
+        raise HTTPException(status_code=400, detail="event_type, name and action_type are required")
     hook = await automation_service.create_hook(
-        db, event_type=payload["event_type"], name=payload["name"],
-        action_type=payload["action_type"], action_config=payload.get("action_config", {}),
+        db, event_type=event_type, name=name,
+        action_type=action_type, action_config=payload.get("action_config", {}),
         description=payload.get("description", ""),
     )
     return {"id": hook.id, "name": hook.name, "eventType": hook.event_type, "actionType": hook.action_type}
@@ -41,9 +46,14 @@ async def fire_event(event_type: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/triggers")
 async def create_trigger(payload: dict, db: AsyncSession = Depends(get_db)):
+    name = payload.get("name")
+    condition = payload.get("condition")
+    action = payload.get("action")
+    if not name or not condition or not action:
+        raise HTTPException(status_code=400, detail="name, condition and action are required")
     trigger = await automation_service.create_trigger(
-        db, name=payload["name"], condition=payload["condition"],
-        action=payload["action"], description=payload.get("description", ""),
+        db, name=name, condition=condition,
+        action=action, description=payload.get("description", ""),
     )
     return {"id": trigger.id, "name": trigger.name}
 

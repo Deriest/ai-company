@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.plugin_engine import (
     install_plugin, list_plugins, update_plugin, update_plugin_repo, uninstall_plugin,
     resolve_plugins_for_worker,
@@ -15,7 +16,11 @@ router = APIRouter()
 
 
 @router.post("/plugins/install")
-async def install_plugin_endpoint(payload: dict, db: AsyncSession = Depends(get_db)):
+async def install_plugin_endpoint(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Install a plugin from a public GitHub repository."""
     repo_url = payload.get("repo_url", "")
     plugin_path = payload.get("plugin_path", "")
@@ -44,7 +49,12 @@ async def list_plugins_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/plugins/{plugin_id}")
-async def update_plugin_endpoint(plugin_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def update_plugin_endpoint(
+    plugin_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Update plugin assignment, enable/disable, required status."""
     result = await update_plugin(db, plugin_id, payload)
     if not result:
@@ -53,7 +63,11 @@ async def update_plugin_endpoint(plugin_id: str, payload: dict, db: AsyncSession
 
 
 @router.post("/plugins/{plugin_id}/update")
-async def update_plugin_repo_endpoint(plugin_id: str, db: AsyncSession = Depends(get_db)):
+async def update_plugin_repo_endpoint(
+    plugin_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """G4: Check for and apply a plugin update from its source repository.
 
     Re-clones from source_url, compares the version, upserts the package, and
@@ -69,7 +83,11 @@ async def update_plugin_repo_endpoint(plugin_id: str, db: AsyncSession = Depends
 
 
 @router.delete("/plugins/{plugin_id}")
-async def uninstall_plugin_endpoint(plugin_id: str, db: AsyncSession = Depends(get_db)):
+async def uninstall_plugin_endpoint(
+    plugin_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Uninstall a plugin and remove its package."""
     ok = await uninstall_plugin(db, plugin_id)
     if not ok:

@@ -6,6 +6,7 @@ import json
 import logging
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 
 router = APIRouter()
 
@@ -18,9 +19,17 @@ from backend.models.mcp import MCPRegistry, MCPTool, MCPToolExecution
 # ── MCP Framework Endpoints ──────────────────────────────────
 
 @router.post("/mcp/servers")
-async def register_mcp_server(payload: dict, db: AsyncSession = Depends(get_db)):
+async def register_mcp_server(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
+    name = payload.get("name")
+    endpoint = payload.get("endpoint")
+    if not name or not endpoint:
+        raise HTTPException(status_code=400, detail="name and endpoint are required")
     server = await mcp_service.register_server(
-        db, name=payload["name"], endpoint=payload["endpoint"],
+        db, name=name, endpoint=endpoint,
         protocol=payload.get("protocol", "stdio"),
         description=payload.get("description", ""),
         config=payload.get("config"),
@@ -38,7 +47,12 @@ async def list_mcp_servers(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.patch("/mcp/servers/{server_id}")
-async def update_mcp_server(server_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def update_mcp_server(
+    server_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     try:
         server = await mcp_service.update_server(db, server_id, **payload)
         return {"id": server.id, "name": server.name, "status": server.status}
@@ -46,7 +60,11 @@ async def update_mcp_server(server_id: str, payload: dict, db: AsyncSession = De
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.delete("/mcp/servers/{server_id}")
-async def delete_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_mcp_server(
+    server_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     try:
         await mcp_service.delete_server(db, server_id)
         logger.info("MCP server deleted: server_id=%s", server_id)
@@ -56,7 +74,12 @@ async def delete_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/mcp/servers/{server_id}/discover")
-async def discover_mcp_tools(server_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def discover_mcp_tools(
+    server_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     try:
         tools = await mcp_service.discover_tools(db, server_id, payload.get("tools", []))
         return [{"id": t.id, "toolName": t.tool_name, "description": t.description} for t in tools]
@@ -73,7 +96,12 @@ async def list_mcp_tools(server_id: Optional[str] = Query(None), db: AsyncSessio
     ]
 
 @router.post("/mcp/tools/{tool_id}/execute")
-async def execute_mcp_tool(tool_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def execute_mcp_tool(
+    tool_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     try:
         execution = await mcp_service.execute_tool(
             db, tool_id, payload.get("arguments", {}), payload.get("conversation_id")
@@ -88,7 +116,12 @@ async def execute_mcp_tool(tool_id: str, payload: dict, db: AsyncSession = Depen
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/mcp/executions/{execution_id}/approve")
-async def approve_mcp_execution(execution_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+async def approve_mcp_execution(
+    execution_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     try:
         execution = await mcp_service.approve_execution(db, execution_id, payload.get("approved", False))
         return {"id": execution.id, "status": execution.status}
@@ -108,7 +141,11 @@ async def list_mcp_executions(
 
 
 @router.post("/mcp/servers/{server_id}/connect")
-async def connect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
+async def connect_mcp_server(
+    server_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Connect to MCP server via protocol client and discover tools."""
     try:
         tools = await mcp_service.connect_and_discover(db, server_id)
@@ -125,7 +162,11 @@ async def connect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/mcp/servers/{server_id}/disconnect")
-async def disconnect_mcp_server(server_id: str, db: AsyncSession = Depends(get_db)):
+async def disconnect_mcp_server(
+    server_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Disconnect from MCP server."""
     await mcp_service.disconnect_server(db, server_id)
     logger.info("MCP server disconnected: server_id=%s", server_id)
@@ -176,7 +217,10 @@ async def get_mcp_presets():
 
 
 @router.post("/mcp/servers/register-memory")
-async def register_memory_server(db: AsyncSession = Depends(get_db)):
+async def register_memory_server(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Register the MCP Memory server preset with auto-connect.
 
     Creates the memory directory if needed, registers the server,

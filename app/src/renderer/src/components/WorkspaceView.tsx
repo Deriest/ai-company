@@ -35,7 +35,6 @@ interface WorkerDef {
   phase: string
   icon: React.ComponentType<{ className?: string }>
   section: string
-  alwaysActive?: boolean
   skinColor: string
   shirtColor: string
   pantsColor: string
@@ -62,8 +61,8 @@ interface ActivityEntry {
 
 const WORKERS: WorkerDef[] = [
   // Leadership
-  { id: 'hermes', name: 'Hermes', role: 'System Dispatcher', tier: 'system', phase: 'All', icon: Brain, section: 'Leadership', alwaysActive: true, skinColor: '#d4a574', shirtColor: '#dc143c', pantsColor: '#1a1a1a', hairColor: '#2a2a2a' },
-  { id: 'rex', name: 'Rex', role: 'Governor / Compliance', tier: 'sprinter', phase: 'Closeout', icon: Shield, section: 'Leadership', alwaysActive: true, skinColor: '#ffdbac', shirtColor: '#ffd700', pantsColor: '#2a2a2a', hairColor: '#1a1a1a' },
+  { id: 'hermes', name: 'Hermes', role: 'System Dispatcher', tier: 'system', phase: 'All', icon: Brain, section: 'Leadership', skinColor: '#d4a574', shirtColor: '#dc143c', pantsColor: '#1a1a1a', hairColor: '#2a2a2a' },
+  { id: 'rex', name: 'Rex', role: 'Governor / Compliance', tier: 'sprinter', phase: 'Closeout', icon: Shield, section: 'Leadership', skinColor: '#ffdbac', shirtColor: '#ffd700', pantsColor: '#2a2a2a', hairColor: '#1a1a1a' },
 
   // Product
   { id: 'pm', name: 'Aria', role: 'Project Manager', tier: 'thinker', phase: 'Discovery', icon: UserCog, section: 'Product', skinColor: '#ffcc99', shirtColor: '#3366cc', pantsColor: '#333366', hairColor: '#4a3728' },
@@ -381,6 +380,9 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
   const [activities, setActivities] = useState<ActivityEntry[]>([])
   const prevStatesRef = useRef<Record<string, WorkerStatus>>({})
   const loggedCompletedRef = useRef<Set<string>>(new Set())
+  // Monotonic request sequence — a slow poll response must never overwrite a
+  // newer one (the 4s poll races against ~30s TTL backend responses).
+  const loadSeqRef = useRef(0)
 
   const addActivity = useCallback((workerName: string, action: string, tone: ActivityEntry['tone'] = 'muted') => {
     const now = new Date()
@@ -392,6 +394,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
   }, [])
 
   const loadData = useCallback(async () => {
+    const requestId = ++loadSeqRef.current
     try {
       const [tasksRes, workersRes, usageRes] = await Promise.allSettled([
         apiClient.get<any[]>('/tasks?limit=50'),
@@ -399,6 +402,9 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
         // Keep token/cost data consistent with Live Company.
         apiClient.get<any>('/api/usage/stats?days=30'),
       ])
+
+      // A slow response from an older poll must never overwrite a newer one.
+      if (requestId !== loadSeqRef.current) return
 
       const tasks = tasksRes.status === 'fulfilled' ? (tasksRes.value || []) : []
       const activeTasks = tasks.filter(
@@ -422,14 +428,19 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
         const result: WorkerState = { status: 'idle', task: '', progress: 0 }
 
-        if (w.alwaysActive && (runtimeWorkers.length > 0 || tasks.length > 0)) {
-          result.status = 'working'
-          result.task = w.id === 'hermes' ? 'Dispatching tasks' : 'Monitoring compliance'
-          result.progress = 30 + Math.floor(Math.random() * 40)
-        } else if (hasActiveTask && task) {
+        // QA-FIX: drop the `alwaysActive` fake-status branch. A worker only shows
+        // "working" when there is a real dispatch targeting them (active task
+        // matching worker_type) or the runtime worker reports busy/working.
+        if (hasActiveTask && task) {
           result.status = 'working'
           result.task = task.title || task.description || 'Working on task'
-          result.progress = task.progress || (20 + Math.floor(Math.random() * 60))
+          result.progress = typeof task.progress === 'number' ? task.progress : 0
+        } else if (w.id === 'hermes' && activeTasks.length > 0) {
+          // Hermes (System Dispatcher) coordinates any in-flight dispatch — only
+          // "working" when there is genuinely a task routing through it.
+          result.status = 'working'
+          result.task = 'Dispatching tasks'
+          result.progress = 0
         } else {
           const rtWorker = runtimeWorkers.find((rw: any) =>
             rw.role === w.id || rw.role === w.name.toLowerCase(),
@@ -437,7 +448,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
           if (rtWorker?.state === 'busy' || rtWorker?.state === 'working') {
             result.status = 'working'
             result.task = rtWorker.task || 'Processing'
-            result.progress = 25 + Math.floor(Math.random() * 50)
+            result.progress = typeof rtWorker.progress === 'number' ? rtWorker.progress : 0
           } else if (rtWorker?.state === 'meeting') {
             result.status = 'meeting'
             result.task = 'In meeting'
@@ -484,9 +495,11 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
         setTotalRequests(usageRes.value.total_requests || 0)
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (requestId === loadSeqRef.current) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
     } finally {
-      setLoading(false)
+      if (requestId === loadSeqRef.current) setLoading(false)
     }
   }, [addActivity])
 
@@ -590,7 +603,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
               </button>
             </div>
             <div className="max-h-64 overflow-y-auto scroll-thin">
-              <FileTree rootPath={projectRoot} onFileSelect={(path) => window.aic?.openPath?.(path)} />
+              <FileTree rootPath={projectRoot} onFileSelect={(path) => void window.aic?.openPath?.(path)?.catch(() => {})} />
             </div>
           </Card>
         )}

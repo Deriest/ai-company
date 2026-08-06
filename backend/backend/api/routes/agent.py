@@ -17,6 +17,7 @@ import json
 import logging
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 
 router = APIRouter()
 
@@ -24,7 +25,11 @@ logger = logging.getLogger("aic.agent")
 
 
 @router.post("/agent/run")
-async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
+async def run_agent(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Run an AI agent with real tool execution.
     
     Body:
@@ -89,7 +94,11 @@ async def run_agent(payload: dict, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/agent/run-sync")
-async def run_agent_sync(payload: dict, db: AsyncSession = Depends(get_db)):
+async def run_agent_sync(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_current_user),
+):
     """Run agent synchronously (wait for completion).
     
     Same parameters as /agent/run but returns final result.

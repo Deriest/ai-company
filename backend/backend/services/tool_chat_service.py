@@ -26,7 +26,6 @@ from typing import AsyncGenerator
 
 from llm.provider import provider_manager, ModelTier
 from workers.tools import ToolExecutor
-from backend.services.tool_executor import check_permission
 
 logger = logging.getLogger("aic.tool_chat")
 
@@ -39,16 +38,12 @@ CHAT_DEFAULT_ALLOWED_TOOLS = frozenset({"read_file", "explore", "search"})
 def _chat_permission_checker(worker_type: str | None = None):
     """Build a real permission checker for the chat tool path.
 
-    QA-E2E FIX: the ToolExecutor was constructed with no permission_checker,
-    so LLM-controlled shell/write_file calls ran ungated. When a worker_type
-    is available delegate to check_permission (the same mechanism AgentRunner
-    uses); otherwise fall back to a read-only default.
+    S1 FIX: ``worker_type`` is client-supplied and UNTRUSTED. Previously a
+    coder role (backend/frontend/qa/debugger/coding/devops/deployment) made the
+    chat tool path shell-capable via ``check_permission``. The chat tool path
+    now ALWAYS uses the safe read-only default allowlist regardless of the
+    client-supplied ``worker_role`` — shell/write_file/mcp_call stay denied.
     """
-    if worker_type:
-        def _check(tool_name: str) -> bool:
-            return check_permission(worker_type, tool_name)
-        return _check
-
     def _default_check(tool_name: str) -> bool:
         return tool_name in CHAT_DEFAULT_ALLOWED_TOOLS
     return _default_check

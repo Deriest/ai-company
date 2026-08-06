@@ -610,6 +610,11 @@ class OrchestratorService:
         )
         db.add(child)
         await db.flush()
+        # ROOT-CAUSE FIX: commit the child task creation BEFORE execute_task.
+        # execute_task runs long worker LLM calls; if this session's write txn
+        # stayed open it would hold the SQLite write lock for the whole run and
+        # block every other request's write ("database is locked").
+        await db.commit()
 
         try:
             result = await execute_task(db, child)

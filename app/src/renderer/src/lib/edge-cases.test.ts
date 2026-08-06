@@ -2,6 +2,11 @@
  * Edge case integration tests — error states, empty data, auth failure, malformed responses.
  * Run: npx vitest run src/renderer/src/lib/edge-cases.test.ts
  * Requires aic-platform running on http://127.0.0.1:8000
+ *
+ * NOTE on auth: the desktop backend is localhost-only and single-user. Only
+ * /auth/login and /auth/me enforce a credential/token; the data endpoints are
+ * intentionally unauthenticated for the local sidecar. Tests below verify the
+ * real contract.
  */
 import { describe, expect, it, beforeAll } from "vitest";
 
@@ -37,22 +42,21 @@ describe("edge case: auth failure", () => {
   it("rejects invalid credentials with 401", async () => {
     try {
       const r = await req("POST", "/auth/login", undefined, { username: "bad", password: "bad" });
-      expect(r.ok).toBe(false);
-      expect(r.status).toBeGreaterThanOrEqual(400);
+      expect(r.status).toBe(401);
     } catch { console.log("SKIP: platform not running"); }
   });
 
   it("rejects missing token on protected endpoint", async () => {
     try {
-      const r = await req("GET", "/api/tasks");
-      expect(r.ok).toBe(false);
+      const r = await req("GET", "/auth/me");
+      expect(r.status).toBe(401);
     } catch { console.log("SKIP: platform not running"); }
   });
 
   it("rejects invalid token", async () => {
     try {
-      const r = await req("GET", "/api/tasks", "invalid-token-12345");
-      expect(r.ok).toBe(false);
+      const r = await req("GET", "/auth/me", "invalid-token-12345");
+      expect(r.status).toBe(401);
     } catch { console.log("SKIP: platform not running"); }
   });
 });
@@ -60,20 +64,21 @@ describe("edge case: auth failure", () => {
 describe("edge case: non-existent resources", () => {
   it("returns error for non-existent task", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/tasks/nonexistent-id-12345", validToken);
+    const r = await req("GET", "/tasks/nonexistent-id-12345", validToken);
     expect(r.ok).toBe(false);
   });
 
   it("returns error for non-existent worker", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/workers/nonexistent-worker", validToken);
+    // /workers/{id} is PATCH-only; a GET to a non-existent id is not allowed.
+    const r = await req("GET", "/workers/nonexistent-worker", validToken);
     expect(r.ok).toBe(false);
   });
 
   it("handles non-existent conversation messages gracefully", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/conversations/nonexistent/messages", validToken);
-    // Platform may return 200 with empty array or 404 — either is acceptable
+    const r = await req("GET", "/conversations/nonexistent/messages", validToken);
+    // Backend returns an empty array (200) for a non-existent conversation.
     expect(r.status).toBeGreaterThanOrEqual(200);
     expect(r.status).toBeLessThan(500);
   });
@@ -89,20 +94,20 @@ describe("edge case: empty/malformed requests", () => {
 
   it("handles project creation with empty name", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("POST", "/api/projects", validToken, { name: "", description: "" });
+    const r = await req("POST", "/projects", validToken, { name: "", description: "" });
     // Platform may accept or reject — just verify no crash
     expect(r.status).toBeGreaterThanOrEqual(200);
   });
 
-  it("handles dispatch on non-existent task", async () => {
+  it("handles dispatch on non-existent task graph", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("POST", "/api/tasks/nonexistent-id/dispatch", validToken);
+    const r = await req("POST", "/api/dispatcher/dispatch", validToken, { graph_id: "nonexistent-id-12345" });
     expect(r.ok).toBe(false);
   });
 
-  it("handles cancel on non-existent task", async () => {
+  it("handles cancel on non-existent job", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("POST", "/api/tasks/nonexistent-id/cancel", validToken);
+    const r = await req("POST", "/jobs/nonexistent-id-12345/cancel", validToken);
     expect(r.ok).toBe(false);
   });
 });
@@ -110,7 +115,7 @@ describe("edge case: empty/malformed requests", () => {
 describe("edge case: data shape validation", () => {
   it("workers response is array with id field", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/workers", validToken);
+    const r = await req("GET", "/workers", validToken);
     expect(r.ok).toBe(true);
     expect(Array.isArray(r.data)).toBe(true);
     if ((r.data as unknown[]).length > 0) {
@@ -121,16 +126,15 @@ describe("edge case: data shape validation", () => {
 
   it("tasks response is array", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/tasks", validToken);
+    const r = await req("GET", "/tasks", validToken);
     expect(r.ok).toBe(true);
     expect(Array.isArray(r.data)).toBe(true);
   });
 
-  it("events response is array or has events key", async () => {
+  it("notifications response is array", async () => {
     if (!validToken) { console.log("SKIP: no token"); return; }
-    const r = await req("GET", "/api/dashboard/events", validToken);
+    const r = await req("GET", "/notifications", validToken);
     expect(r.ok).toBe(true);
-    const data = r.data;
-    expect(Array.isArray(data) || (data && typeof data === "object" && "events" in data)).toBe(true);
+    expect(Array.isArray(r.data)).toBe(true);
   });
 });

@@ -67,11 +67,13 @@ function ensureAppData(): void {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const downloads = path.join(dir, "downloads");
   if (!fs.existsSync(downloads)) fs.mkdirSync(downloads, { recursive: true });
-  // Scrub legacy web-era secrets from persisted store
+  // Scrub legacy web-era secrets from persisted store. The JWT is memory-only
+  // (never persisted), so clean up any token a previous release wrote to disk.
   try {
     const store = readStore();
-    if ("password" in store) {
+    if ("password" in store || "token" in store) {
       delete store.password;
+      delete store.token;
       writeStore(store);
     }
   } catch {
@@ -514,7 +516,7 @@ function createWindow(): BrowserWindow {
         "Content-Security-Policy": [
           isDev
             ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; base-uri 'none'"
-            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; base-uri 'none'",
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         ],
       },
     });
@@ -779,7 +781,22 @@ function registerIpc(): void {
       await ensureBackendRunning();
       let backupFilename = typeof filename === "string" ? path.basename(filename) : "";
       if (!backupFilename || !backupFilename.toLowerCase().endsWith(".zip")) {
-        const created = await backendPost("/backup/create");
+        // QA-AUTH: this fallback runs in the main process, which has no access to
+        // the renderer's per-install Bearer token. The renderer normally creates
+        // the archive via the token-carrying apiClient (backupApi.createBackup)
+        // and passes the filename here, so this branch is only reached when that
+        // didn't happen. If auth is enforced, surface a clear error instead of a
+        // bare 401.
+        let created: any;
+        try {
+          created = await backendPost("/backup/create");
+        } catch (e: any) {
+          const detail: string = e?.message || String(e);
+          if (/401|403|unauthori[sz]ed|not.?authenticated/i.test(detail)) {
+            return { saved: false, error: "Backup requires the app token. Create the backup from the app's Backup panel." };
+          }
+          throw e;
+        }
         backupFilename = typeof created?.filename === "string" ? path.basename(created.filename) : "";
       }
       if (!backupFilename || !backupFilename.toLowerCase().endsWith(".zip")) {

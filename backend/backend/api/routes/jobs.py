@@ -16,10 +16,14 @@ from backend.models.jobs import Job, JobLog
 
 @router.post("/jobs")
 async def create_job(payload: dict, db: AsyncSession = Depends(get_db)):
+    title = payload.get("title")
+    job_type = payload.get("job_type")
+    if not title or not job_type:
+        raise HTTPException(status_code=400, detail="title and job_type are required")
     job = await job_scheduler.create_job(
         db,
-        title=payload["title"],
-        job_type=payload["job_type"],
+        title=title,
+        job_type=job_type,
         payload=payload.get("payload", {}),
         priority=payload.get("priority", 5),
         max_retries=payload.get("max_retries", 3),

@@ -129,27 +129,39 @@ async def test_fsm_cannot_skip_phases():
 @pytest.mark.asyncio
 async def test_lease_lifecycle_integrity(db_session):
     """Test that executor manages lease lifecycle correctly."""
-    async with db_session() as session:
-        task = Task(id="task-lease", project_id="proj-1", title="Lease test", description="Test",
-                    type=TaskType.FEATURE.value, status=TaskStatus.CREATED.value, worker_type="architect")
-        session.add(task)
-        await session.commit()
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from llm.provider import provider_manager
 
-        from runtime.executor import execute_task
-        result = await execute_task(session, task)
-        
-        # Verify leases were created and managed
-        from storage.models import Lease, LeaseStatus
-        lease_result = await session.execute(select(Lease).where(Lease.task_id == task.id))
-        leases = lease_result.scalars().all()
-        
-        # At least one lease should exist
-        assert len(leases) > 0
-        
-        # Leases should be properly finished (not stuck in active)
-        active_leases = [l for l in leases if l.status == LeaseStatus.ACTIVE.value]
-        # All leases should be finished after execution
-        assert len(active_leases) == 0 or result.get("status") == "in_progress"
+    provider = MagicMock()
+    provider.config = MagicMock()
+    provider.config.name = "fake-provider"
+
+    async def chat_side_effect(**kwargs):
+        return {"content": "Lease test complete.", "model": "fake-model", "usage": {}}
+
+    with patch.object(provider_manager, "get_active_with_key", return_value=provider), \
+         patch.object(provider_manager, "chat", AsyncMock(side_effect=chat_side_effect)):
+        async with db_session() as session:
+            task = Task(id="task-lease", project_id="proj-1", title="Lease test", description="Test",
+                        type=TaskType.FEATURE.value, status=TaskStatus.CREATED.value, worker_type="architect")
+            session.add(task)
+            await session.commit()
+
+            from runtime.executor import execute_task
+            result = await execute_task(session, task)
+
+            # Verify leases were created and managed
+            from storage.models import Lease, LeaseStatus
+            lease_result = await session.execute(select(Lease).where(Lease.task_id == task.id))
+            leases = lease_result.scalars().all()
+
+            # At least one lease should exist
+            assert len(leases) > 0
+
+            # Leases should be properly finished (not stuck in active)
+            active_leases = [l for l in leases if l.status == LeaseStatus.ACTIVE.value]
+            # All leases should be finished after execution
+            assert len(active_leases) == 0 or result.get("status") == "in_progress"
 
 
 @pytest.mark.asyncio

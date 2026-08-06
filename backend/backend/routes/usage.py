@@ -28,6 +28,9 @@ async def get_usage_stats(
 ):
     """Get usage statistics for the specified period."""
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    # SQLite DATETIME columns store offset-naive UTC; compare against a naive
+    # threshold so the aware cutoff doesn't leak into the SQL-bound value.
+    cutoff_naive = cutoff.replace(tzinfo=None)
 
     # Get LLM usage logs
     result = await db.execute(
@@ -37,7 +40,7 @@ async def get_usage_stats(
             func.sum(LLMUsageLog.completion_tokens).label("total_completion_tokens"),
             func.sum(LLMUsageLog.total_tokens).label("total_tokens"),
             func.sum(LLMUsageLog.cost_estimate).label("total_cost"),
-        ).where(LLMUsageLog.created_at >= cutoff)
+        ).where(LLMUsageLog.created_at >= cutoff_naive)
     )
     stats = result.first()
 
@@ -48,7 +51,7 @@ async def get_usage_stats(
             func.count(LLMUsageLog.id).label("requests"),
             func.sum(LLMUsageLog.total_tokens).label("tokens"),
             func.sum(LLMUsageLog.cost_estimate).label("cost"),
-        ).where(LLMUsageLog.created_at >= cutoff)
+        ).where(LLMUsageLog.created_at >= cutoff_naive)
         .group_by(LLMUsageLog.provider)
     )
     by_provider = [
@@ -68,7 +71,7 @@ async def get_usage_stats(
             func.count(LLMUsageLog.id).label("requests"),
             func.sum(LLMUsageLog.total_tokens).label("tokens"),
             func.sum(LLMUsageLog.cost_estimate).label("cost"),
-        ).where(LLMUsageLog.created_at >= cutoff)
+        ).where(LLMUsageLog.created_at >= cutoff_naive)
         .group_by(LLMUsageLog.model)
     )
     by_model = [
@@ -100,6 +103,8 @@ async def get_daily_usage(
 ):
     """Get daily usage statistics."""
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    # Compare against a naive UTC threshold (SQLite stores naive datetimes).
+    cutoff_naive = cutoff.replace(tzinfo=None)
 
     result = await db.execute(
         select(
@@ -107,7 +112,7 @@ async def get_daily_usage(
             func.count(LLMUsageLog.id).label("requests"),
             func.sum(LLMUsageLog.total_tokens).label("tokens"),
             func.sum(LLMUsageLog.cost_estimate).label("cost"),
-        ).where(LLMUsageLog.created_at >= cutoff)
+        ).where(LLMUsageLog.created_at >= cutoff_naive)
         .group_by(func.date(LLMUsageLog.created_at))
         .order_by(func.date(LLMUsageLog.created_at))
     )

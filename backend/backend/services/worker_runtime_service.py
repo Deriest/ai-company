@@ -116,9 +116,31 @@ class WorkerRuntimeService:
             total_executions=row.total or 0,
             completed=row.completed or 0,
             errors=row.errors or 0,
+            avg_latency_ms=await WorkerRuntimeService._avg_latency_ms(db, role),
             last_executed_at=last_run_iso,
             currently_running=(row.running or 0) > 0,
         )
+
+    @staticmethod
+    async def _avg_latency_ms(db: AsyncSession, role: str) -> float:
+        """B2 FIX: compute avg latency from completed executions' duration.
+
+        ``WorkerExecution`` has no latency column, so derive it from the
+        ``started_at``/``completed_at`` timestamps of completed runs. Returns
+        0.0 when there are no completed runs to measure.
+        """
+        rows = await db.execute(
+            select(WorkerExecution.started_at, WorkerExecution.completed_at)
+            .where(
+                WorkerExecution.worker_role == role,
+                WorkerExecution.status == "completed",
+            )
+        )
+        latencies = []
+        for r in rows.all():
+            if r.started_at and r.completed_at:
+                latencies.append((r.completed_at - r.started_at).total_seconds() * 1000.0)
+        return (sum(latencies) / len(latencies)) if latencies else 0.0
 
     @staticmethod
     async def get_all_metrics(db: AsyncSession) -> dict[str, WorkerMetrics]:
@@ -139,6 +161,7 @@ class WorkerRuntimeService:
                 total_executions=row.total or 0,
                 completed=row.completed or 0,
                 errors=row.errors or 0,
+                avg_latency_ms=await WorkerRuntimeService._avg_latency_ms(db, row.worker_role),
                 last_executed_at=row.last_run.isoformat() if row.last_run else None,
                 currently_running=(row.running or 0) > 0,
             )

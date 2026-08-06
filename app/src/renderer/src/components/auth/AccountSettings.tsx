@@ -68,14 +68,14 @@ export function GeneralTab({
 
   const handleCheckUpdates = () => {
     setUpdatesOpen(true);
-    window.aic?.updateCheck?.();
+    void window.aic?.updateCheck?.()?.catch(() => {});
   };
 
-  const handleDownload = () => { window.aic?.updateDownload?.(); };
-  const handleInstall = () => { window.aic?.updateQuitAndInstall?.(); };
+  const handleDownload = () => { void window.aic?.updateDownload?.()?.catch(() => {}); };
+  const handleInstall = () => { void window.aic?.updateQuitAndInstall?.()?.catch(() => {}); };
   const handleDismiss = () => {
     setUpdatesOpen(false);
-    window.aic?.updateDismiss?.();
+    void window.aic?.updateDismiss?.()?.catch(() => {});
   };
 
   // Update status label

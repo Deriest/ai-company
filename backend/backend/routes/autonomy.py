@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
+from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.autonomy.api")
 
@@ -30,6 +31,7 @@ class HandleAnomalyRequest(BaseModel):
 async def detect_anomaly(
     req: DetectAnomalyRequest,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """Detect and record an anomaly."""
     from autonomy.engine import AutonomyEngine
@@ -55,6 +57,7 @@ async def detect_anomaly(
 async def handle_anomaly(
     req: HandleAnomalyRequest,
     session: AsyncSession = Depends(get_session),
+    _auth: str = Depends(require_current_user),
 ):
     """Handle an anomaly with full recovery pipeline."""
     from autonomy.engine import AutonomyEngine
