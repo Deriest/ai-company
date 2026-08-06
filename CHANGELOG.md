@@ -4,6 +4,62 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 
 ---
 
+## v2.4.71 — 2026-08-07
+
+### Security & Auth Hardening
+- Auth enforcement: `require_current_user` on ALL mutating endpoints (planning,
+  dispatcher, delivery, autonomy, verification, context, conversations, discovery,
+  taskgraph, orchestration, providers, backup).
+- SSRF protection: block RFC1918 private ranges (10/8, 172.16/12, 192.168/16) +
+  IPv6 ULA (fc00::/7) in provider validation; pin `follow_redirects=False` on
+  ProviderClient outbound connections.
+- `AIC_TESTING` fail-open now logs a loud startup WARNING (test-only, documented).
+- Timing-safe login compare via `secrets.compare_digest`.
+
+### Concurrency & Data Integrity
+- DB lock fix: commit before `execute_task` in dispatcher subtask-reuse path
+  (was holding the SQLite write lock across 120s+ LLM calls).
+- Worker race fix: workers return handoffs via result tuple; merge after gather
+  instead of mutating shared task.context/handoffs_dict.
+- Self-healing TOCTOU: atomic guarded UPDATE WHERE status='created' + rowcount
+  check; uses valid TaskStatus 'investigate' (not invalid 'in_progress').
+- Consolidated `storage/lock_retry.commit_with_lock_retry()` (executor + audit).
+
+### Permission Model Alignment
+- Registry-first tool permissions derived from AGENT_REGISTRY (single source of
+  truth); removed hardcoded `_FULL_TOOLS` over-grants.
+- Shell safety: destructive-command denylist + 300s timeout cap on `run_shell`.
+- MCP policy: MCP follows shell capability — granted to shell-capable agents
+  (backend/frontend/database/qa/nexus/flint/debugger + coding/devops/crafter),
+  denied to read-only/governance/docs agents (hermes/rex/pm/research/architect/
+  designer/security/performance/documentation).
+
+### Frontend & Electron Hardening
+- JWT token memory-only (never persisted to state.json; residual token scrubbed).
+- Chat markdown links routed through `window.aic.openExternal` (github allowlist).
+- CSP meta tag in index.html (file:// safe), synced with main.ts header injection.
+- WorkspaceView poll request-ID guard (no stale-data overwrite).
+- JobsView + OrchestrationView pagination (Load more).
+- ChatView highlightCode single-pass tokenizer (fixed double-wrap corruption).
+
+### Test Coverage Expansion
+- test_auth_fail_closed.py (15): 401, WWW-Authenticate, DNS-rebinding Host guard.
+- test_ssrf_guards.py (14): private IPs, loopback, metadata, redirect downgrade.
+- test_heartbeat.py (9): _as_utc, stale-task, blocked-lease detection.
+- test_dispatcher_concurrency.py (6): real execution, fail-stop, success_rate.
+- test_lock_retry.py (7): backoff, reapply closure, max attempts.
+- test_tool_executor.py (+4): MCP policy regression (grant/deny/aliases).
+- frontend_api_client.test.ts (7) + edge-cases.unit.test.ts (8).
+
+**Results:** Backend 848 passed / 1 skipped | Frontend 211 passed | typecheck clean.
+
+### Architecture Cleanup
+- Removed dead `MasterOrchestrator._execute_node` (DispatcherEngine is sole owner).
+- Composite indexes: Task(status, started_at), Lease(status, created_at).
+- usage.py cutoff normalized to naive UTC (matches heartbeat `_as_utc`).
+
+---
+
 ## v2.4.68 — 2026-08-05
 
 ### Fix

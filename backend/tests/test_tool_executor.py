@@ -156,3 +156,55 @@ def test_unknown_non_registry_worker_default_deny_read_only():
     # Read-only tools remain available.
     assert check_permission("ghost_worker", "read_file") is True
     assert check_permission("ghost_worker", "list_directory") is True
+
+
+# ── MCP policy regression (QA-verify) ───────────────────────────────────────
+#
+# MCP POLICY: MCP servers/tools are external integrations the user explicitly
+# configures, so ``mcp_call`` is auto-granted to shell-capable workers and
+# denied to read-only / docs-only / governance agents. This is centralized in
+# tool_executor._registry_allowed_tools: if a worker can run shell, it also
+# gets mcp_call automatically.
+
+
+def test_mcp_call_auto_granted_to_shell_capable_agents():
+    """Shell-capable canonical agents get mcp_call + access to mcp_* tools."""
+    shell_capable = ["backend", "frontend", "database", "qa", "nexus", "flint", "debugger"]
+    for agent in shell_capable:
+        assert check_permission(agent, "run_shell"), f"{agent} should have shell"
+        assert check_permission(agent, "mcp_call"), f"{agent} should have mcp_call"
+        assert check_permission(agent, "mcp_create_entities"), f"{agent} should call mcp_* tools"
+
+
+def test_mcp_call_denied_to_read_only_governance_agents():
+    """Read-only/governance/docs agents have NO shell AND NO mcp_call."""
+    readonly_gov = ["hermes", "rex", "pm", "research", "architect", "designer",
+                    "security", "performance", "documentation"]
+    for agent in readonly_gov:
+        assert not check_permission(agent, "run_shell"), f"{agent} should NOT have shell"
+        assert not check_permission(agent, "mcp_call"), f"{agent} should NOT have mcp_call"
+        assert not check_permission(agent, "mcp_create_entities"), f"{agent} cannot call mcp_* tools"
+
+
+def test_get_tools_for_worker_includes_mcp_call_when_has_shell():
+    """get_tools_for_worker returns mcp_call tool definition when shell present."""
+    # Shell-capable -> includes mcp_call
+    backend_tools = {t["function"]["name"] for t in get_tools_for_worker("backend")}
+    assert "run_shell" in backend_tools
+    assert "mcp_call" in backend_tools
+
+    # Read-only -> no mcp_call
+    research_tools = {t["function"]["name"] for t in get_tools_for_worker("research")}
+    assert "run_shell" not in research_tools
+    assert "mcp_call" not in research_tools
+
+
+def test_mcp_policy_unified_registry_fallback():
+    """MCP follows shell capability across registry agents AND legacy aliases."""
+    # Legacy fallback aliases with full tools keep mcp_call.
+    for alias in ["coding", "devops", "crafter"]:
+        assert check_permission(alias, "mcp_call"), f"{alias} fallback should allow mcp"
+
+    # Canonical registry agents follow the shell rule.
+    assert check_permission("backend", "mcp_call")      # shell-capable canonical
+    assert not check_permission("architect", "mcp_call")  # docs-writer canonical

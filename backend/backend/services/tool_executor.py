@@ -488,6 +488,12 @@ def _registry_allowed_tools(worker_type: str) -> Optional[set]:
     small set of registry-derived role policies). Returns None when the worker
     is neither a canonical agent nor a tool_permissions-defined role, so the
     caller falls back to the legacy WORKER_PERMISSIONS map.
+
+    MCP POLICY: MCP servers/tools are external integrations the user explicitly
+    configures, so ``mcp_call`` is auto-granted to any shell-capable worker
+    (one that already has ``run_shell``). Read-only / docs-only / governance
+    agents (no shell) do NOT get MCP. Centralizing the rule here means every
+    registry-derived worker is covered without enumerating mcp_call per role.
     """
     from backend.services.tool_permissions import get_allowed_tools
     logical = get_allowed_tools(worker_type)
@@ -498,6 +504,9 @@ def _registry_allowed_tools(worker_type: str) -> Optional[set]:
         mapped = _LOGICAL_TO_EXECUTOR.get(name)
         if mapped:
             executor_tools.add(mapped)
+    # MCP follows shell capability (see docstring MCP POLICY).
+    if "run_shell" in executor_tools:
+        executor_tools.add("mcp_call")
     return executor_tools
 
 
