@@ -511,8 +511,15 @@ class ToolHistorySource(ContextSource):
         start = _time.monotonic()
         chunks: list[ContextChunk] = []
         tool_calls = self.config.get("recent_tool_calls", [])
+        # Defensive: recent_tool_calls may arrive as a non-list (e.g. a single
+        # ToolCall/dict) depending on the caller. Coerce to a list so the
+        # `[-10:]` slice below never raises "slice(-10, None, None)".
+        if not isinstance(tool_calls, list):
+            tool_calls = [tool_calls] if tool_calls else []
 
         for tc in tool_calls[-10:]:
+            if not isinstance(tc, dict):
+                continue
             content = f"Tool: {tc.get('type', 'unknown')} — {tc.get('label', '')}\nResult: {tc.get('output', '')[:500]}"
             chunks.append(ContextChunk(
                 content=content,

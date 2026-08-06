@@ -6,6 +6,7 @@ Each worker has a role, system prompt, and execution strategy.
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 import asyncio
+import inspect
 import logging
 import shutil
 import sys
@@ -295,6 +296,22 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
                 else:
                     tool_method = getattr(tool_executor, fn_name, None)
                     if tool_method:
+                        # FIX: Defensive filter of unexpected kwargs — models sometimes
+                        # invent arguments not matching the schema (e.g., "length" instead
+                        # of "limit" for read_file). We inspect the method signature and
+                        # only pass matching args; unknown args are silently dropped with a
+                        # warning so the round doesn't abort.
+                        import inspect
+                        sig = inspect.signature(tool_method)
+                        valid_params = set(sig.parameters.keys()) - {"self"}  # exclude 'self'
+                        filtered_args = {k: v for k, v in fn_args.items() if k in valid_params}
+                        unexpected = set(fn_args.keys()) - valid_params
+                        if unexpected:
+                            logger.warning(
+                                f"Tool '{fn_name}' received unexpected arg(s): {unexpected}. "
+                                f"Valid params: {valid_params}. Dropping invalid args."
+                            )
+                        
                         # FIX: bound every tool call so a hanging tool (e.g. a
                         # shell command that backgrounds a process and holds the
                         # pipe open) can never stall the worker loop forever.
@@ -302,8 +319,10 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
                         # process-group kill on timeout.
                         try:
                             tc_result = await asyncio.wait_for(
-                                tool_method(**fn_args), timeout=120
+                                tool_method(**filtered_args), timeout=120
                             )
+                        except TypeError as e:
+                            result_content = f"Tool '{fn_name}' error: {e}"
                         except asyncio.TimeoutError:
                             result_content = (
                                 f"Tool '{fn_name}' timed out after 120s "

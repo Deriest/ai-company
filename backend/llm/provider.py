@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import threading
+import asyncio
 
 import httpx
 
@@ -75,6 +76,28 @@ def _is_vansrouter_provider(name: str, base_url: str) -> bool:
     """
     haystack = f"{name or ''} {base_url or ''}".lower()
     return "vansrouter" in haystack or "vansroute" in haystack
+
+
+# Reasoning-effort control (v2.4.71): default "auto" = omit the field so the
+# gateway/model decides. Previously reasoning_effort="low" was hard-coded for ANY
+# model whose name contained "deepseek"/"free"/"r1" — which wrongly forced it onto
+# non-reasoning models such as deepseek-v4-flash. Set AIC_LLM_REASONING_EFFORT to
+# "low"/"medium"/"high" to force it for true reasoning models (DeepSeek-R1-style).
+_REASONING_EFFORT = os.environ.get("AIC_LLM_REASONING_EFFORT", "auto").strip().lower()
+
+
+def _maybe_set_reasoning_effort(payload: dict, model: str) -> None:
+    """Set payload['reasoning_effort'] only when explicitly configured.
+
+    Default ("auto") omits the field entirely so non-reasoning models are not
+    sent an unsupported parameter. Only applies the configured effort to
+    reasoning-style model names (deepseek/free/r1).
+    """
+    if _REASONING_EFFORT not in ("low", "medium", "high"):
+        return
+    ml = (model or "").lower()
+    if "free" in ml or "deepseek" in ml or "r1" in ml:
+        payload["reasoning_effort"] = _REASONING_EFFORT
 
 
 @dataclass
@@ -269,6 +292,24 @@ class LLMProvider:
             headers=headers,
             timeout=config.timeout,
         )
+        # Concurrency control: created lazily on the running loop (see _sem).
+        self.__sem: asyncio.Semaphore | None = None
+
+    def _sem(self) -> asyncio.Semaphore:
+        """Per-provider concurrency limiter (lazy, bound to the running loop).
+
+        Gateways like api.aicompany.biz.id return empty/truncated responses
+        when many worker phases call them simultaneously. Capping concurrent
+        outbound chat requests prevents that overload cascade. Override with
+        AIC_LLM_MAX_CONCURRENT (default 3).
+        """
+        if self.__sem is None:
+            try:
+                limit = int(os.environ.get("AIC_LLM_MAX_CONCURRENT", "3"))
+            except (TypeError, ValueError):
+                limit = 3
+            self.__sem = asyncio.Semaphore(max(1, limit))
+        return self.__sem
 
     async def chat(
         self,
@@ -311,16 +352,22 @@ class LLMProvider:
             "temperature": temperature,
             **kwargs,
         }
-        # Suppress thinking output for reasoning models (FREE, DeepSeek-R1, etc.)
-        if "free" in model.lower() or "deepseek" in model.lower() or "r1" in model.lower():
-            payload["reasoning_effort"] = "low" 
+        # Reasoning effort: only sent when explicitly configured via
+        # AIC_LLM_REASONING_EFFORT (see _maybe_set_reasoning_effort). Default
+        # "auto" omits it so non-reasoning models (e.g. deepseek-v4-flash) are
+        # not sent an unsupported parameter.
+        _maybe_set_reasoning_effort(payload, model)
         if max_tokens:
             payload["max_tokens"] = max_tokens
 
         last_error = None
         for attempt in range(self.config.max_retries + 1):
             try:
-                resp = await self.client.post("/chat/completions", json=payload)
+                # Concurrency guard: cap simultaneous outbound chat requests so
+                # parallel worker phases don't overload the gateway (which then
+                # returns empty/truncated responses). See _sem().
+                async with self._sem():
+                    resp = await self.client.post("/chat/completions", json=payload)
                 resp.raise_for_status()
                 text = (resp.text or "").strip()
                 if not text:
@@ -491,11 +538,16 @@ class LLMProvider:
                                     chunk = json.loads(data_str)
                                 except json.JSONDecodeError:
                                     continue
-                                for ch in chunk.get("choices", []):
-                                    delta = ch.get("delta", {})
-                                    if delta.get("content"):
-                                        merged_content += delta["content"]
-                                    if delta.get("tool_calls"):
+                            for ch in chunk.get("choices", []):
+                                delta = ch.get("delta", {})
+                                if delta.get("content"):
+                                    merged_content += delta["content"]
+                                # DeepSeek R1-style models stream the answer in
+                                # reasoning_content while content stays empty —
+                                # capture it so the streaming fallback is not empty too.
+                                if delta.get("reasoning_content"):
+                                    merged_content += delta["reasoning_content"]
+                                if delta.get("tool_calls"):
                                         for tc in delta["tool_calls"]:
                                             idx = tc.get("index", 0)
                                             if idx not in merged_tool_calls:
@@ -528,10 +580,19 @@ class LLMProvider:
                     except Exception as e:
                         logger.warning(f"LLM streaming fallback failed for {model}: {e}")
                 if not content:
-                    logger.warning(
-                        f"LLM empty content. Model={model} URL={self.config.base_url} "
-                        f"Keys: {list(msg.keys())}"
-                    )
+                    # DeepSeek R1-style models return empty content when tool-calling;
+                    # this is valid behavior (all intent is in tool_calls), not an error.
+                    if msg.get("tool_calls"):
+                        logger.debug(
+                            f"DeepSeek tool-calling response from {model}: "
+                            f"empty content but {len(msg['tool_calls'])} tool_calls (valid)."
+                        )
+                    else:
+                        # Truly empty response with no tool_calls — log for debugging.
+                        logger.warning(
+                            f"LLM empty content. Model={model} URL={self.config.base_url} "
+                            f"Keys: {list(msg.keys())}"
+                        )
                 usage = data.get("usage", {})
 
                 # Track usage
@@ -1031,13 +1092,29 @@ provider_manager = ProviderManager()
 
 
 def init_provider_from_env() -> ProviderConfig | None:
-    """Initialize provider from environment variables."""
-    base_url = os.environ.get("AIC_LLM_BASE_URL", "")
-    api_key = os.environ.get("AIC_LLM_API_KEY", "")
-    thinker = os.environ.get("AIC_MODEL_THINKER", "")
-    crafter = os.environ.get("AIC_MODEL_CRAFTER", "")
-    sprinter = os.environ.get("AIC_MODEL_SPRINTER", "")
-    vision = os.environ.get("AIC_MODEL_VISION", "")
+    """Initialize provider from environment variables.
+
+    Reads each ``AIC_LLM_*`` / ``AIC_MODEL_*`` value from the process
+    environment first (set by the Electron main process at spawn time), then
+    falls back to ``backend.config.settings``. The fallback matters because
+    pydantic-settings loads the ``.env`` file into the ``Settings`` object but
+    does NOT inject those values into ``os.environ`` — so a dev/test run that
+    only has a ``.env`` file would otherwise be silently ignored here and the
+    provider would report "not configured". ``settings`` already applies the
+    correct precedence (real env vars win over ``.env``), so this preserves the
+    Electron-spawn behaviour while also honouring ``.env``.
+    """
+    from backend.config import settings as _settings
+
+    def _env(name: str, settings_val: str) -> str:
+        return os.environ.get(name, "") or (settings_val or "")
+
+    base_url = _env("AIC_LLM_BASE_URL", _settings.AIC_LLM_BASE_URL)
+    api_key = _env("AIC_LLM_API_KEY", _settings.AIC_LLM_API_KEY)
+    thinker = _env("AIC_MODEL_THINKER", _settings.AIC_MODEL_THINKER)
+    crafter = _env("AIC_MODEL_CRAFTER", _settings.AIC_MODEL_CRAFTER)
+    sprinter = _env("AIC_MODEL_SPRINTER", _settings.AIC_MODEL_SPRINTER)
+    vision = _env("AIC_MODEL_VISION", _settings.AIC_MODEL_VISION)
 
     if not base_url:
         return None
@@ -1060,7 +1137,7 @@ def init_provider_from_env() -> ProviderConfig | None:
         }
 
     return ProviderConfig(
-        name=os.environ.get("AIC_LLM_PROVIDER_NAME", "default"),
+        name=os.environ.get("AIC_LLM_PROVIDER_NAME", "") or _settings.AIC_LLM_PROVIDER_NAME or "default",
         base_url=base_url,
         api_key=api_key,
         models=models,
