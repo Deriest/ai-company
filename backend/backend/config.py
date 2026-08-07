@@ -164,15 +164,12 @@ class Settings(BaseSettings):
                 self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
         else:
             # No AIC_IDENTITY_FILE and no AIC_IDENTITY_* env vars (standalone/
-            # dev/tests). The default credentials are a known fallback — warn
-            # loudly so it is never silently carried into a production deployment.
-            self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
-            self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
-            logger.warning(
+            # dev/tests). The default credentials are a known fallback — fail
+            # startup completely to prevent insecure operation.
+            raise ValueError(
                 "AIC_IDENTITY_FILE is not set and no AIC_IDENTITY_USERNAME / "
-                "AIC_IDENTITY_PASSWORD env vars are present — using the default "
-                "admin credentials. Set AIC_IDENTITY_FILE (or run via the Electron "
-                "app) before production use."
+                "AIC_IDENTITY_PASSWORD env vars are present. Set AIC_IDENTITY_FILE "
+                "(or run via the Electron app) before starting the application."
             )
 
 

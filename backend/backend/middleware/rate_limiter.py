@@ -47,29 +47,41 @@ def _cleanup_all_entries():
 
 
 async def rate_limit_middleware(request: Request, call_next):
-    """Apply rate limiting per client IP."""
-    client_ip = request.client.host if request.client else "unknown"
+    """Apply rate limiting per authenticated user session."""
+    # Extract user identifier from auth token or fallback to IP
+    user_id = "unknown"
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        # In a real implementation, this would decode the JWT and extract user ID
+        # For desktop app, we'll use a simple hash of the token for rate limiting
+        import hashlib
+        user_id = hashlib.sha256(token.encode()).hexdigest()[:16]
+    else:
+        # Fallback to client IP for unauthenticated requests
+        client_ip = request.client.host if request.client else "unknown"
+        user_id = f"ip_{client_ip}"
 
     # Skip rate limiting for health checks
     if request.url.path == "/health":
         return await call_next(request)
 
-    # Periodically prune all IPs so stale entries never accumulate without bound.
+    # Periodically prune all user entries so stale entries never accumulate without bound.
     global _last_global_cleanup
     now = time.time()
     if now - _last_global_cleanup >= 10:
         _cleanup_all_entries()
         _last_global_cleanup = now
 
-    _cleanup_old_entries(client_ip)
+    _cleanup_old_entries(user_id)
 
-    if len(_request_counts[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
-        logger.warning(f"Rate limit exceeded for {client_ip}")
+    if len(_request_counts[user_id]) >= RATE_LIMIT_MAX_REQUESTS:
+        logger.warning(f"Rate limit exceeded for user {user_id}")
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Please wait."},
             headers={"Retry-After": str(RATE_LIMIT_WINDOW)},
         )
 
-    _request_counts[client_ip].append(time.time())
+    _request_counts[user_id].append(time.time())
     return await call_next(request)

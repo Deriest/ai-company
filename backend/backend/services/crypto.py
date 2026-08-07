@@ -17,9 +17,10 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 logger = logging.getLogger(__name__)
 
-# Legacy values for backward compatibility during migration
-_LEGACY_SECRET = "default_insecure_dev_secret"
-_LEGACY_SALT = b"aic-ade-salt-1234"
+# Migration support for legacy installations
+# These values are used only when migrating from older versions that stored keys in plaintext
+_LEGACY_SECRET = os.getenv("AIC_LEGACY_SECRET", "")
+_LEGACY_SALT = base64.b64decode(os.getenv("AIC_LEGACY_SALT_B64", "")) if os.getenv("AIC_LEGACY_SALT_B64") else b""
 
 _secrets_file: Path | None = None
 _fernet: Fernet | None = None

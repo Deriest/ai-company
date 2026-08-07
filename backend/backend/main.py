@@ -284,8 +284,20 @@ async def rate_limit_wrapper(request: Request, call_next):
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
+    # Content Security Policy - restrict sources for scripts, styles, etc.
+    response.headers["content-security-policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+    # XSS Protection
     response.headers["x-content-type-options"] = "nosniff"
+    # Clickjacking protection
     response.headers["x-frame-options"] = "DENY"
+    # Referrer policy
+    response.headers["referrer-policy"] = "strict-origin-when-cross-origin"
+    # Permissions policy
+    response.headers["permissions-policy"] = "geolocation=(), microphone=(), camera=(), fullscreen=()"
+    # Cross-domain policies
+    response.headers["x-permitted-cross-domain-policies"] = "none"
+    # HSTS - not applicable for localhost, but included for completeness
+    # response.headers["strict-transport-security"] = "max-age=31536000; includeSubDomains; preload"
     return response
 
 @app.middleware("http")

@@ -1,5 +1,6 @@
 """Local Profile API routes — replaces all auth routes."""
 
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.session import get_db
@@ -7,6 +8,23 @@ from backend.services.profile_service import (
     get_profile, create_profile, update_profile, complete_onboarding,
 )
 from backend.services.crypto import encrypt
+
+def _is_valid_github_token(token: str) -> bool:
+    """Validate GitHub token format."""
+    # GitHub personal access tokens start with 'ghp_' followed by 36+ characters
+    # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+    if not isinstance(token, str):
+        return False
+    # Check for ghp_ prefix
+    if not token.startswith("ghp_"):
+        return False
+    # Check length (minimum 36 chars after prefix, total >= 40)
+    if len(token) < 40:
+        return False
+    # Check for only alphanumeric characters and underscores
+    if not re.match(r'^ghp_[a-zA-Z0-9_]+$', token):
+        return False
+    return True
 
 router = APIRouter()
 
@@ -45,6 +63,9 @@ async def create_new_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     # GHP: persist the GitHub personal token encrypted during setup/onboarding.
     github_token = payload.get("github_token")
     if github_token and github_token != "***":
+        # Validate GitHub token format
+        if not _is_valid_github_token(github_token):
+            raise HTTPException(status_code=400, detail="Invalid GitHub token format. Expected format: ghp_ followed by 36+ characters.")
         profile.github_token = encrypt(github_token)
         await db.commit()
         await db.refresh(profile)

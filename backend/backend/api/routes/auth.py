@@ -58,11 +58,13 @@ async def login(body: LoginRequest):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
         )
     logger.info("Login success: username=%s", body.username)
     token = create_access_token({"sub": body.username})
-    return LoginResponse(access_token=token, username=body.username)
+    response = LoginResponse(access_token=token, username=body.username)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/me")
@@ -72,13 +74,14 @@ async def me(token: str = Depends(oauth2_scheme)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing token",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
         )
     payload = decode_access_token(token)
     if payload is None or not payload.get("sub"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
         )
-    return {"username": payload["sub"]}
+    response = {"username": payload["sub"]}
+    return response

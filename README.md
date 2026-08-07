@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.71** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.72** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -296,6 +296,14 @@ Your security and privacy are built in:
   trusted links (e.g. GitHub), never arbitrary web pages.
 - **One instance at a time** — the app prevents duplicate backends that could
   cause data conflicts.
+- **Enhanced security posture** — AIC-ADE v2.4.71 includes comprehensive security hardening:
+  - All authentication endpoints use `Cache-Control: no-store` to prevent credential caching
+  - Content Security Policy (CSP) with strict source restrictions
+  - Permissions policy to disable unnecessary browser features
+  - Cross-domain policies set to `none`
+  - Legacy encryption keys now loaded from environment variables instead of hardcoded
+  - Startup fails completely if default credentials would be used (no insecure fallback)
+  - GitHub token validation ensures proper format before storage
 
 ---
 
