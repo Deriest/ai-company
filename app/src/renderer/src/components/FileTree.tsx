@@ -37,7 +37,7 @@ function TreeNode({ node, depth, onSelect }: { node: DirTreeNode; depth: number;
   )
 }
 
-export function FileTree({ rootPath, onFileSelect }: { rootPath: string; onFileSelect: (path: string) => void }) {
+export function FileTree({ rootPath, onFileSelect, rootLabel }: { rootPath: string; onFileSelect: (path: string) => void; rootLabel?: string }) {
   const [tree, setTree] = useState<DirTreeNode[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -60,9 +60,33 @@ export function FileTree({ rootPath, onFileSelect }: { rootPath: string; onFileS
   if (loading) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Loading…</div>
   if (!tree.length) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Empty project</div>
 
+  // Workspace → Project Folder → Files. The root label (project folder name) falls
+  // back to the last path segment of the workspace root.
+  const workspaceName =
+    rootLabel ||
+    rootPath.split('/').pop() ||
+    rootPath.split('\\').pop() ||
+    rootPath
+
   return (
     <div className="overflow-y-auto scroll-thin py-1">
-      {tree.map(node => <TreeNode key={node.path} node={node} depth={0} onSelect={onFileSelect} />)}
+      {/* Workspace root */}
+      <div className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold text-foreground">
+        <Folder className="size-3 shrink-0 text-primary" />
+        <span className="truncate">Workspace</span>
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
+      </div>
+      {/* Project folder (child of Workspace) */}
+      <div className="ml-2 border-l border-border/60 pl-1">
+        <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium text-foreground/90">
+          <Folder className="size-3 shrink-0 text-primary/80" />
+          <span className="truncate">{workspaceName}</span>
+        </div>
+        {/* Files (leaves) */}
+        <div className="ml-2 border-l border-border/60 pl-1">
+          {tree.map(node => <TreeNode key={node.path} node={node} depth={0} onSelect={onFileSelect} />)}
+        </div>
+      </div>
     </div>
   )
 }

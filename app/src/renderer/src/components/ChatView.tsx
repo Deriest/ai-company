@@ -21,6 +21,7 @@ import { providersApi, type ProviderRecord } from '../lib/api/providers'
 import { providerManageApi } from '../lib/api/provider_manage'
 import { type ProjectRecord } from '../lib/api/projects'
 import { ProjectPicker } from './ProjectPicker'
+import { FileTree } from './FileTree'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
 import { WorkflowSelector, WorkflowStepper, WorkflowModeBanner } from './WorkflowSelector'
@@ -760,6 +761,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   // (`workspace` = repo_path, `project_id` = id) so the dispatcher creates
   // project folders in the user's chosen location instead of the app data dir.
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
+  // Project file panel — shows the active project's file tree in the Command
+  // Center main area so a selected project's contents are visible immediately.
+  const [filePanelOpen, setFilePanelOpen] = useState(true)
   // ── Workflow selection ────────────────────────────────────
   // The next message is tagged with the selected workflow type (if any). When
   // unset the backend auto-triages the task type. Selection persists in state
@@ -1535,16 +1539,44 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
               {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{visibleMessages.length} msgs</span>}
               {(activeProject || projectRoot) && (
-                <span
-                  className="hidden lg:inline-flex max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
-                  title={activeProject?.repo_path || projectRoot || undefined}
-                >
-                  <GitBranch className="size-2.5 shrink-0 text-primary/70" />
-                  <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
-                </span>
+                <>
+                  <span
+                    className="hidden lg:inline-flex max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
+                    title={activeProject?.repo_path || projectRoot || undefined}
+                  >
+                    <GitBranch className="size-2.5 shrink-0 text-primary/70" />
+                    <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
+                  </span>
+                  <button
+                    onClick={() => setFilePanelOpen(o => !o)}
+                    className="inline-flex items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    title={filePanelOpen ? 'Hide project files' : 'Show project files'}
+                  >
+                    <FolderOpen className="size-2.5 shrink-0 text-primary/70" />
+                    files
+                  </button>
+                </>
               )}
             </div>
           </div>
+
+          {/* Project files panel — shows the selected project's file tree right
+              in the Command Center main area. */}
+          {filePanelOpen && (activeProject || projectRoot) && (
+            <div className="shrink-0 border-b border-border bg-card/40">
+              <div className="max-h-40 overflow-y-auto scroll-thin px-4 py-2">
+                <div className="flex items-center gap-2 text-[10px] font-semibold text-muted-foreground mb-1.5">
+                  <FolderOpen className="size-3 text-primary/70" />
+                  <span className="truncate">{activeProject?.name || projectName || 'Project'} files</span>
+                </div>
+                <FileTree
+                  rootPath={activeProject?.repo_path || projectRoot || ''}
+                  rootLabel={activeProject?.name || projectName || undefined}
+                  onFileSelect={(path) => void window.aic?.openPath?.(path)?.catch(() => {})}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Messages */}
           <div
