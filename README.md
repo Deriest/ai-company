@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.68** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.71** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,19 +13,17 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2465)
+- [Download](#download-v2471)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
   - [LLM Providers](#llm-providers)
   - [Model Tiers](#model-tiers)
   - [Vision](#vision)
+  - [Workspace folders](#workspace-folders)
 - [Plugins & Skills](#plugins--skills)
-- [Architecture](#architecture)
-- [Development](#development)
-- [Testing](#testing)
-- [Build & Release](#build--release)
 - [Security](#security)
+- [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -51,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.68
+## Download v2.4.71
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.68.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-Setup-2.4.68.exe) |
-| Linux AppImage | [AIC-ADE-2.4.68-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-2.4.68-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.68-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.68/AIC-ADE-2.4.68-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.71.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-Setup-2.4.71.exe) |
+| Linux AppImage | [AIC-ADE-2.4.71-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-2.4.71-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.71-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-2.4.71-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.68)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.71)
 
 ### Checksums
 
@@ -127,30 +125,14 @@ Product, Engineering, and Platform departments.
 
 ### From the release build
 
-1. Download the installer for your platform (see [Download](#download-v2465)).
+1. Download the installer for your platform (see [Download](#download-v2471)).
 2. Install and launch.
 3. Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
    endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.).
 4. Start chatting, or create a task and watch the office floor work.
 
-### From source
-
-```bash
-# 1. Backend
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# set your provider (see Configuration)
-python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-
-# 2. Frontend (separate terminal)
-cd app
-npm install
-npm run dev
-```
-
-The backend listens on `127.0.0.1:8000` (or a free port in 8000–8099); the
-renderer discovers the real port automatically.
+> **Tip:** For developers who want to run from source, see
+> [`docs/product-discovery/02-repository-structure.md`](./docs/product-discovery/02-repository-structure.md).
 
 ---
 
@@ -183,6 +165,23 @@ silently failing.
 Attach an image and the request is routed to the **Vision** tier. If the
 selected model cannot accept images, AIC-ADE rejects the request with a clear
 message — it never silently re-routes to a text-only tier.
+
+### Workspace folders
+
+AIC-ADE always works in a specific folder on your computer. When you create a
+task, the AI relies on remembering the folder it used last time, the project
+you've selected, or simply asks you which folder to use:
+
+1. **Project folder** — if you've already chosen a project for the conversation,
+   that project's folder is used.
+2. **Last used folder** — if no project is pinned, AIC-ADE uses the last folder
+   you worked in (a "remember last used" convenience).
+3. **Ask you** — if neither applies, AIC-ADE asks which folder to use before it
+   starts writing any files.
+
+The folder that will be used is always shown in the chat before the agent starts
+working, so you can confirm it's the right one. To change it, just tell AIC-ADE
+the new folder path. This prevents files from being written to the wrong place.
 
 ---
 
@@ -219,143 +218,92 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## Architecture
+## What's New in v2.4.71
 
-```text
-AI-Company/
-├── app/                      # Electron + React 19 desktop client
-│   ├── src/main/             # Electron main process, updater, security
-│   ├── src/renderer/         # React UI and Command Center
-│   ├── src/preload/          # IPC bridge (window.aic)
-│   ├── src/shared/           # Shared types/logic (update manifest, version)
-│   └── packaging/            # Bundled Python runtimes
-├── backend/                  # FastAPI backend + SQLite
-│   ├── backend/              # API routes, services, models
-│   │   ├── api/routes/       # chat, providers, plugins, skills, mcp, rag, ...
-│   │   ├── services/         # agent_runner, chat_service, tool_executor, ...
-│   │   ├── middleware/       # validation, logging, metrics, rate limit
-│   │   └── migrations/       # schema migrations (idempotent, verified)
-│   ├── agents/               # Worker definitions
-│   ├── workers/              # Worker implementations (tools, base)
-│   ├── llm/                  # Provider abstraction, model tiers, catalog
-│   ├── conversation/         # LLM chat engine
-│   ├── workflow/             # FSM: 8 phases + approval gates
-│   ├── storage/              # Conversation & message persistence
-│   └── tests/                # 785+ pytest tests (isolated DB via conftest)
-├── docs/                     # Source of Truth (docs/sot) + archive
-├── scripts/                  # release.sh, download_server.py
-├── CHANGELOG.md              # Full release history
-├── latest.json               # Auto-update manifest
-└── SHA256SUMS                # Artifact checksums
-```
+- **Smarter workspace folders** — AIC-ADE remembers the folder you last worked
+  in. If you start a new task without choosing a folder, it uses the last one
+  automatically and shows you where it will write files before starting.
+- **More reliable task pipeline** — workers are given more time to finish
+  multi-step work, and retries are smarter, so long-running tasks complete
+  more reliably.
+- **Better final answers** — AI workers now stop exploring and write a clear,
+  complete answer when they've gathered enough information, instead of running
+  out of steps.
+- **Fairer quality checks** — verification no longer fails a task just because
+  a documentation file is missing; it checks the actual code and tests.
+- **Model settings you control** — reasoning depth is now configurable instead
+  of locked to one value, giving you a choice between speed and thoroughness.
 
-### Backend → renderer flow
+## Tips & Best Practices
 
-```
-React renderer ──IPC──▶ Electron main ──spawn──▶ FastAPI backend (127.0.0.1)
-      ▲                                                  │
-      └────────────── SSE (chat/stream) ◀────────────────┘
-```
+- **Be specific** — the more detail you give about what you want and where it
+  should go, the better the result.
+- **Confirm the folder** — before a task starts, AIC-ADE shows the folder it
+  will work in. Make sure it's the right one; you can change it by telling the
+  assistant the new path.
+- **Attach files** — drag and drop images or files to give the AI context; images
+  are analyzed by your Vision model.
+- **Use projects** — organize related work into projects to keep tasks and
+  history together.
 
----
+## Troubleshooting
 
-## Development
+### "No provider configured"
+Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
+endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.) before chatting.
 
-### Prerequisites
+### Slow responses
+- Check your internet connection.
+- Verify provider status in **Settings → Providers**.
+- Try a different provider or model, or set a lower reasoning level.
 
-- Node.js 20+
-- Python 3.12+
-- Wine (only for Windows cross-builds on Linux)
-- `GH_TOKEN` (only for releases)
+### The app writes files to the wrong folder
+AIC-ADE always shows the folder it will use before starting. If it's wrong, tell
+the assistant the correct folder path, or select the right project first.
 
-### Run locally
+### Application won't start
+- Ensure no other instance is running.
+- Check system requirements (see below).
+- Review logs in the application data directory.
 
-```bash
-cd app
-npm install
-npm run dev
-```
+### Where is my data stored?
+Everything is stored locally on your machine in the application data directory.
+Your files, chat history, and provider keys never leave your computer.
 
-### Project layout conventions
+## System Requirements
 
-- New API routes → `backend/backend/api/routes/`
-- New services → `backend/backend/services/`
-- New models → `backend/backend/models/` (SQLAlchemy) / `backend/storage/`
-- New renderer views → `app/src/renderer/src/components/`
-- New tests → `backend/tests/` (backend) / `app/src/renderer/src/lib/*.test.ts` (frontend)
-
----
-
-## Testing
-
-```bash
-# Backend — full suite (isolated temp DB, no interference with live data)
-cd backend
-.venv/bin/python -m pytest tests/ -q       # 785 passed, 0 failed
-
-# Frontend — unit tests + type check + lint
-cd app
-npx vitest run                              # 98 passed
-npx tsc -b                                 # exit 0
-npx oxlint src                             # 0 warnings
-```
-
-Coverage highlights: plugin engine (install/update/escape/isolate), tool
-executor (path traversal, default-deny permissions), MCP client (stdio/HTTP,
-JSON-RPC), agent runner (tool loop, stuck-loop detection, feedback), SSE parser
-(chat.ts), context builder, taste checker, and regression suites.
-
----
-
-## Build & Release
-
-`scripts/release.sh` automates the whole pipeline:
-
-1. Bump the version in `package.json` + `package-lock.json`.
-2. Build Linux (AppImage + deb) and Windows (NSIS x64).
-3. Create the GitHub Release and upload all three artifacts.
-4. Update `latest.json` + `SHA256SUMS` (root and `app/release/`).
-5. Commit and push.
-
-```bash
-export GH_TOKEN=ghp_your_token
-./scripts/release.sh 2.4.68
-```
-
-Installed apps auto-detect the new release via `latest.json` and prompt to
-download + install.
+- **OS**: Windows 10+, macOS 10.15+, Ubuntu 20.04+
+- **RAM**: 4GB minimum, 8GB recommended
+- **Disk**: 500MB free space
+- **Network**: Internet for AI provider access
 
 ---
 
 ## Security
 
-- **Loopback-only backend** — binds to `127.0.0.1`; non-loopback traffic is
-  rejected by middleware.
-- **Per-install credential** — random secret generated at first launch, stored
-  `0600`, used by `/auth/login` + `/auth/me`.
-- **Path traversal protection** — every file tool resolves paths against the
-  workspace root (`commonpath` + separator-boundary checks).
-- **Path boundary checks** — plugin/skill installs use `relative_to`; sibling
-  prefix bypasses are rejected.
-- **SSRF guard** — `web_fetch` blocks private/loopback/link-local targets and
-  re-validates redirects.
-- **Tool allowlist** — `/tools/execute` accepts only known tool names.
-- **Default-deny permissions** — unknown worker types get a minimal read-only
-  tool set; plugin tools are auto-granted only to assigned workers.
-- **Navigation allowlist** — the Electron window only navigates to the app's
-  own `dist` bundle; `file://` and external navigation are blocked.
-- **CSP** — strict `default-src 'self'`; `connect-src` limited to `127.0.0.1:*`.
-- **Encrypted API keys at rest** — provider keys are encrypted before storage.
-- **Single-instance lock** — prevents duplicate backends/DB lock contention.
+Your security and privacy are built in:
+
+- **Runs only on your computer** — the app binds to `127.0.0.1` (localhost) and
+  does not expose itself to your network.
+- **Local storage** — chat history, projects, and settings live only on your
+  machine. Provider API keys are encrypted before being stored.
+- **No background data collection** — the app only talks to services you
+  configure (your AI provider, and GitHub when you install a skill/plugin or
+  check for updates).
+- **Safe file handling** — the AI can only read and write files inside the
+  folder you've chosen; it cannot escape that folder.
+- **Clear navigation** — the app only opens its own interface and a few
+  trusted links (e.g. GitHub), never arbitrary web pages.
+- **One instance at a time** — the app prevents duplicate backends that could
+  cause data conflicts.
 
 ---
 
 ## Documentation
 
-- [`docs/sot/`](./docs/sot/) — product and engineering Source of Truth (constitution, architecture, specs)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.71)
+- [`docs/sot/`](./docs/sot/) — product and engineering source of truth
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
-- [`docs/archive/`](./docs/archive/) — historical QA notes and archived material
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (v2.4.6 → v2.4.68)
 
 ---
 

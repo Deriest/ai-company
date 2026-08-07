@@ -29,6 +29,19 @@ Once a provider is configured, you can start chatting:
 3. Press Enter or click Send
 4. The AI will respond with assistance
 
+### 4. Choose Where Your Work Goes
+
+AIC-ADE writes files into a folder on your computer. Before a task starts, it
+picks a folder this way:
+
+- If you've selected a **project** for the conversation, that project's folder
+  is used.
+- If not, it uses the **last folder you worked in**.
+- If neither applies, it **asks you** which folder to use.
+
+The folder being used is always shown in the chat before work starts, so you can
+confirm it's correct. To change it, just tell the assistant the new path.
+
 ## Core Features
 
 ### Chat
