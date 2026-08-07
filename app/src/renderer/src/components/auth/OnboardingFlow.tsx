@@ -56,8 +56,8 @@ export function OnboardingFlow({ onComplete }: Props) {
 
   if (step === "name") {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="w-full max-w-md space-y-8 p-8">
+      <div className="flex min-h-screen justify-center bg-background">
+        <div className="my-auto w-full max-w-md space-y-8 p-8">
           <div className="text-center">
             <div className="text-4xl mb-2">⚡</div>
             <h1 className="text-2xl font-bold text-foreground">Welcome to AIC-ADE</h1>
@@ -94,8 +94,8 @@ export function OnboardingFlow({ onComplete }: Props) {
 
   // Provider setup step
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-2xl p-8">
+    <div className="flex min-h-screen justify-center bg-background">
+      <div className="my-auto w-full max-w-2xl p-8">
         <div className="text-center mb-6">
           <h2 className="text-xl font-bold text-foreground">Welcome, {displayName}!</h2>
           <p className="text-sm text-muted-foreground mt-1">Configure an AI provider to get started</p>

@@ -788,7 +788,7 @@ export function SettingsView({
   }
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <PageHeader title="Settings" subtitle="Configure your AIC ADE workspace." />
       <div className="p-6">
         <div className="mb-6 flex flex-wrap gap-1 border-b border-border">

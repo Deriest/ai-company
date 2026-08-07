@@ -44,8 +44,8 @@ export function OnboardingFlowWorkflows({ displayName, onComplete }: Props) {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-2xl p-8">
+    <div className="flex min-h-screen justify-center bg-background">
+      <div className="my-auto w-full max-w-2xl p-8">
         <div className="mb-6 text-center">
           <h2 className="text-xl font-bold text-foreground">How do you want to work, {displayName}?</h2>
           <p className="mt-1 text-sm text-muted-foreground">

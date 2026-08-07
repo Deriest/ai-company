@@ -5,7 +5,7 @@ The Electron main process generates a per-install random credential
 AIC_IDENTITY_FILE. The desktop app auto-authenticates silently — these
 endpoints only ever serve the local sidecar on 127.0.0.1.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 import logging
@@ -35,7 +35,7 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, response: Response):
     """Authenticate against the per-install desktop identity."""
     # Timing-safe comparison: plaintext `!=` leaks the correct length/prefix via
     # short-circuit timing. compare_digest runs in constant time regardless of
@@ -62,9 +62,8 @@ async def login(body: LoginRequest):
         )
     logger.info("Login success: username=%s", body.username)
     token = create_access_token({"sub": body.username})
-    response = LoginResponse(access_token=token, username=body.username)
     response.headers["Cache-Control"] = "no-store"
-    return response
+    return LoginResponse(access_token=token, username=body.username)
 
 
 @router.get("/me")
