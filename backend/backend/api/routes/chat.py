@@ -577,6 +577,20 @@ async def chat_execute_endpoint(
         workspace, workspace_resolved = await resolve_conversation_workspace(
             session, payload.workspace, payload.conversation_id
         )
+        # HYBRID (Option C): remember the last resolved workspace folder on the
+        # local profile, so a later task_confirm with no pinned folder auto-
+        # resolves to it (surfaced below for confirmation) instead of asking.
+        if workspace_resolved and workspace and workspace != "sandbox":
+            try:
+                from backend.models.local_profile import LocalProfile
+                prof = (await session.execute(
+                    select(LocalProfile).limit(1)
+                )).scalar_one_or_none()
+                if prof is not None:
+                    prof.last_used_repo_path = workspace
+                    await session.commit()
+            except Exception as e:
+                logger.debug(f"Persist last_used_repo_path skipped: {e}")
 
     async def event_generator():
         # The workspace may be re-pinned by the auto-continuation when the user
@@ -924,6 +938,13 @@ async def chat_execute_endpoint(
 
                 runner = AgentRunner(workspace_root=workspace)
                 final_content = ""
+
+                # HYBRID (Option C): always surface which folder the agent will
+                # work in, so the user can confirm/correct before files are
+                # written — even when the folder was auto-resolved from the
+                # conversation project or the remembered last_used_repo_path.
+                if workspace_resolved and workspace:
+                    yield f"data: {json.dumps({'type': 'workspace', 'path': workspace, 'resolved': True})}\n\n"
 
                 # QA-R5 FIX: cap concurrent agent runs. Every run holds a DB
                 # session, an open LLM stream, and possibly subprocesses, so

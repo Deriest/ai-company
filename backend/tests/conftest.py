@@ -22,6 +22,14 @@ os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
 # and backend/main.py. MUST be set here, before backend.config is imported,
 # so the modules observe it consistently.
 os.environ["AIC_TESTING"] = "1"
+# Force the LLM provider OFF in the test suite. init_provider_from_env() reads
+# from backend.config.settings (which loads the repo .env), so without this a
+# test creating a task would call the REAL gateway and hang. Pydantic-settings
+# gives OS env precedence over .env, so empty values here disable the provider
+# while keeping the .env fix intact for production runs.
+os.environ["AIC_LLM_BASE_URL"] = ""
+os.environ["AIC_LLM_API_KEY"] = ""
+os.environ["AIC_LLM_PROVIDER_NAME"] = ""
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession

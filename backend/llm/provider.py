@@ -305,9 +305,9 @@ class LLMProvider:
         """
         if self.__sem is None:
             try:
-                limit = int(os.environ.get("AIC_LLM_MAX_CONCURRENT", "3"))
+                limit = int(os.environ.get("AIC_LLM_MAX_CONCURRENT", "4"))
             except (TypeError, ValueError):
-                limit = 3
+                limit = 4
             self.__sem = asyncio.Semaphore(max(1, limit))
         return self.__sem
 
@@ -681,8 +681,9 @@ class LLMProvider:
             "stream": True,
             **kwargs,
         }
-        if "free" in model.lower() or "deepseek" in model.lower() or "r1" in model.lower():
-            payload["reasoning_effort"] = "low"
+        # Reasoning effort: only sent when explicitly configured via AIC_LLM_REASONING_EFFORT.
+        # Default ("auto") omits it so non-reasoning models are not sent an unsupported param.
+        _maybe_set_reasoning_effort(payload, model)
         if max_tokens:
             payload["max_tokens"] = max_tokens
 

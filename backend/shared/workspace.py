@@ -79,5 +79,20 @@ async def resolve_conversation_workspace(db, payload_workspace: str | None, conv
     except Exception as e:
         logger.debug(f"Active profile workspace resolution skipped: {e}")
 
+    # 3b. HYBRID (Option C): last_used_repo_path — remember the last folder the
+    # user worked in, so a later task_confirm with no pinned folder auto-resolves
+    # to it (and is surfaced in chat for confirmation) instead of asking again.
+    # Only used when the folder still exists on disk.
+    try:
+        from backend.models.local_profile import LocalProfile as _LP
+        prof2 = (await db.execute(select(_LP).limit(1))).scalar_one_or_none()
+        if prof2 is not None and prof2.last_used_repo_path:
+            from pathlib import Path as _Path
+            p = _Path(prof2.last_used_repo_path)
+            if p.is_dir():
+                return str(p), True
+    except Exception as e:
+        logger.debug(f"Last-used workspace resolution skipped: {e}")
+
     # 4. per-conversation sandbox (never process cwd)
     return sandbox_workspace_dir(conversation_id), False

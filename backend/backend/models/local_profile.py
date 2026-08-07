@@ -25,6 +25,10 @@ class LocalProfile(Base):
     app_version = Column(String, nullable=True)
     onboarding_completed = Column(Boolean, default=False)
     active_project_id = Column(String, nullable=True)
+    # Hybrid workspace resolution (Option C): remembers the last folder a user
+    # worked in, so a later task_confirm with no pinned folder auto-resolves to
+    # it (and is surfaced in chat for confirmation) instead of asking again.
+    last_used_repo_path = Column(String, nullable=True)
     approval_config = Column(JSON, nullable=True)
     # GitHub personal token (GHP) — stored ENCRYPTED via backend.services.crypto
     # (Fernet, per-install key). The API only ever returns "***" when set.

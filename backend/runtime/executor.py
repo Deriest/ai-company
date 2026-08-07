@@ -102,6 +102,24 @@ async def _emit_event(session: AsyncSession, task_id: str, event_type: str, acto
     return event
 
 
+
+def _adaptive_worker_timeout(worker_type: str, base_timeout: int = 120) -> int:
+    """Adaptive timeout for tool-calling workers based on tier.
+    
+    Tool-calling workers run multi-round loops (each round = queue wait + LLM call + tool exec).
+    A flat per-call budget is exhausted under parallel queueing, so scale by tier.
+    """
+    try:
+        from agents.context_assembly import get_model_config
+        _wcfg = get_model_config(worker_type)
+        _base = int(_wcfg.get("timeout") or base_timeout)
+        _tier = str(_wcfg.get("tier") or "crafter").lower()
+        _mult = {"thinker": 2.5, "crafter": 2.5, "sprinter": 1.5}.get(_tier, 2.0)
+        return max(_base, int(_base * _mult))
+    except Exception:
+        return base_timeout
+
+
 async def execute_task(session: AsyncSession, task: Task) -> dict:
     """Execute a task through FSM phases adaptively according to Smart Triage execution level."""
     from workflow.fsm import (
@@ -306,7 +324,15 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 worker_timeout = 120
                 try:
                     from agents.context_assembly import get_model_config
-                    worker_timeout = int(get_model_config(wtype).get("timeout") or 120)
+                    _wcfg = get_model_config(wtype)
+                    _base = int(_wcfg.get("timeout") or 120)
+                    # Tool-calling workers run multi-round loops (each round = queue
+                    # wait + LLM call + tool exec). A flat per-call budget is exhausted
+                    # under parallel queueing, so scale the worker budget by tier so a
+                    # worker's full tool loop is not killed prematurely.
+                    _tier = str(_wcfg.get("tier") or "crafter").lower()
+                    _mult = {"thinker": 2.5, "crafter": 2.5, "sprinter": 1.5}.get(_tier, 2.0)
+                    worker_timeout = max(_base, int(_base * _mult))
                 except Exception:
                     pass
 
@@ -488,6 +514,14 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                                         f"{decision.feedback_prompt}"
                                     ),
                                 }
+                                # Exponential backoff: avoid hammering the gateway with
+                                # immediate retries (which cascade under parallel load).
+                                # Skip in test mode (AIC_TESTING=1) — tests run with the
+                                # LLM provider off and never hit a real gateway, so the
+                                # 5/10/20s sleeps would make every worker recovery ~150s.
+                                if os.environ.get("AIC_TESTING", "") != "1":
+                                    _backoff = 5 * (2 ** (attempt - 1))  # 5s, 10s, 20s, ...
+                                    await asyncio.sleep(_backoff)
                                 result2 = await worker_instance.run_with_timeout(task_ctx, timeout=worker_timeout)
                                 if result2.success:
                                     result = result2
@@ -697,7 +731,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "execution_level": execution_level,
                         "model_tier": ctx.get("model_tier"),
                     }
-                    r_res = await r_worker.run_with_timeout(repair_task_ctx, timeout=120)
+                    r_res = await r_worker.run_with_timeout(repair_task_ctx, timeout=_adaptive_worker_timeout(r_worker.worker_type))
                     if r_res.output and not getattr(r_res, "used_fallback", False):
                         await asyncio.to_thread(
                             extract_code_blocks_to_workspace, task.id, r_res.output,
@@ -719,7 +753,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "execution_level": execution_level,
                         "model_tier": ctx.get("model_tier"),
                     }
-                    qa_res = await qa_worker.run_with_timeout(qa_task_ctx, timeout=120)
+                    qa_res = await qa_worker.run_with_timeout(qa_task_ctx, timeout=_adaptive_worker_timeout(qa_worker.worker_type))
                     if qa_res.success:
                         verification_failed = False
                         logger.info(f"Task {task.id[:8]} LOCAL REPAIR SUCCEEDED on attempt {repair_attempts}")

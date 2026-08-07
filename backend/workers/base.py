@@ -339,6 +339,21 @@ async def _llm_with_tools(worker, user_prompt, tier, temperature, purpose, fallb
                     "tool_call_id": tc.get("id", ""),
                     "content": result_content[:4000],
                 })
+
+                # Finalization nudge: when approaching the round budget, tell the model
+                # to STOP calling tools and produce its final answer now. Without this,
+                # a tool-calling worker (e.g. flint) can burn all max_rounds issuing
+                # tool_calls and end up returning a static fallback template (a real
+                # reliability bug that failed the whole pipeline in the planning phase).
+                if round_num >= max_rounds - 2:
+                    messages.append({
+                        "role": "assistant",
+                        "content": (
+                            "You have very few tool calls left. STOP calling tools now. "
+                            "Based ONLY on the information you have gathered so far, write "
+                            "your complete final answer using plain text (no tool calls)."
+                        ),
+                    })
             continue  # Next round
 
         # No tool_calls — final text response
@@ -814,14 +829,17 @@ class TestingWorker(BaseWorker):
             if os.path.exists(os.path.join(workspace, "REQUIREMENTS.md")):
                 output_lines.append("\n## Requirements Check\n- REQUIREMENTS.md: PRESENT")
             else:
-                output_lines.append("\n## Requirements Check\n- REQUIREMENTS.md: MISSING")
-                tests_passed = False
+                # Soft note, not a hard fail: the pipeline writes docs under
+                # <task_id>/docs/ (PRD/QA_REPORT), not workspace-root REQUIREMENTS.md.
+                # Failing verification solely for a missing doc file would mark every
+                # correctly-implemented feature as failed. Code + tests are the gate.
+                output_lines.append("\n## Requirements Check\n- REQUIREMENTS.md: MISSING (warning — not a failure)")
 
             # Check if README.md exists
             if os.path.exists(os.path.join(workspace, "README.md")):
                 output_lines.append("- README.md: PRESENT")
             else:
-                output_lines.append("- README.md: MISSING")
+                output_lines.append("- README.md: MISSING (warning)")
 
             # Try to verify Python code if present
             py_files = [f for f in deliverables if f.endswith('.py')]

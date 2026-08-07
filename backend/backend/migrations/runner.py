@@ -255,6 +255,13 @@ MIGRATIONS = [
         "up": "ALTER TABLE local_profile ADD COLUMN github_token VARCHAR",
         "down": "SELECT 1",
     },
+    {
+        "version": "020",
+        "name": "add_last_used_repo_path_to_local_profile",
+        "description": "Add last_used_repo_path column to local_profile (Hybrid Option C: remember last worked folder so a later task_confirm with no pinned folder auto-resolves to it)",
+        "up": "ALTER TABLE local_profile ADD COLUMN last_used_repo_path VARCHAR",
+        "down": "SELECT 1",
+    },
 ]
 
 
