@@ -214,11 +214,12 @@ Respond ONLY as a JSON array:
             raise RuntimeError("No LLM provider")
 
         gaps = []
-        if readiness.missing_fields:
-            gaps.append(f"Missing information about: {', '.join(readiness.missing_fields[:5])}")
-        for dim in readiness.dimension_details:
-            if dim.score < 0.6:
-                gaps.append(f"Weak area: {dim.name} (score {dim.score:.0%})")
+        if readiness is not None:
+            if readiness.missing_fields:
+                gaps.append(f"Missing information about: {', '.join(readiness.missing_fields[:5])}")
+            for dim in readiness.dimension_details:
+                if dim.score < 0.6:
+                    gaps.append(f"Weak area: {dim.name} (score {dim.score:.0%})")
         gaps_section = "\n".join(gaps) if gaps else "No specific gaps identified yet."
 
         history_section = ""
@@ -262,31 +263,36 @@ Respond ONLY as a JSON array:
         """Parse LLM JSON response into ClarificationQuestion objects."""
         import json
         import re
+        
+        try:
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
 
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
+            match = re.search(r"\[[\s\S]*\]", raw)
+            if not match:
+                return []  # No JSON array found
 
-        match = re.search(r"\[[\s\S]*\]", raw)
-        if not match:
-            raise ValueError(f"No JSON array in LLM response: {raw[:100]}")
+            items = json.loads(match.group())
+            if not isinstance(items, list):
+                return []  # Not a list
 
-        items = json.loads(match.group())
-        if not isinstance(items, list):
-            raise ValueError("LLM response is not an array")
-
-        questions = []
-        for item in items[:7]:
-            q_text = (item.get("question", "") or "").strip()
-            if not q_text or len(q_text) < 10:
-                continue
-            questions.append(ClarificationQuestion(
-                id=item.get("id", f"Q{len(questions) + 1}"),
-                category=item.get("category", "scope"),
-                question=q_text,
-                priority=item.get("priority", "medium"),
-                relates_to="llm_generated",
-            ))
+            questions = []
+            for item in items[:7]:
+                q_text = (item.get("question", "") or "").strip()
+                if not q_text or len(q_text) < 10:
+                    continue
+                questions.append(ClarificationQuestion(
+                    id=item.get("id", f"Q{len(questions) + 1}"),
+                    category=item.get("category", "scope"),
+                    question=q_text,
+                    priority=item.get("priority", "medium"),
+                    relates_to="llm_generated",
+                ))
+            
+            return questions
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return []  # Invalid JSON - fallback will use static questions
 
         if not questions:
             raise ValueError("No valid questions parsed from LLM response")
