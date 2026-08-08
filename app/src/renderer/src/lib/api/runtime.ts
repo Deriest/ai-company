@@ -66,6 +66,9 @@ function mapRuntime(r: any): WorkerRuntimeConfig {
 
 export const runtimeApi = {
   async list(): Promise<WorkerRuntimeConfig[]> {
+    // NOTE: /runtime/workers returns full runtime CONFIG (providerId, modelId,
+    // systemPrompt, metrics) needed by Settings. /runtime/workforce returns
+    // office-floor live status only — different contract, used by WorkspaceView.
     const data = await apiClient.get<any[]>("/runtime/workers");
     return data.map(mapRuntime);
   },

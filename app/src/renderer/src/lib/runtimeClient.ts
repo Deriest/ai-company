@@ -77,7 +77,7 @@ export const api = {
   sendMessage: (convId: string, content: string) =>
     request<unknown>("POST", `/conversations/${convId}/messages`, { content }),
 
-  workers: () => request<unknown[]>("GET", "/runtime/workers"),
+  workers: () => request<unknown[]>("GET", "/runtime/workforce"),
   projects: () => request<unknown[]>("GET", "/projects"),
   tasks: (params?: { limit?: number }) => {
     const qs = params?.limit ? `?limit=${params.limit}` : "";

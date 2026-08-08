@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.80** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.81** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2480)
+- [Download](#download-v2481)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.80
+## Download v2.4.81
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.80.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-Setup-2.4.80.exe) |
-| Linux AppImage | [AIC-ADE-2.4.80-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.80-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.81.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-Setup-2.4.81.exe) |
+| Linux AppImage | [AIC-ADE-2.4.81-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-2.4.81-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.81-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-2.4.81-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.80)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.81)
 
 ### Checksums
 
@@ -125,7 +125,7 @@ Product, Engineering, and Platform departments.
 
 ### From the release build
 
-1. Download the installer for your platform (see [Download](#download-v2480)).
+1. Download the installer for your platform (see [Download](#download-v2481)).
 2. Install and launch.
 3. Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
    endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.).
@@ -218,24 +218,35 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.4.80
+## What's New in v2.4.81
+
+### Worker Maximization
+- **Full soul injection** — all 9 soul fields (including `engineering_philosophy`,
+  `risk_philosophy`, `collaboration_style`, `escalation_policy`) are now injected
+  into every worker's runtime context, not just the operating constraints.
+- **Per-worker tuning policy** — each of the 15 workers now has a
+  `WorkerTuningPolicy` (planning depth, verification frequency, checkpoint
+  strategy, prompt detail) tuned to its role — Hermes thinks comprehensively,
+  Rex reviews tersely, crafters verify after every step.
+- **Lessons loop** — `lessons_learned` entries from past deliveries are now
+  retrieved at dispatch time and injected into worker context, so the company
+  learns from its own history.
+- **Self-healing upgrade** — heartbeat alerts now actually act: stale tasks and
+  blocked leases trigger `SelfHealingEngine`, and leases stuck >30 minutes are
+  auto-expired with their workers reset to idle.
+
+### Office Floor
+- **Unified workforce view** — the redundant "Live Company" nav entry is gone.
+  The pixel-art Office floor is now the single workforce view, showing live
+  worker status, active task, and progress per desk.
+- **Live status endpoint** — new `GET /runtime/workforce` returns each worker's
+  busy state, current task (title/phase/progress), and configured model.
+- **WebSocket push** — the office floor now refreshes instantly on worker
+  started/completed events instead of waiting for the next poll.
 
 ### Bug Fixes
-- **Discovery clarification loop fix** — chat replies like "hello" no longer
-  re-trigger the discovery gate forever. When a pending discovery session is
-  already aborted or errored, the assistant message no longer re-attaches the
-  pending-session marker, so the next message is treated as normal chat instead
-  of being hijacked into clarification.
-- **Tool-chat persistence fix** — assistant replies in the tool-aware chat path
-  are now persisted to the database. Previously only the user message was
-  stored, so the assistant's answer disappeared on reload.
-- **Conversation delete cascade fix** — deleting a conversation that has an
-  associated engineering pipeline now cascades through all FK-dependent tables
-  (`engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`,
-  `verification_sessions`, `engineering_reports`, `lessons_learned`) instead of
-  failing silently. The same cascade applies to batch delete.
-- **Improved error visibility** — deleting a conversation now surfaces an error
-  to the user when it fails, instead of logging silently to the console.
+- Memory persistence stores deliverables under the correct project id.
+- Office floor reads the correct workforce endpoint and data shape.
 
 ## Tips & Best Practices
 
@@ -299,7 +310,7 @@ Your security and privacy are built in:
   trusted links (e.g. GitHub), never arbitrary web pages.
 - **One instance at a time** — the app prevents duplicate backends that could
   cause data conflicts.
-- **Enhanced security posture** — AIC-ADE v2.4.80 includes comprehensive security hardening:
+- **Enhanced security posture** — AIC-ADE v2.4.81 includes comprehensive security hardening:
   - All authentication endpoints use `Cache-Control: no-store` to prevent credential caching
   - Content Security Policy (CSP) with strict source restrictions
   - Permissions policy to disable unnecessary browser features
@@ -312,7 +323,7 @@ Your security and privacy are built in:
 
 ## Documentation
 
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.80)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.81)
 - [`docs/sot/`](./docs/sot/) — product and engineering source of truth
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
 
