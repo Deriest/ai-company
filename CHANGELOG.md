@@ -4,6 +4,25 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 
 ---
 
+## v2.4.81 — 2026-08-09
+
+### Worker Maximization
+- **Full soul injection** — all 9 soul fields (incl. `engineering_philosophy`, `risk_philosophy`, `collaboration_style`, `escalation_policy`) now injected into every worker's context
+- **Per-worker tuning policy** — `WorkerTuningPolicy` (planning depth, verification frequency, checkpoint strategy, prompt detail) configured per role for all 15 workers
+- **Lessons loop** — `lessons_learned` entries are retrieved at dispatch time and injected into worker context so the company learns from past failures
+- **Self-healing upgrade** — heartbeat subscribers now trigger `SelfHealingEngine`; blocked leases (>30 min) auto-expire and stuck workers reset to IDLE
+
+### Office Floor
+- **Unified workforce view** — redundant "Live Company" nav entry removed; Office (pixel-art floor) is the single workforce view (`/live` route kept for back-compat)
+- **Live status endpoint** — new `GET /runtime/workforce` returns busy state, active task (title/phase/progress), and configured model per worker
+- **WebSocket push** — dispatcher broadcasts worker started/completed events; office floor refreshes instantly instead of waiting for the poll
+
+### Bug Fixes
+- Memory persistence now stores under `task.project_id` (was repo path)
+- WorkspaceView reads the correct workforce endpoint + data shape
+
+---
+
 ## v2.4.80 — 2026-08-08
 
 ### UI Redesign
