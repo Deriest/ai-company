@@ -311,11 +311,79 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # FIX: Attachment rows have no FK/relationship to messages — delete them
-    # explicitly so they don't become orphans when the conversation (and its
-    # messages via ORM cascade) is removed. Discovery sessions also reference
-    # the conversation (no cascade) — delete them explicitly too. Each
-    # attachment's binary file is removed from DATA_DIR/attachments/ as well.
+    # CASCADE: lessons_learned ← engineering_reports ← engineering_briefs ← discovery_sessions → conversation/messages/attachments
+    # Also engineering_plans/task_graphs/dispatch_sessions ← engineering_briefs
+    # Delete in reverse dependency order to avoid foreign key violations
+    await db.execute(text("""
+        DELETE FROM lessons_learned 
+        WHERE report_id IN (
+            SELECT id FROM engineering_reports WHERE brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM engineering_reports 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM dispatch_sessions 
+        WHERE graph_id IN (
+            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id 
+            WHERE ep.brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM task_graphs 
+        WHERE plan_id IN (
+            SELECT id FROM engineering_plans WHERE brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM engineering_plans 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM planning_sessions 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM verification_sessions 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": id})
+    await db.execute(text("""
+        DELETE FROM engineering_briefs 
+        WHERE discovery_session_id IN (
+            SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+        )
+    """), {"cid": id})
+    # Attachment cleanup + files
     att_res = await db.execute(select(Attachment.id).where(
         Attachment.message_id.in_(
             select(Message.id).where(Message.conversation_id == id)

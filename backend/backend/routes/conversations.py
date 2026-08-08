@@ -12,7 +12,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
@@ -101,9 +101,83 @@ async def batch_conversations(
     if req.action == "delete":
         conv_ids = [c.id for c in convs]
         if conv_ids:
+            from sqlalchemy import bindparam
+
+            async def _del(sql: str):
+                """Run a raw DELETE with an expanding :cids IN-list."""
+                await session.execute(
+                    text(sql).bindparams(bindparam("cids", expanding=True)),
+                    {"cids": conv_ids},
+                )
+
+            # Same FK cascade as the single-delete route, bottom-up:
+            # lessons_learned <- engineering_reports <- engineering_briefs
+            #   <- discovery_sessions <- conversations, plus the
+            # plans/graphs/dispatch/planning/verification chains off briefs.
+            await _del(
+                "DELETE FROM lessons_learned WHERE report_id IN ("
+                "SELECT id FROM engineering_reports WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+            )
+            await _del(
+                "DELETE FROM engineering_reports WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+            )
+            await _del(
+                "DELETE FROM dispatch_sessions WHERE graph_id IN ("
+                "SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id = ep.id "
+                "WHERE ep.brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+            )
+            await _del(
+                "DELETE FROM task_graphs WHERE plan_id IN ("
+                "SELECT id FROM engineering_plans WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+            )
+            await _del(
+                "DELETE FROM engineering_plans WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+            )
+            await _del(
+                "DELETE FROM planning_sessions WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+            )
+            await _del(
+                "DELETE FROM verification_sessions WHERE brief_id IN ("
+                "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+            )
+            await _del(
+                "DELETE FROM engineering_briefs WHERE discovery_session_id IN ("
+                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)"
+            )
+            # Attachment rows + their binary files
+            att_res = await session.execute(
+                select(Attachment.id).where(Attachment.message_id.in_(
+                    select(Message.id).where(Message.conversation_id.in_(conv_ids))
+                ))
+            )
+            att_ids = [row[0] for row in att_res.all()]
+            await session.execute(delete(Attachment).where(Attachment.message_id.in_(
+                select(Message.id).where(Message.conversation_id.in_(conv_ids))
+            )))
+            await _del("DELETE FROM discovery_sessions WHERE conversation_id IN :cids")
             await session.execute(delete(Message).where(Message.conversation_id.in_(conv_ids)))
             await session.execute(delete(Conversation).where(Conversation.id.in_(conv_ids)))
             await session.commit()
+            from backend.services.attachment_store import delete_attachment
+            for att_id in att_ids:
+                delete_attachment(att_id)
+            # Keep FTS index in sync with deleted conversations
+            from backend.services.search_service import remove_fts_by_conversation
+            for cid in conv_ids:
+                await remove_fts_by_conversation(session, cid)
     else:
         target_status = "archived" if req.action == "archive" else "active"
         for conv in convs:
@@ -183,6 +257,76 @@ async def delete_conversation(
         ))
     )
     att_ids = [row[0] for row in att_res.all()]
+    # CASCADE: delete brief chain first (FK to discovery_sessions), then briefs/discovery_sessions
+    await session.execute(text("""
+        DELETE FROM lessons_learned 
+        WHERE report_id IN (
+            SELECT id FROM engineering_reports WHERE brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM engineering_reports 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM dispatch_sessions 
+        WHERE graph_id IN (
+            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id 
+            WHERE ep.brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM task_graphs 
+        WHERE plan_id IN (
+            SELECT id FROM engineering_plans WHERE brief_id IN (
+                SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                )
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM engineering_plans 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM planning_sessions 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM verification_sessions 
+        WHERE brief_id IN (
+            SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            )
+        )
+    """), {"cid": conversation_id})
+    await session.execute(text("""
+        DELETE FROM engineering_briefs 
+        WHERE discovery_session_id IN (
+            SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+        )
+    """), {"cid": conversation_id})
     await session.execute(delete(DiscoverySession).where(DiscoverySession.conversation_id == conversation_id))
     await session.execute(delete(Attachment).where(Attachment.message_id.in_(
         select(Message.id).where(Message.conversation_id == conversation_id)

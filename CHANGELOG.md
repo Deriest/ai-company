@@ -4,6 +4,15 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 
 ---
 
+## v2.4.78 — 2026-08-08
+
+### Bug Fixes
+- **Conversation delete cascade fix**: Fixed silent failure when deleting conversations that have associated engineering pipelines. The delete handler now properly cascades through all FK-dependent tables: `engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`, `verification_sessions`, `engineering_reports`, and `lessons_learned`. Previously, orphan rows would cause commit failures due to unhandled foreign key constraints.
+- **Batch conversation delete**: Added the same cascade handling to `/api/conversations/batch` endpoint for bulk delete operations.
+- **Improved error visibility**: Frontend `handleDelete` in `ChatView.tsx` now shows an alert dialog on delete failure instead of silently logging to console. This helps users see actual errors instead of assuming deletion succeeded when it failed.
+
+---
+
 ## v2.4.71 — 2026-08-07
 
 ### Security & Auth Hardening

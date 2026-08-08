@@ -1176,7 +1176,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       await conversationsApi.delete(id)
       setConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(conversations.find(c => c.id !== id)?.id || null)
-    } catch (e) { console.error(e) }
+    } catch (e) { 
+      console.error(e)
+      alert(`Failed to delete conversation: ${e instanceof Error ? e.message : 'Unknown error'}`)
+    }
   }
 
   const handleDuplicate = async (id: string, e: React.MouseEvent) => {
