@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect, mem
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
-  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList, FolderOpen,
+  Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList,
   Sparkles, ChevronDown,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -21,7 +21,6 @@ import { providersApi, type ProviderRecord } from '../lib/api/providers'
 import { providerManageApi } from '../lib/api/provider_manage'
 import { type ProjectRecord } from '../lib/api/projects'
 import { ProjectPicker } from './ProjectPicker'
-import { FileTree } from './FileTree'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
 import { WorkflowSelector, WorkflowStepper, WorkflowModeBanner } from './WorkflowSelector'
@@ -495,7 +494,7 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
 
 /** Plain-text fallback of a clarify payload (persisted into the message). */
 function formatClarify(p: ClarifyPayload): string {
-  const lines = [p.reason || 'Sebelum mulai, saya perlu beberapa detail:']
+  const lines = [p.reason ||  'Before we start, I need some details:']
   p.questions?.forEach((q, i) => {
     lines.push(`\n${i + 1}. ${q.question}`)
     if (q.options?.length) lines.push(`   Pilihan: ${q.options.join(', ')}`)
@@ -505,12 +504,12 @@ function formatClarify(p: ClarifyPayload): string {
 
 /** Structured "I need a few details" assistant block (clarify SSE event). */
 function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayload; onPickWorkspaceFolder?: () => void }) {
-  const intro = payload.reason || 'Sebelum mulai, saya perlu beberapa detail:'
+  const intro = payload.reason || 'Before we start, I need some details:'
   return (
     <div className="my-1 rounded-lg border border-info/30 bg-info/5 p-3">
       <div className="flex items-center gap-2">
         <ClipboardList className="size-3.5 text-info" />
-        <span className="text-[11px] font-semibold text-info">Perlu beberapa detail</span>
+                <span className="text-[11px] font-semibold text-info">A few clarifying questions</span>
       </div>
       <p className="mt-2 text-[12px] leading-relaxed text-foreground/85">{intro}</p>
       <ol className="mt-2 space-y-2">
@@ -535,14 +534,14 @@ function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayl
                 className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/70"
                 title="Select an absolute folder path to use as the workspace root"
               >
-                <FolderOpen className="size-3.5" />
-                Pilih folder…
+                <PanelRight className="size-3.5" />
+                Select a folder…
               </button>
             )}
           </li>
         ))}
       </ol>
-      <p className="mt-2 text-[10px] text-muted-foreground/70">Jawab di pesan berikutnya untuk melanjutkan.</p>
+      <p className="mt-2 text-[10px] text-muted-foreground/70">Reply in the next message to continue.</p>
     </div>
   )
 }
@@ -763,7 +762,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
   // Project file panel — shows the active project's file tree in the Command
   // Center main area so a selected project's contents are visible immediately.
-  const [filePanelOpen, setFilePanelOpen] = useState(true)
   // ── Workflow selection ────────────────────────────────────
   // The next message is tagged with the selected workflow type (if any). When
   // unset the backend auto-triages the task type. Selection persists in state
@@ -1538,45 +1536,17 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               <Terminal className="size-3.5 text-primary" />
               <span className="text-[11px] font-semibold tracking-wide">{active?.title || 'Command Center'}</span>
               {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{visibleMessages.length} msgs</span>}
-              {(activeProject || projectRoot) && (
-                <>
-                  <span
-                    className="hidden lg:inline-flex max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
-                    title={activeProject?.repo_path || projectRoot || undefined}
-                  >
-                    <GitBranch className="size-2.5 shrink-0 text-primary/70" />
-                    <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
-                  </span>
-                  <button
-                    onClick={() => setFilePanelOpen(o => !o)}
-                    className="inline-flex items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                    title={filePanelOpen ? 'Hide project files' : 'Show project files'}
-                  >
-                    <FolderOpen className="size-2.5 shrink-0 text-primary/70" />
-                    files
-                  </button>
-                </>
-              )}
+               {(activeProject || projectRoot) && (
+                 <span
+                   className="max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
+                   title={activeProject?.repo_path || projectRoot || undefined}
+                 >
+                   <GitBranch className="size-2.5 shrink-0 text-primary/70" />
+                   <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
+                 </span>
+               )}
             </div>
           </div>
-
-          {/* Project files panel — shows the selected project's file tree right
-              in the Command Center main area. */}
-          {filePanelOpen && (activeProject || projectRoot) && (
-            <div className="shrink-0 border-b border-border bg-card/40">
-              <div className="max-h-40 overflow-y-auto scroll-thin px-4 py-2">
-                <div className="flex items-center gap-2 text-[10px] font-semibold text-muted-foreground mb-1.5">
-                  <FolderOpen className="size-3 text-primary/70" />
-                  <span className="truncate">{activeProject?.name || projectName || 'Project'} files</span>
-                </div>
-                <FileTree
-                  rootPath={activeProject?.repo_path || projectRoot || ''}
-                  rootLabel={activeProject?.name || projectName || undefined}
-                  onFileSelect={(path) => void window.aic?.openPath?.(path)?.catch(() => {})}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Messages */}
           <div
