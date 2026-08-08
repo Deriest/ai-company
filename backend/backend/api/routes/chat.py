@@ -1370,3 +1370,9 @@ async def chat_regenerate_endpoint(payload: ChatRegenerateRequest, db: AsyncSess
 async def list_artifacts(conversation_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Artifact).where(Artifact.conversation_id == conversation_id).order_by(Artifact.created_at))
     return res.scalars().all()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Discovery Enhancement — LLM-generated contextual questions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
