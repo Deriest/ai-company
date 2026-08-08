@@ -1,28 +1,28 @@
 {
-  "version": "2.4.79",
+  "version": "2.4.80",
   "channel": "stable",
-  "releaseDate": "2026-08-08",
-  "releaseNotes": "v2.4.79 — Discovery loop fix + tool-chat persistence + delete cascade fixes. See https://github.com/Deriest/ai-company/releases/tag/v2.4.79 for details.",
+  "releaseDate": "2026-08-09",
+  "releaseNotes": "v2.4.80 — See https://github.com/Deriest/ai-company/releases/tag/v2.4.80 for release notes.",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-x86_64.AppImage",
-      "sha256": "7b71f16e9bb842a8b6dfdb0da829207e373d7b237e6f853cbd7960a85f8ba528",
-      "size": 184475225,
-      "filename": "AIC-ADE-2.4.79-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-x86_64.AppImage",
+      "sha256": "b63a7d83e2db7c0ba42f52c3abfcb7c174e2d3e94035ced36ba716d2bc71a62c",
+      "size": 184496249,
+      "filename": "AIC-ADE-2.4.80-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-amd64.deb",
-      "sha256": "b65d3433bc6ecaee425547419d6fdf7db501e0709d7dc877305177f59583843f",
-      "size": 127877734,
-      "filename": "AIC-ADE-2.4.79-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-amd64.deb",
+      "sha256": "b48de7e9aaf53dbca6f9c80f52a521a56d25dd2b7454e43196554d069f67e510",
+      "size": 127893400,
+      "filename": "AIC-ADE-2.4.80-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-Setup-2.4.79.exe",
-      "sha256": "f5e542db9f5769b0a706c56bb2d87bb6a7bae018381d41b748c1d34da4d29f50",
-      "size": 139736552,
-      "filename": "AIC-ADE-Setup-2.4.79.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-Setup-2.4.80.exe",
+      "sha256": "89166a92fb98eb0c1e20fad42cb215d391e568664a4483e86c04a03d12cc34ee",
+      "size": 139763405,
+      "filename": "AIC-ADE-Setup-2.4.80.exe",
       "type": "nsis"
     }
   }

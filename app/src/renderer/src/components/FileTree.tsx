@@ -37,7 +37,19 @@ function TreeNode({ node, depth, onSelect }: { node: DirTreeNode; depth: number;
   )
 }
 
-export function FileTree({ rootPath, onFileSelect, rootLabel }: { rootPath: string; onFileSelect: (path: string) => void; rootLabel?: string }) {
+function filterNodes(nodes: DirTreeNode[], q: string): DirTreeNode[] {
+  const lower = q.toLowerCase()
+  return nodes.reduce<DirTreeNode[]>((acc, node) => {
+    const nameMatch = node.name.toLowerCase().includes(lower)
+    const children = node.children ? filterNodes(node.children, q) : []
+    if (nameMatch || children.length > 0) {
+      acc.push({ ...node, children: children.length > 0 ? children : node.children })
+    }
+    return acc
+  }, [])
+}
+
+export function FileTree({ rootPath, onFileSelect, rootLabel, filter = '' }: { rootPath: string; onFileSelect: (path: string) => void; rootLabel?: string; filter?: string }) {
   const [tree, setTree] = useState<DirTreeNode[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -57,8 +69,11 @@ export function FileTree({ rootPath, onFileSelect, rootLabel }: { rootPath: stri
     return () => clearInterval(id)
   }, [loadTree])
 
+  const filteredTree = filter.trim() ? filterNodes(tree, filter) : tree
+
   if (loading) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Loading…</div>
   if (!tree.length) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">Empty project</div>
+  if (filter.trim() && !filteredTree.length) return <div className="px-3 py-2 text-[10px] text-muted-foreground/50">No files match “{filter.trim()}”</div>
 
   // Workspace → Project Folder → Files. The root label (project folder name) falls
   // back to the last path segment of the workspace root.
@@ -84,7 +99,7 @@ export function FileTree({ rootPath, onFileSelect, rootLabel }: { rootPath: stri
         </div>
         {/* Files (leaves) */}
         <div className="ml-2 border-l border-border/60 pl-1">
-          {tree.map(node => <TreeNode key={node.path} node={node} depth={0} onSelect={onFileSelect} />)}
+          {filteredTree.map(node => <TreeNode key={node.path} node={node} depth={0} onSelect={onFileSelect} />)}
         </div>
       </div>
     </div>

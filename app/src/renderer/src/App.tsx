@@ -130,10 +130,6 @@ const boot = useBoot({
     setProjectRefreshKey((k) => k + 1);
   }, []);
 
-  const handleFileSelect = useCallback(async (path: string) => {
-    await window.aic?.openPath?.(path);
-  }, []);
-
   // Just-refreshed early profile check: the mount-time profileApi.get() can
   // fail when it races the still-booting engine. Once the engine is healthy,
   // re-check once so a returning user with a slow backend never falls through
@@ -239,10 +235,6 @@ const boot = useBoot({
         onViewChange={(v: string) => setView(v as View)}
         setSettingsTab={setSettingsTab as unknown as (tab: string) => void}
         profile={profile}
-        projectRoot={projectRoot}
-        projectRefreshKey={projectRefreshKey}
-        onFileSelect={handleFileSelect}
-        onProjectChange={handleProjectChange}
       >
         <div className="flex flex-1 min-h-0 flex-col">
           <div className="relative flex flex-1 min-h-0 flex-col">

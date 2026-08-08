@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.79** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.80** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2479)
+- [Download](#download-v2480)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.79
+## Download v2.4.80
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.79.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-Setup-2.4.79.exe) |
-| Linux AppImage | [AIC-ADE-2.4.79-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.79-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.80.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-Setup-2.4.80.exe) |
+| Linux AppImage | [AIC-ADE-2.4.80-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.80-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.80/AIC-ADE-2.4.80-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.79)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.80)
 
 ### Checksums
 
@@ -125,7 +125,7 @@ Product, Engineering, and Platform departments.
 
 ### From the release build
 
-1. Download the installer for your platform (see [Download](#download-v2479)).
+1. Download the installer for your platform (see [Download](#download-v2480)).
 2. Install and launch.
 3. Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
    endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.).
@@ -218,7 +218,7 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.4.79
+## What's New in v2.4.80
 
 ### Bug Fixes
 - **Discovery clarification loop fix** — chat replies like "hello" no longer
@@ -299,7 +299,7 @@ Your security and privacy are built in:
   trusted links (e.g. GitHub), never arbitrary web pages.
 - **One instance at a time** — the app prevents duplicate backends that could
   cause data conflicts.
-- **Enhanced security posture** — AIC-ADE v2.4.79 includes comprehensive security hardening:
+- **Enhanced security posture** — AIC-ADE v2.4.80 includes comprehensive security hardening:
   - All authentication endpoints use `Cache-Control: no-store` to prevent credential caching
   - Content Security Policy (CSP) with strict source restrictions
   - Permissions policy to disable unnecessary browser features
@@ -312,7 +312,7 @@ Your security and privacy are built in:
 
 ## Documentation
 
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.79)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.80)
 - [`docs/sot/`](./docs/sot/) — product and engineering source of truth
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
 

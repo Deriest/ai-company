@@ -12,7 +12,7 @@ import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
   Pin, Loader2, Bot, GitBranch, X, PanelRight, Square, Paperclip, ClipboardList,
-  Sparkles, ChevronDown,
+  Sparkles, ChevronDown, FolderTree,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { conversationsApi, type ConversationRecord, type MessageRecord } from '../lib/api/conversations'
@@ -21,6 +21,7 @@ import { providersApi, type ProviderRecord } from '../lib/api/providers'
 import { providerManageApi } from '../lib/api/provider_manage'
 import { type ProjectRecord } from '../lib/api/projects'
 import { ProjectPicker } from './ProjectPicker'
+import { FileTree } from './FileTree'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
 import { WorkflowSelector, WorkflowStepper } from './WorkflowSelector'
@@ -651,12 +652,11 @@ export const MessageRow = memo(function MessageRow({ message, state, onPickWorks
 
 // ── Sidebar (compact) ────────────────────────────────────
 
-function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDuplicate, onSearch, projectBar }: {
+function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDuplicate, onSearch }: {
   conversations: ConversationRecord[]; activeId: string | null;
   onSelect: (id: string) => void; onCreate: () => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDuplicate: (id: string, e: React.MouseEvent) => void; onSearch: (q: string) => void;
-  projectBar?: React.ReactNode;
 }) {
   const [query, setQuery] = useState('')
   // Debounce sidebar search so keystrokes don't fire a search per character.
@@ -721,7 +721,6 @@ function Sidebar({ conversations, activeId, onSelect, onCreate, onDelete, onDupl
           </div>
         )}
       </div>
-      {projectBar && <div className="border-t border-border px-2 py-2">{projectBar}</div>}
     </aside>
   )
 }
@@ -748,7 +747,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
-  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [explorerOpen, setExplorerOpen] = useState(false)
+  const [fileTreeFilter, setFileTreeFilter] = useState('')
   const [providers, setProviders] = useState<ProviderRecord[]>([])
   const [tiers, setTiers] = useState<Record<EngineTier, TierSelection>>({
     thinker: { provider: '', model: '' },
@@ -762,6 +762,13 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null)
   // Project file panel — shows the active project's file tree in the Command
   // Center main area so a selected project's contents are visible immediately.
+  // Auto-open the explorer when a project is selected so the user sees the
+  // workspace/files hierarchy without an extra click.
+  useEffect(() => {
+    if (activeProject?.repo_path || projectRoot) {
+      setExplorerOpen(true)
+    }
+  }, [activeProject?.repo_path, projectRoot])
   // ── Workflow selection ────────────────────────────────────
   // The next message is tagged with the selected workflow type (if any). When
   // unset the backend auto-triages the task type. Selection persists in state
@@ -1514,17 +1521,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       <div className="flex min-h-0 flex-1">
         <Sidebar conversations={conversations} activeId={activeId} onSelect={setActiveId}
           onCreate={handleCreate} onDelete={handleDelete}
-          onDuplicate={handleDuplicate} onSearch={q => void loadConversations(q)}
-          projectBar={
-            <ProjectPicker
-              onProjectChange={(p) => { setActiveProject(p); onProjectChange?.(p) }}
-              onActiveChange={setActiveProject}
-              refreshKey={projectRefreshKey}
-              fallbackLabel={projectName}
-              fallbackPath={projectRoot}
-              dropdownUp
-            />
-          } />
+          onDuplicate={handleDuplicate} onSearch={q => void loadConversations(q)} />
 
         <div className="flex min-w-0 min-h-0 flex-1 flex-col">
           {/* Header — minimal */}
@@ -1610,9 +1607,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               <span className="font-mono">{agentMode} agent</span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setInspectorOpen(!inspectorOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}>
+              <button onClick={() => setExplorerOpen(!explorerOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={explorerOpen ? "Hide explorer" : "Show explorer"}>
                 <PanelRight className="size-3" />
-                {inspectorOpen ? 'inspector' : ''}
+                {explorerOpen ? 'explorer' : ''}
               </button>
               <span className="font-mono">Hermes</span>
             </div>
@@ -1743,99 +1740,76 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
           </div>
         </div>
 
-        {/* Inspector Panel — right side */}
-        {inspectorOpen && active && (
+        {/* Explorer Panel — right side */}
+        {explorerOpen && (
           <div className="w-60 lg:w-72 shrink-0 border-l border-border bg-sidebar/50 flex flex-col">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
-              <span className="text-[10px] font-semibold tracking-wide">Inspector</span>
-              <button onClick={() => setInspectorOpen(false)} className="text-muted-foreground/60 hover:text-foreground" aria-label="Close inspector">
+              <div className="flex items-center gap-1.5">
+                <FolderTree className="size-3.5 text-primary" />
+                <span className="text-[10px] font-semibold tracking-wide">Explorer</span>
+              </div>
+              <button onClick={() => setExplorerOpen(false)} className="text-muted-foreground/60 hover:text-foreground" aria-label="Close explorer">
                 <X className="size-3" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto scroll-thin p-3 space-y-3">
-              {/* Deliverables */}
-              {(() => {
-                const lastState = Array.from(assistantStates.values()).find(s => s.deliverables)
-                if (!lastState?.deliverables) return null
-                const d = lastState.deliverables
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-success">
-                      <Check className="size-3" /> Deliverables
-                    </div>
-                    <div className="space-y-1.5">
-                      {d.files_created?.length > 0 && (
-                        <div className="rounded-md border border-border/60 bg-card/60 p-2">
-                          <p className="text-[9px] text-muted-foreground mb-1">Files Created ({d.files_created.length})</p>
-                          {d.files_created.slice(0, 10).map((f: string, i: number) => (
-                            <div key={i} className="text-[10px] font-mono text-foreground/80 truncate">{f}</div>
-                          ))}
-                        </div>
-                      )}
-                      {d.files_modified?.length > 0 && (
-                        <div className="rounded-md border border-border/60 bg-card/60 p-2">
-                          <p className="text-[9px] text-muted-foreground mb-1">Files Modified ({d.files_modified.length})</p>
-                          {d.files_modified.slice(0, 10).map((f: string, i: number) => (
-                            <div key={i} className="text-[10px] font-mono text-foreground/80 truncate">{f}</div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+            <div className="flex-1 overflow-y-auto scroll-thin flex flex-col min-h-0">
+              {activeProject?.repo_path || projectRoot ? (
+                <div className="p-2 space-y-2">
+                  {/* Workspace / project selector */}
+                  <ProjectPicker
+                    onProjectChange={(p) => { setActiveProject(p); onProjectChange?.(p) }}
+                    onActiveChange={setActiveProject}
+                    refreshKey={projectRefreshKey}
+                    fallbackLabel={projectName}
+                    fallbackPath={projectRoot}
+                  />
+                  {/* File tree search */}
+                  <div className="flex items-center gap-1.5 rounded-md border border-border/50 bg-card/50 px-2 py-1 focus-within:border-primary/40">
+                    <Search className="size-2.5 text-muted-foreground/60" />
+                    <input
+                      value={fileTreeFilter}
+                      onChange={e => setFileTreeFilter(e.target.value)}
+                      placeholder="Filter files…"
+                      className="w-full bg-transparent text-[10px] outline-none placeholder:text-muted-foreground/40"
+                    />
+                    {fileTreeFilter && (
+                      <button onClick={() => setFileTreeFilter('')} className="text-muted-foreground/50 hover:text-foreground" aria-label="Clear file filter">
+                        <X className="size-2.5" />
+                      </button>
+                    )}
                   </div>
-                )
-              })()}
-
-              {/* Active Tool Calls */}
-              {(() => {
-                const lastState = Array.from(assistantStates.values()).find(s => s.toolCalls.length > 0)
-                if (!lastState) return null
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-primary">
-                      <Terminal className="size-3" /> Tools
-                    </div>
-                    <div className="space-y-1">
-                      {lastState.toolCalls.slice(-5).map(tc => (
-                        <div key={tc.id} className="flex items-center gap-2 rounded-md border border-border/60 bg-card/60 px-2 py-1.5">
-                          <span className={cn("size-1.5 rounded-full shrink-0",
-                            tc.status === 'running' ? 'bg-warning animate-pulse' :
-                            tc.status === 'completed' ? 'bg-success' : 'bg-destructive'
-                          )} />
-                          <span className="text-[10px] font-mono text-foreground/80">{tc.type}</span>
-                          <span className="text-[9px] text-muted-foreground truncate ml-auto">{tc.duration_ms}ms</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* Session Info */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
-                  <FileText className="size-3" /> Session
-                </div>
-                <div className="rounded-md border border-border/60 bg-card/60 p-2 space-y-1.5">
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Mode</span>
-                    <span className="font-mono">{agentMode}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Messages</span>
-                    <span className="font-mono">{messages.length}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Worker</span>
-                    <span className="font-mono">{AGENT_WORKER_MAP[agentMode]}</span>
+                  {/* File tree */}
+                  <div className="border rounded-md border-border/50 bg-card/60 -mx-0.5">
+                    <FileTree
+                      rootPath={activeProject?.repo_path || projectRoot || ''}
+                      rootLabel={activeProject?.name || projectName || undefined}
+                      onFileSelect={(path) => window.aic?.openPath?.(path)}
+                      filter={fileTreeFilter}
+                    />
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center p-4 text-center space-y-2">
+                  <div className="grid size-8 place-items-center rounded-lg bg-muted/30">
+                    <FolderTree className="size-4 text-muted-foreground/40" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/70">No workspace selected</p>
+                  <p className="text-[10px] text-muted-foreground/50">Pick a project folder to see its files here.</p>
+                  <ProjectPicker
+                    onProjectChange={(p) => { setActiveProject(p); onProjectChange?.(p) }}
+                    onActiveChange={setActiveProject}
+                    refreshKey={projectRefreshKey}
+                    fallbackLabel={projectName}
+                    fallbackPath={projectRoot}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {!inspectorOpen && active && (
-          <button onClick={() => setInspectorOpen(true)} aria-label="Open inspector"
+        {!explorerOpen && (
+          <button onClick={() => setExplorerOpen(true)} aria-label="Open explorer"
             className="absolute right-0 top-12 z-10 rounded-l-md border border-border bg-sidebar p-1 text-muted-foreground/60 hover:text-foreground">
             <PanelRight className="size-3.5" />
           </button>

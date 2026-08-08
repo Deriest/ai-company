@@ -8,18 +8,12 @@ import {
   Bug,
   Wrench,
   Plug,
-  FolderTree,
-  ChevronDown,
-  ChevronRight,
   GitBranch,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { BugReportDialog } from "./auth/Dialogs";
-import { FileTree } from "./FileTree";
-import { ProjectPicker } from "./ProjectPicker";
 import TitleBar from "./TitleBar";
 import type { LocalProfile } from "../lib/api/profile";
-import type { ProjectRecord } from "../lib/api/projects";
 
 const nav = [
   { id: "home", label: "Office", icon: LayoutDashboard },
@@ -37,24 +31,15 @@ export function AppShell({
   onViewChange,
   profile,
   setSettingsTab,
-  projectRoot,
-  projectRefreshKey = 0,
-  onFileSelect,
-  onProjectChange,
 }: {
   children: React.ReactNode;
   view?: string;
   onViewChange?: (v: string) => void;
   profile?: LocalProfile | null;
   setSettingsTab?: (tab: string) => void;
-  projectRoot?: string | null;
-  projectRefreshKey?: number;
-  onFileSelect?: (path: string) => void;
-  onProjectChange?: (project: ProjectRecord | null) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
-  const [fileTreeOpen, setFileTreeOpen] = useState(true);
   const [appVersion, setAppVersion] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -114,31 +99,6 @@ export function AppShell({
               );
             })}
           </nav>
-
-          <div className="border-t border-sidebar-border px-2 py-2">
-            <ProjectPicker
-              onProjectChange={onProjectChange}
-              refreshKey={projectRefreshKey}
-              fallbackPath={projectRoot || undefined}
-            />
-          </div>
-
-          {projectRoot && (
-            <div className="border-t border-sidebar-border">
-              <button
-                type="button"
-                onClick={() => setFileTreeOpen(o => !o)}
-                className="flex w-full items-center gap-2 px-4 py-2 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {fileTreeOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                <FolderTree className="size-3.5" />
-                Explorer
-              </button>
-              {fileTreeOpen && (
-                <FileTree rootPath={projectRoot} onFileSelect={onFileSelect || (() => {})} />
-              )}
-            </div>
-          )}
 
           <div className="relative border-t border-sidebar-border p-3" ref={menuRef}>
             <button
