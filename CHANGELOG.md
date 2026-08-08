@@ -4,7 +4,22 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 
 ---
 
-## v2.4.78 — 2026-08-08
+## v2.4.79 — 2026-08-08
+
+### Bug Fixes
+- **Discovery clarification loop fix**: Chat replies like "hello" no longer
+  re-trigger the discovery gate forever. When a pending discovery session is
+  already aborted/errored, the assistant message no longer re-attaches the
+  `discovery_session_id` marker, so the next message is treated as normal chat
+  instead of being hijacked into clarification.
+- **Tool-chat persistence fix**: Assistant replies in the tool-aware chat path
+  (`/chat/stream` with worker_role) are now persisted to the database.
+  Previously only the user message was stored, so the assistant's answer
+  disappeared on reload.
+
+---
+
+## v2.4.79 — 2026-08-08
 
 ### Bug Fixes
 - **Conversation delete cascade fix**: Fixed silent failure when deleting conversations that have associated engineering pipelines. The delete handler now properly cascades through all FK-dependent tables: `engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`, `verification_sessions`, `engineering_reports`, and `lessons_learned`. Previously, orphan rows would cause commit failures due to unhandled foreign key constraints.

@@ -1,28 +1,28 @@
 {
-  "version": "2.4.78",
+  "version": "2.4.79",
   "channel": "stable",
   "releaseDate": "2026-08-08",
-  "releaseNotes": "v2.4.78 — See https://github.com/Deriest/ai-company/releases/tag/v2.4.78 for release notes.",
+  "releaseNotes": "v2.4.79 — Discovery loop fix + tool-chat persistence + delete cascade fixes. See https://github.com/Deriest/ai-company/releases/tag/v2.4.79 for details.",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-x86_64.AppImage",
-      "sha256": "8a0018175be54d9ab6cf3455d781d51dc713521ec06d3afb09c97187970a09a0",
-      "size": 184208742,
-      "filename": "AIC-ADE-2.4.78-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-x86_64.AppImage",
+      "sha256": "7b71f16e9bb842a8b6dfdb0da829207e373d7b237e6f853cbd7960a85f8ba528",
+      "size": 184475225,
+      "filename": "AIC-ADE-2.4.79-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-amd64.deb",
-      "sha256": "9e8888e4fe51ef3b5e239c225a4d21556e2533bd980ac29e40709cc6acf97cb1",
-      "size": 127861376,
-      "filename": "AIC-ADE-2.4.78-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-amd64.deb",
+      "sha256": "b65d3433bc6ecaee425547419d6fdf7db501e0709d7dc877305177f59583843f",
+      "size": 127877734,
+      "filename": "AIC-ADE-2.4.79-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-Setup-2.4.78.exe",
-      "sha256": "53edad09008e81fa15139b1f0cd874112b1dc723cf04e4e4fb714f189e6242d2",
-      "size": 139729016,
-      "filename": "AIC-ADE-Setup-2.4.78.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-Setup-2.4.79.exe",
+      "sha256": "f5e542db9f5769b0a706c56bb2d87bb6a7bae018381d41b748c1d34da4d29f50",
+      "size": 139736552,
+      "filename": "AIC-ADE-Setup-2.4.79.exe",
       "type": "nsis"
     }
   }

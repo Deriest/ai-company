@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.78** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.79** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2478)
+- [Download](#download-v2479)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.78
+## Download v2.4.79
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.78.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-Setup-2.4.78.exe) |
-| Linux AppImage | [AIC-ADE-2.4.78-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.78-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.79.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-Setup-2.4.79.exe) |
+| Linux AppImage | [AIC-ADE-2.4.79-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.79-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.79/AIC-ADE-2.4.79-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.78)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.79)
 
 ### Checksums
 
@@ -125,7 +125,7 @@ Product, Engineering, and Platform departments.
 
 ### From the release build
 
-1. Download the installer for your platform (see [Download](#download-v2478)).
+1. Download the installer for your platform (see [Download](#download-v2479)).
 2. Install and launch.
 3. Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
    endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.).
@@ -218,26 +218,24 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.4.78
+## What's New in v2.4.79
 
 ### Bug Fixes
-- **Conversation delete cascade fix**: Fixed silent failure when deleting conversations that have associated engineering pipelines. The delete handler now properly cascades through all FK-dependent tables: `engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`, `verification_sessions`, `engineering_reports`, and `lessons_learned`. Previously, orphan rows would cause commit failures due to unhandled foreign key constraints.
-- **Batch conversation delete**: Added the same cascade handling to `/api/conversations/batch` endpoint for bulk delete operations.
-- **Improved error visibility**: Frontend `handleDelete` in `ChatView.tsx` now shows an alert dialog on delete failure instead of silently logging to console.
-
-- **Smarter workspace folders** — AIC-ADE remembers the folder you last worked
-  in. If you start a new task without choosing a folder, it uses the last one
-  automatically and shows you where it will write files before starting.
-- **More reliable task pipeline** — workers are given more time to finish
-  multi-step work, and retries are smarter, so long-running tasks complete
-  more reliably.
-- **Better final answers** — AI workers now stop exploring and write a clear,
-  complete answer when they've gathered enough information, instead of running
-  out of steps.
-- **Fairer quality checks** — verification no longer fails a task just because
-  a documentation file is missing; it checks the actual code and tests.
-- **Model settings you control** — reasoning depth is now configurable instead
-  of locked to one value, giving you a choice between speed and thoroughness.
+- **Discovery clarification loop fix** — chat replies like "hello" no longer
+  re-trigger the discovery gate forever. When a pending discovery session is
+  already aborted or errored, the assistant message no longer re-attaches the
+  pending-session marker, so the next message is treated as normal chat instead
+  of being hijacked into clarification.
+- **Tool-chat persistence fix** — assistant replies in the tool-aware chat path
+  are now persisted to the database. Previously only the user message was
+  stored, so the assistant's answer disappeared on reload.
+- **Conversation delete cascade fix** — deleting a conversation that has an
+  associated engineering pipeline now cascades through all FK-dependent tables
+  (`engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`,
+  `verification_sessions`, `engineering_reports`, `lessons_learned`) instead of
+  failing silently. The same cascade applies to batch delete.
+- **Improved error visibility** — deleting a conversation now surfaces an error
+  to the user when it fails, instead of logging silently to the console.
 
 ## Tips & Best Practices
 
@@ -301,7 +299,7 @@ Your security and privacy are built in:
   trusted links (e.g. GitHub), never arbitrary web pages.
 - **One instance at a time** — the app prevents duplicate backends that could
   cause data conflicts.
-- **Enhanced security posture** — AIC-ADE v2.4.78 includes comprehensive security hardening:
+- **Enhanced security posture** — AIC-ADE v2.4.79 includes comprehensive security hardening:
   - All authentication endpoints use `Cache-Control: no-store` to prevent credential caching
   - Content Security Policy (CSP) with strict source restrictions
   - Permissions policy to disable unnecessary browser features
@@ -314,7 +312,7 @@ Your security and privacy are built in:
 
 ## Documentation
 
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.78)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.79)
 - [`docs/sot/`](./docs/sot/) — product and engineering source of truth
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
 

@@ -769,13 +769,13 @@ async def chat_execute_endpoint(
                                 # The reply was classified non-task by discovery
                                 # (e.g. "hi"/"ok") and it aborted the session —
                                 # never spawn an agent on chit-chat. Nudge.
+                                # CRITICAL FIX: DO NOT persist discovery_session_id here because
+                                # the session is already terminated/aborted. Re-attaching would
+                                # cause an infinite loop where ANY message keeps triggering discovery.
                                 reason = _CLARIFY_NUDGE_TEXT
                                 questions = _nudge_questions(not workspace_resolved)
                                 yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
-                                _finalize_clarify_message(
-                                    assistant_msg, reason, questions, user_content,
-                                    discovery_session_id=current_pending,
-                                )
+                                _finalize_clarify_message(assistant_msg, reason, questions, user_content, discovery_session_id=None)
                                 await persist_session.commit()
                                 return
                             elif auto_result is None and intent not in (INTENT_TASK_REQUEST, INTENT_TASK_CONFIRM):
@@ -783,13 +783,13 @@ async def chat_execute_endpoint(
                                 # the reply is not a fresh task request — treat
                                 # it as an unanswered clarification: nudge, and
                                 # never spawn the agent on the reply.
+                                # CRITICAL FIX: If auto_result is None, the pending session
+                                # is gone/errored — DO NOT re-attach marker. Only attach if
+                                # we actually have a valid active session below.
                                 reason = _CLARIFY_NUDGE_TEXT
                                 questions = _nudge_questions(not workspace_resolved)
                                 yield f"data: {json.dumps({'type': 'clarify', 'data': {'reason': reason, 'questions': questions}})}\n\n"
-                                _finalize_clarify_message(
-                                    assistant_msg, reason, questions, user_content,
-                                    discovery_session_id=current_pending,
-                                )
+                                _finalize_clarify_message(assistant_msg, reason, questions, user_content, discovery_session_id=None)
                                 await persist_session.commit()
                                 return
                             # else: task_request with a consumed/errored session
@@ -1209,6 +1209,10 @@ async def chat_stream_endpoint(
         )
 
         async def tool_event_generator():
+            # S3 FIX: collect streamed content so the assistant reply is
+            # persisted. Previously only the user message was committed here,
+            # so the assistant's tool-chat answer vanished on reload.
+            collected_content = ""
             try:
                 # Persist user message
                 from datetime import datetime, timezone
@@ -1233,7 +1237,31 @@ async def chat_stream_endpoint(
                     temperature=temp,
                     max_tokens=max_t,
                 ):
+                    # Collect content chunks for persistence
+                    try:
+                        if sse_event.startswith("data: "):
+                            data = json.loads(sse_event[6:].strip())
+                            if data.get("type") == "chunk" and data.get("content"):
+                                collected_content += data["content"]
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
                     yield sse_event
+
+                # S3 FIX: persist the assistant message after stream completes
+                if collected_content:
+                    from datetime import datetime, timezone
+                    from storage.models import Message as _Msg
+                    asst_msg = _Msg(
+                        conversation_id=payload.conversation_id,
+                        role="assistant",
+                        content=collected_content,
+                        status="completed",
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                        token_count=len(collected_content) // 4,
+                    )
+                    db.add(asst_msg)
+                    await db.commit()
             except Exception as e:
                 # Round-6 FIX: log the raw error server-side, return a fixed
                 # friendly message to the client.
