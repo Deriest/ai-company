@@ -23,7 +23,7 @@ import { type ProjectRecord } from '../lib/api/projects'
 import { ProjectPicker } from './ProjectPicker'
 import { resolveDefaultModelId, type ProviderLike } from '../lib/providerModel'
 import { clamp, computeMessageWindow } from '../lib/virtualList'
-import { WorkflowSelector, WorkflowStepper, WorkflowModeBanner } from './WorkflowSelector'
+import { WorkflowSelector, WorkflowStepper } from './WorkflowSelector'
 import { readPreferredWorkflow, writePreferredWorkflow, getWorkflow } from '../lib/workflows'
 import type { WorkflowType, WorkflowTag } from '../lib/api/chat'
 
@@ -1496,21 +1496,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   }, [])
 
   // ── Workflow selection handlers ───────────────────────────
-  // Selecting a card tags the next message with the workflow type and
-  // (when the composer is empty) pre-fills it with an example prompt so new
-  // users get a starting point. The preference is persisted to localStorage.
-  const handleSelectWorkflow = useCallback((wf: { type: WorkflowType; example: string }) => {
-    setSelectedWorkflow(wf.type)
-    writePreferredWorkflow(wf.type)
-    setWorkflowPanelOpen(false)
-    // Only pre-fill when the composer is empty — never overwrite user text.
-    setInput(prev => prev.trim() ? prev : wf.example)
-  }, [])
-
-  const handleClearWorkflow = useCallback(() => {
-    setSelectedWorkflow(null)
-    setWorkflowPanelOpen(false)
-  }, [])
+  // Selecting a card tags the next message with the workflow type and, [])
 
   return (
     <div className="flex flex-col absolute inset-0">
@@ -1685,55 +1671,12 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
                 </button>
 
-                {/* Workflow selector chip — shows the active mode or "Auto". Opens
-                    the task-type card panel above the composer. */}
-                <button onClick={() => setWorkflowPanelOpen(o => !o)}
-                  aria-label="Select workflow type"
-                  aria-expanded={workflowPanelOpen}
-                  title="Choose a task workflow (build / bugfix / audit / …)"
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[8px] font-medium transition-colors",
-                    selectedWorkflow
-                      ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
-                      : "border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}>
+                {/* Workflow — auto-detection only (no manual selection) */}
+                <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground">
                   <Sparkles className="size-2.5" />
-                  {selectedWorkflow ? (getWorkflow(selectedWorkflow)?.label ?? selectedWorkflow) : 'Auto'}
-                  <ChevronDown className={cn("size-2.5 transition-transform", workflowPanelOpen && "rotate-180")} />
-                </button>
+                  Auto-detect
+                </span>
               </div>
-
-              {/* Workflow task-type selector panel (cards) */}
-              {workflowPanelOpen && (
-                <div className="mb-2 rounded-lg border border-border/60 bg-card/80 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Choose a workflow
-                    </span>
-                    <button onClick={() => setWorkflowPanelOpen(false)} aria-label="Close workflow selector"
-                      className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground">
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                  <WorkflowSelector
-                    selected={selectedWorkflow}
-                    onSelect={(wf) => handleSelectWorkflow(wf)}
-                  />
-                  <button onClick={handleClearWorkflow}
-                    className="mt-2 text-[10px] text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline">
-                    Use auto-detection (no explicit workflow)
-                  </button>
-                </div>
-              )}
-
-              {/* Mode banner — shows the selected workflow + pipeline for the next message */}
-              {selectedWorkflow && !workflowPanelOpen && (
-                <WorkflowModeBanner
-                  type={selectedWorkflow}
-                  onChangeType={() => setWorkflowPanelOpen(true)}
-                  onClear={handleClearWorkflow}
-                />
-              )}
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
               {attachWarnings.length > 0 && (
