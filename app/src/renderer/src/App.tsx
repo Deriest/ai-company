@@ -248,7 +248,7 @@ const boot = useBoot({
           <div className="relative flex flex-1 min-h-0 flex-col">
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
-            <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col absolute inset-0 visibility-hidden !important opacity-0 pointer-events-none" : ""}>
+            <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
               <ChatView
                 health={boot.health}
                 currentProvider={boot.currentProvider}
