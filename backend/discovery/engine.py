@@ -198,6 +198,16 @@ class DiscoveryEngine:
         # Step 1: Intent Classification
         intent = IntentClassifier.classify(content, history)
 
+        # Conditional LLM: only upgrade when regex confidence is low (e.g. the
+        # catch-all "feature" @ 0.60 for vague requests like "make a website").
+        if intent.base_intent == "task_request" and intent.confidence < 0.80:
+            try:
+                llm_intent = await IntentClassifier.classify_with_llm(content, history)
+                if llm_intent.confidence > intent.confidence:
+                    intent = llm_intent
+            except Exception as e:
+                logger.warning(f"LLM intent fallback skipped: {e}")
+
         # If not a task request, skip discovery
         if intent.base_intent != "task_request":
             discovery_session.status = DiscoveryState.ABORTED.value
@@ -253,6 +263,7 @@ class DiscoveryEngine:
             return await self._handle_not_ready(
                 discovery_session, intent, extraction, readiness, ambiguity, content,
                 force_if_substantive=force_if_substantive,
+                history=history,
             )
 
     async def _handle_ready(
@@ -331,16 +342,23 @@ class DiscoveryEngine:
         ambiguity: AmbiguityReport,
         content: str,
         force_if_substantive: bool = False,
+        history: list | None = None,
     ) -> DiscoveryResult:
         """Handle case when request is NOT Engineering Ready."""
         # Update state to CLARIFICATION
         discovery_session.status = DiscoveryState.CLARIFICATION.value
         discovery_session.round_number += 1
 
-        # Generate clarification questions
-        clarification = ClarificationEngine.generate_questions(
+        # Generate clarification questions — pass the classified intent so the
+        # clarifier can ask intent-first questions (purpose/audience/example)
+        # before diving into technical readiness gaps. Uses LLM-generated
+        # questions when a provider is available (falls back to static).
+        clarification = await ClarificationEngine.generate_questions_async(
             readiness, extraction, ambiguity, intent.domain,
-            discovery_session.round_number - 1
+            discovery_session.round_number - 1,
+            user_content=content,
+            history=history,
+            intent=intent,
         )
 
         # Update session

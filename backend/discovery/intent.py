@@ -228,7 +228,8 @@ class IntentClassifier:
 feature, bugfix, refactor, docs, test, infra, research, architecture, security,
 performance, devops, database, ui, ai_llm, chat
 
-Respond with ONLY the domain name, nothing else."""
+Also rate your confidence (0.0-1.0).
+Respond as JSON: {"domain": "...", "confidence": 0.85}"""
 
         try:
             result = await provider.chat(
@@ -238,21 +239,35 @@ Respond with ONLY the domain name, nothing else."""
                 ],
                 tier=ModelTier.SPRINTER,
                 temperature=0.0,
-                max_tokens=20,
+                max_tokens=40,
                 purpose="discovery_domain_classification",
             )
 
-            raw = result.get("content", "").strip().lower()
+            raw = result.get("content", "").strip()
             if raw.startswith("``"):
                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
+            # Parse JSON response {domain, confidence}; fall back to a bare domain.
+            import json
+            domain = ""
+            confidence = 0.80
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    domain = (parsed.get("domain") or "").strip().lower()
+                    c = parsed.get("confidence")
+                    if isinstance(c, (int, float)):
+                        confidence = max(0.0, min(1.0, float(c)))
+            except (json.JSONDecodeError, ValueError):
+                domain = raw.strip().lower()
+
             valid_domains = DomainRegistry.get_names()
-            if raw in valid_domains:
+            if domain in valid_domains:
                 return IntentResult(
                     base_intent="task_request",
-                    domain=raw,
-                    confidence=0.90,
-                    reason=f"LLM classified as {raw}",
+                    domain=domain,
+                    confidence=confidence if confidence > 0.5 else 0.80,
+                    reason=f"LLM classified as {domain}",
                 )
 
         except Exception as e:

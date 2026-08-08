@@ -955,9 +955,13 @@ async def chat_execute_endpoint(
                 # Round-6 FIX: emit a "queued" status before waiting so the UI
                 # shows the run is queued instead of silently hanging, and bound
                 # the wait with a generous timeout (clean error on timeout).
+                # BUG-FIX: only emit "queued" when the slot is NOT immediately
+                # available — don't show a false queue when there is no
+                # contention (the common single-user case).
                 semaphore_acquired = False
                 try:
-                    yield f"data: {json.dumps({'type': 'status', 'status': 'queued', 'worker': worker_type})}\n\n"
+                    if AGENT_RUN_SEMAPHORE.locked():
+                        yield f"data: {json.dumps({'type': 'status', 'status': 'queued', 'worker': worker_type})}\n\n"
                     await asyncio.wait_for(AGENT_RUN_SEMAPHORE.acquire(), timeout=AGENT_RUN_QUEUE_TIMEOUT)
                     semaphore_acquired = True
                 except asyncio.TimeoutError:

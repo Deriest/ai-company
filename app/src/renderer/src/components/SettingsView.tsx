@@ -14,10 +14,126 @@ import { backupApi, type BackupRecord, type BackupValidateResult } from '../lib/
 
 const tabs = [
   'General', 'Workspace', 'Providers',
-  'Updates', 'Data',
+  'Updates', 'Data', 'Support',
 ] as const
 export type SettingsTab = (typeof tabs)[number]
 type Tab = SettingsTab
+
+/* ─── Support Tab — Guided Bug Reporter ─── */
+
+function SupportTab() {
+  const [location, setLocation] = useState('')
+  const [description, setDescription] = useState('')
+  const [logTail, setLogTail] = useState('')
+  const [version, setVersion] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const LOCATIONS = [
+    'Chat / Command Center',
+    'Settings',
+    'Providers setup',
+    'Dashboard / Workspace',
+    'Discovery / Workflow',
+    'Terminal',
+    'Other',
+  ]
+
+  useEffect(() => {
+    // Auto-capture context: last console errors + app version.
+    try {
+      setLogTail(
+        (window as any).__lastConsoleErrors?.slice?.(-5)?.join('\n') ||
+        'No recent console errors captured.',
+      )
+    } catch {
+      setLogTail('No recent console errors captured.')
+    }
+    const v = (window as any).aic?.getVersion?.()
+    if (v) setVersion(String(v))
+    else setVersion('unknown')
+  }, [])
+
+  const buildReport = () => [
+    '## Bug Report',
+    '',
+    `**Where:** ${location || '(not specified)'}`,
+    `**Version:** ${version}`,
+    '',
+    '**What happened:**',
+    description || '(no description provided)',
+    '',
+    '**Console errors:**',
+    '```',
+    logTail,
+    '```',
+  ].join('\n')
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(buildReport()).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }, [location, description, logTail, version])
+
+  const handleOpenIssue = useCallback(() => {
+    const url = 'https://github.com/Deriest/ai-company/issues/new?body=' +
+      encodeURIComponent(buildReport())
+    window.aic?.openExternal?.(url)?.catch?.(() => window.open(url, '_blank'))
+  }, [location, description, logTail, version])
+
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="text-lg font-semibold">Report a Bug</h3>
+        <p className="text-sm text-muted-foreground">
+          A structured report is generated automatically with your version and
+          console errors. Fill in the details below.
+        </p>
+      </div>
+
+      <div>
+        <label className="text-sm text-muted-foreground">Where did you see it?</label>
+        <select
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+        >
+          <option value="">Select a location…</option>
+          {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label className="text-sm text-muted-foreground">What happened?</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
+          placeholder="e.g. Button did nothing / Error toast appeared"
+          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm text-muted-foreground">Auto-captured console errors</label>
+        <pre className="mt-1 max-h-32 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap">
+          {logTail}
+        </pre>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button onClick={handleCopy}
+          className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted">
+          {copied ? 'Copied ✓' : 'Copy report'}
+        </button>
+        <button onClick={handleOpenIssue}
+          className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-black hover:bg-cyan-400">
+          Open GitHub Issue
+        </button>
+      </div>
+    </Card>
+  )
+}
 
 /* ─── Workspace Tab ─── */
 
@@ -808,6 +924,7 @@ export function SettingsView({
         {tab === 'Providers' && <ProvidersTab />}
         {tab === 'Updates' && <UpdatesTab />}
         {tab === 'Data' && <DataTab />}
+        {tab === 'Support' && <SupportTab />}
       </div>
     </div>
   )

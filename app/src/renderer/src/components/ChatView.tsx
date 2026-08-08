@@ -942,10 +942,18 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       // timestamps. Numeric parsing plus a small same-turn tolerance keeps
       // each user message before its assistant response after reload.
       const roleRank = (m: MessageRecord) => m.role === 'user' ? 0 : 1
+      // Stable ordering fix (chat reorders after view switch): expand the
+      // same-turn tolerance and add a tertiary sort by id so messages keep a
+      // deterministic order instead of flipping when rapid-fire timestamps
+      // differ by more than the old 5ms window.
       setMessages([...loaded, ...localOnly].sort((a, b) =>
         (() => {
           const delta = messageTimestamp(a.created_at) - messageTimestamp(b.created_at)
-          return Math.abs(delta) <= 5 ? roleRank(a) - roleRank(b) : delta
+          if (Math.abs(delta) <= 50) {
+            const rank = roleRank(a) - roleRank(b)
+            return rank !== 0 ? rank : (a.id ?? '').localeCompare(b.id ?? '')
+          }
+          return delta
         })()
       ))
     }
