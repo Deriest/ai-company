@@ -18,7 +18,7 @@ import type { LocalProfile } from "../lib/api/profile";
 const nav = [
   { id: "home", label: "Office", icon: LayoutDashboard },
   { id: "hermes", label: "Command Center", icon: Terminal },
-  { id: "live", label: "Live Company", icon: Users },
+  
   { id: "skills", label: "Skills", icon: Wrench },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "plugins", label: "Plugins", icon: GitBranch },

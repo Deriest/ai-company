@@ -6,7 +6,6 @@ import { AppShell } from "./components/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WorkspaceView } from "./components/WorkspaceView";
 import { ChatView } from "./components/ChatView";
-import { LiveCompanyView } from "./components/LiveCompanyView";
 import { SettingsView, type SettingsTab } from "./components/SettingsView";
 import { MCPView } from "./components/MCPView";
 import { SkillsView } from "./components/SkillsView";
@@ -24,7 +23,7 @@ import { profileApi, type LocalProfile } from "./lib/api/profile";
 import type { ProjectRecord } from "./lib/api/projects";
 import type { RestoredState, View } from "./types";
 
-const navViews: View[] = ["home", "hermes", "live", "skills", "mcp", "plugins", "settings"];
+const navViews: View[] = ["home", "hermes", "skills", "mcp", "plugins", "settings"];
 
 /**
  * v2.4.0 — Local profile (no auth). First-launch onboarding → main dashboard.
@@ -178,12 +177,13 @@ const boot = useBoot({
       case "home":
       case "welcome":
       case "overview":
+      case "live":  // unified with office
         return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
       case "hermes":
       case "chat":
         return null;
-      case "live":
-        return <LiveCompanyView />;
+      // live route unified with workspace/office above
+
       case "skills":
         return <SkillsView />;
       case "mcp":

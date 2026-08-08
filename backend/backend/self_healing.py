@@ -70,6 +70,7 @@ class SelfHealingEngine:
         *,
         redispatch_created: bool = True,
         cancel_stale_in_progress: bool = True,
+        expire_blocked_leases: bool = True,
     ) -> HealthDiagnosticReport:
         issues: list[str] = []
         repairs: list[str] = []
@@ -95,6 +96,38 @@ class SelfHealingEngine:
                     w.current_task_id = None
                     w.current_lease_id = None
                     repairs.append(f"Reset worker '{w.name}' to IDLE")
+
+            # 1b. Expire ACTIVE leases that have been running too long (>30 min)
+            # so the worker is freed and the task can be retried.
+            if expire_blocked_leases:
+                from datetime import timedelta
+                threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
+                threshold_naive = threshold.replace(tzinfo=None)
+                res_leases = await self.session.execute(
+                    select(Lease).where(
+                        Lease.status == LeaseStatus.ACTIVE.value,
+                        Lease.created_at < threshold_naive,
+                    )
+                )
+                blocked_leases = res_leases.scalars().all()
+                for lease in blocked_leases:
+                    lease.status = LeaseStatus.EXPIRED.value
+                    lease.error_message = "Expired by self-healing (blocked >30min)"
+                    issues.append(
+                        f"Lease {lease.id[:8]} ({lease.worker_name}) blocked >30min"
+                    )
+                    repairs.append(f"Expired lease {lease.id[:8]} ({lease.worker_name})")
+                    # Reset the owning worker so it can accept new work
+                    if lease.worker_id:
+                        wres = await self.session.execute(
+                            select(Worker).where(Worker.id == lease.worker_id)
+                        )
+                        w = wres.scalar_one_or_none()
+                        if w and w.status == WorkerStatus.WORKING.value:
+                            w.status = WorkerStatus.IDLE.value
+                            w.current_task_id = None
+                            w.current_lease_id = None
+                            repairs.append(f"Reset worker '{w.name}' to IDLE after lease expiry")
 
             # 2. Cancel tasks left mid-phase after process death
             if cancel_stale_in_progress:

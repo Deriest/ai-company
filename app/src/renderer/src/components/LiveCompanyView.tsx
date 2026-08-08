@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, PageHeader, Badge } from './kit'
+import { Card, PageHeader, Badge, ProgressBar } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
 import {
@@ -83,45 +83,49 @@ interface LiveCompanyViewProps {
 export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
   const [selectedWorker, setSelectedWorker] = useState<WorkerDef | null>(null)
   const [workerStats, setWorkerStats] = useState<Record<string, any>>({})
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   // BUG-10 FIX: Compute total worker count dynamically from DEPARTMENTS
   const totalWorkers = DEPARTMENTS.reduce((sum, dept) => sum + dept.workers.length, 0);
   const totalDepts = DEPARTMENTS.length;
 
   useEffect(() => {
-    // Fetch worker runtime stats
-    apiClient.get<any[]>('/runtime/workers')
+    // Fetch live workforce status (includes currentlyRunning from leases)
+    apiClient.get<any[]>('/runtime/workforce')
       .then((workers) => {
         const stats: Record<string, any> = {}
         for (const w of workers || []) {
-          stats[w.role] = {
+          stats[w.id] = {
             isEnabled: w.isEnabled,
+            currentlyRunning: w.currentlyRunning,
             modelId: w.modelId,
-            metrics: w.metrics,
+            metrics: { running: w.totalRunningInTier },
           }
         }
         setWorkerStats(stats)
+        setLastUpdated(new Date())
       })
       .catch(() => { /* graceful */ })
-
   }, [])
 
   useEffect(() => {
     const interval = setInterval(() => {
-      apiClient.get<any[]>('/runtime/workers')
+      apiClient.get<any[]>('/runtime/workforce')
         .then((workers) => {
           const stats: Record<string, any> = {}
           for (const w of workers || []) {
-            stats[w.role] = {
+            stats[w.id] = {
               isEnabled: w.isEnabled,
+              currentlyRunning: w.currentlyRunning,
               modelId: w.modelId,
-              metrics: w.metrics,
+              metrics: { running: w.totalRunningInTier },
             }
           }
           setWorkerStats(stats)
+          setLastUpdated(new Date())
         })
         .catch(() => {})
-    }, 30000)
+    }, 5000)  // Poll every 5s for live visibility
     return () => clearInterval(interval)
   }, [])
 
@@ -155,6 +159,8 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {dept.workers.map((worker) => {
                   const stats = workerStats[worker.id] || {}
+                  const isBusy = stats.currentlyRunning === true
+                  const activeTaskInfo = stats.activeTaskInfo || null
                   const isActive = stats.isEnabled !== false
                   const isSelected = selectedWorker?.id === worker.id
                   const Icon = worker.icon
@@ -167,23 +173,29 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                         'flex flex-col gap-1.5 rounded-lg border p-2 text-left transition-all',
                         isSelected
                           ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
-                          : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
+                          : isBusy
+                            ? 'border-success/50 bg-success/5'
+                            : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
                       )}
                     >
                       <div className="flex items-center gap-2">
                         <div className={cn(
                           'grid size-8 place-items-center rounded-md',
-                          isActive ? 'bg-success/15' : 'bg-muted',
+                          isBusy ? 'bg-success/20' : isActive ? 'bg-success/15' : 'bg-muted',
                         )}>
-                          <Icon className={cn('size-4', isActive ? dept.color : 'text-muted-foreground')} />
+                          <Icon className={cn('size-4', isBusy ? 'text-success' : isActive ? dept.color : 'text-muted-foreground')} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold">{worker.name}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">{worker.role}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {isBusy ? 'Working…' : worker.role}
+                          </p>
                         </div>
                         <span className={cn(
                           'size-2 rounded-full',
-                          isActive ? 'bg-success' : 'bg-muted-foreground/40'
+                          isBusy
+                            ? 'bg-success animate-pulse'
+                            : isActive ? 'bg-success' : 'bg-muted-foreground/40'
                         )} />
                       </div>
 
@@ -194,10 +206,8 @@ export function LiveCompanyView({ onWorkerSelect }: LiveCompanyViewProps) {
                         <span className="text-[9px] text-muted-foreground">
                           {worker.phase}
                         </span>
-                        {stats.metrics && (
-                          <span className="ml-auto text-[9px] text-muted-foreground">
-                            {stats.metrics.totalExecutions || 0} tasks
-                          </span>
+                        {isBusy && (
+                          <span className="ml-auto text-[9px] font-medium text-success">● live</span>
                         )}
                       </div>
                     </button>
@@ -239,6 +249,7 @@ function WorkerDetail({
 }) {
   const Icon = worker.icon
   const metrics = stats.metrics || {}
+  const activeTaskInfo = stats.activeTaskInfo || null
 
   return (
     <div className="flex flex-col h-full">
@@ -289,6 +300,23 @@ function WorkerDetail({
           </div>
         </Card>
 
+        {/* Current Activity (NEW) */}
+        {activeTaskInfo && (
+          <Card>
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">Current Activity</h3>
+            <div className="space-y-2">
+              <p className="text-sm font-medium truncate">{activeTaskInfo.taskTitle || 'Unknown task'}</p>
+              <div className="flex items-center gap-2">
+                <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-primary/20 text-primary">
+                  {activeTaskInfo.phase}
+                </span>
+                <span className="text-[10px] text-muted-foreground">Progress</span>
+              </div>
+              <ProgressBar value={activeTaskInfo.progress} />
+            </div>
+          </Card>
+        )}
+
         {/* Runtime Config */}
         {stats.modelId && (
           <Card>
@@ -302,25 +330,17 @@ function WorkerDetail({
           </Card>
         )}
 
-        {/* Performance Metrics */}
+        {/* Runtime Status */}
         <Card>
-          <h3 className="text-xs font-semibold text-muted-foreground mb-2">Performance</h3>
+          <h3 className="text-xs font-semibold text-muted-foreground mb-2">Runtime Status</h3>
           <div className="grid grid-cols-2 gap-3">
             <div className="text-center">
-              <p className="text-lg font-bold">{metrics.totalExecutions || 0}</p>
-              <p className="text-[10px] text-muted-foreground">Total Tasks</p>
+              <p className="text-lg font-bold">{stats.currentlyRunning ? '●' : '○'}</p>
+              <p className="text-[10px] text-muted-foreground">{stats.currentlyRunning ? 'Working' : 'Idle'}</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold">{metrics.completed || 0}</p>
-              <p className="text-[10px] text-muted-foreground">Completed</p>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-destructive">{metrics.errors || 0}</p>
-              <p className="text-[10px] text-muted-foreground">Errors</p>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-bold">{metrics.avgLatencyMs ? `${(metrics.avgLatencyMs / 1000).toFixed(1)}s` : '—'}</p>
-              <p className="text-[10px] text-muted-foreground">Avg Latency</p>
+              <p className="text-lg font-bold">{metrics.running || 0}</p>
+              <p className="text-[10px] text-muted-foreground">Tier Running</p>
             </div>
           </div>
         </Card>

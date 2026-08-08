@@ -208,3 +208,88 @@ async def execute_tool(payload: ToolExecuteRequest, _auth: str = Depends(require
         logger.warning(f"Tool {tool_name} execution error: {result['error']}")
         return {"result": None, "error": "Tool execution failed", "execution_time_ms": result.get("execution_time_ms", 0)}
     return result
+
+
+
+
+# ---------------------------------------------------------------------------
+# GET /runtime/workforce — Office Floor Live Status
+# ---------------------------------------------------------------------------
+from storage.models import Lease, LeaseStatus, Task
+from sqlalchemy import select, or_, case
+from sqlalchemy import func as sqlfunc
+
+@router.get("/runtime/workforce")
+async def list_workforce(db: AsyncSession = Depends(get_db)):
+    """Returns the 15 canonical workers with live lease status for the office floor."""
+    # Fetch all canonical agent IDs from registry
+    from agents.registry import AGENT_REGISTRY
+    from storage.models import Task
+    
+    # Query active leases joined with task info so the office floor can show
+    # WHAT each busy worker is working on (title, phase, progress).
+    active_lease_result = await db.execute(
+        select(
+            Lease.worker_type,
+            Lease.phase,
+            Lease.task_id,
+            Task.title,
+            Task.progress,
+        )
+        .join(Task, Lease.task_id == Task.id)
+        .where(Lease.status == LeaseStatus.ACTIVE.value)
+    )
+    # Pick one (most recent) active task per worker_type
+    active_task_by_worker: dict[str, dict] = {}
+    for row in active_lease_result.all():
+        wtype = row[0]
+        if wtype not in active_task_by_worker:
+            active_task_by_worker[wtype] = {
+                "phase": row[1],
+                "taskId": row[2],
+                "taskTitle": row[3] or "",
+                "progress": row[4] or 0,
+            }
+    
+    responses = []
+    # Aggregate running executions per tier ONCE (avoid N+1 per agent)
+    from backend.models.ai_runtime import WorkerExecution
+    running_res = await db.execute(
+        select(WorkerExecution.worker_role, sqlfunc.count(WorkerExecution.id))
+        .where(WorkerExecution.status == "running")
+        .group_by(WorkerExecution.worker_role)
+    )
+    running_by_role = {row[0]: row[1] for row in running_res.all()}
+
+    # BE-1: Pre-fetch runtime model config per role ONCE (avoid N queries per agent).
+    # Roles in worker_runtime may use tier names (thinker/crafter) or canonical
+    # agent ids, so map both keys.
+    runtimes = await worker_runtime_service.get_all_workers(db)
+    model_by_role: dict[str, str | None] = {}
+    for rt in runtimes:
+        if rt.model_id:
+            model_by_role[rt.role] = rt.model_id
+
+    for agent_id, agent in sorted(AGENT_REGISTRY.items()):
+        active_info = active_task_by_worker.get(agent_id)
+        currently_running = active_info is not None
+
+        # Resolve configured model: exact agent id first, then its tier role.
+        tier = agent.model.tier.lower()
+        model_id = model_by_role.get(agent_id) or model_by_role.get(tier)
+
+        responses.append({
+            "id": agent.identity.id,
+            "name": agent.identity.name,
+            "role": agent.identity.role,
+            "department": agent.identity.department,
+            "tier": agent.model.tier,
+            "phase": agent.identity.phase,
+            "currentlyRunning": currently_running,
+            "activeTaskInfo": active_info,  # phase, title, progress of current work
+            "totalRunningInTier": running_by_role.get(tier, 0),
+            "modelId": model_id,  # configured runtime model, or None if unset
+            "isEnabled": True,
+        })
+    
+    return responses

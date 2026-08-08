@@ -10,6 +10,8 @@ Combines:
 - Durable project memory
 - Tool permissions
 """
+from typing import Optional
+
 from agents.registry import AGENT_REGISTRY, AgentDefinition
 
 
@@ -25,7 +27,7 @@ SKILL_MAP = {
 }
 
 
-def assemble_system_prompt(agent_id: str, task_context: dict, phase: str, project_context: dict = None) -> str:
+def assemble_system_prompt(agent_id: str, task_context: dict, phase: str, project_context: Optional[dict] = None) -> str:
     """Build the full system prompt for an agent's LLM call."""
     agent = AGENT_REGISTRY.get(agent_id)
     if not agent:
@@ -38,6 +40,17 @@ def assemble_system_prompt(agent_id: str, task_context: dict, phase: str, projec
     parts.append(f"Quality bar: {agent.soul.quality_bar}")
     parts.append(f"Evidence standards: {agent.soul.evidence_standards}")
     parts.append(f"Anti-patterns (DO NOT): {agent.soul.anti_patterns}")
+    
+    # Additional philosophical guidance (not always critical, but informs deeper decisions)
+    parts.append(f"\n--- ENGINEERING PHILOSOPHY ---")
+    parts.append(agent.soul.engineering_philosophy)
+    
+    parts.append(f"\n--- RISK PHILOSOPHY ---")
+    parts.append(agent.soul.risk_philosophy)
+
+    parts.append(f"\n--- COLLABORATION & ESCALATION ---")
+    parts.append(f"Collaboration style: {agent.soul.collaboration_style}")
+    parts.append(f"Escalation policy: {agent.soul.escalation_policy}")
 
     # 2. Phase-Specific Guidance
     parts.append(f"\n--- CURRENT PHASE: {phase.upper()} ---")
@@ -107,6 +120,20 @@ def assemble_system_prompt(agent_id: str, task_context: dict, phase: str, projec
         parts.append(f"Verification frequency: {adaptive.get('worker', {}).get('verification_frequency')}")
         parts.append(f"Checkpoint strategy: {adaptive.get('checkpoint_strategy')}")
         parts.append(f"Max parallel workers: {adaptive.get('worker', {}).get('max_parallel_workers')}")
+
+    # 8b. Worker Tuning Policy (per-worker defaults when no adaptive runtime)
+    else:
+        t = agent.tuning
+        parts.append(f"\n--- WORKING MODE ---")
+        parts.append(f"Planning depth: {t.planning_depth} | Verification: {t.verification_frequency} | Checkpoints: {t.checkpoint_strategy} | Prompt detail: {t.prompt_detail}")
+
+    # 8c. Lessons Learned — company memory from past executions
+    lessons = task_context.get("lessons_learned")
+    if lessons and isinstance(lessons, list):
+        parts.append(f"\n--- LESSONS LEARNED (from past company work) ---")
+        for l in lessons[:5]:
+            rec = l.get("recommendation") or ""
+            parts.append(f"• [{(l.get('category') or 'general').upper()}] {l.get('lesson', '')}" + (f" → {rec}" if rec else ""))
 
     # 9. Project Structure Context
     if project_context:

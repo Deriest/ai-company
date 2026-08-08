@@ -15,6 +15,7 @@ import {
 import { Card, PageHeader, ProgressBar } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
+import { connectWs } from '../lib/runtimeClient'
 import { FileTree } from './FileTree'
 
 // ── Types ──────────────────────────────────────────────
@@ -398,7 +399,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
     try {
       const [tasksRes, workersRes, usageRes] = await Promise.allSettled([
         apiClient.get<any[]>('/tasks?limit=50'),
-        apiClient.get<any[]>('/runtime/workers'),
+        apiClient.get<any[]>('/runtime/workforce'),
         // Keep token/cost data consistent with Live Company.
         apiClient.get<any>('/api/usage/stats?days=30'),
       ])
@@ -443,12 +444,13 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
           result.progress = 0
         } else {
           const rtWorker = runtimeWorkers.find((rw: any) =>
-            rw.role === w.id || rw.role === w.name.toLowerCase(),
+            rw.id === w.id || rw.id === w.name.toLowerCase(),
           )
-          if (rtWorker?.state === 'busy' || rtWorker?.state === 'working') {
+          if (rtWorker?.currentlyRunning) {
             result.status = 'working'
-            result.task = rtWorker.task || 'Processing'
-            result.progress = typeof rtWorker.progress === 'number' ? rtWorker.progress : 0
+            const taskInfo = rtWorker.activeTaskInfo
+            result.task = taskInfo?.taskTitle || rtWorker.task || 'Processing'
+            result.progress = typeof taskInfo?.progress === 'number' ? taskInfo.progress : (typeof rtWorker.progress === 'number' ? rtWorker.progress : 0)
           } else if (rtWorker?.state === 'meeting') {
             result.status = 'meeting'
             result.task = 'In meeting'
@@ -510,6 +512,28 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
   useEffect(() => {
     const interval = setInterval(loadData, 4000)
     return () => clearInterval(interval)
+  }, [loadData])
+
+  // WS-1: Instant refresh when backend broadcasts worker started/completed
+  // events (dispatcher/engine.py → broadcast_worker_event on channel "general").
+  // Debounced so event bursts coalesce into a single refetch; polling remains
+  // the fallback when the socket is unavailable.
+  useEffect(() => {
+    const wsRefreshRef = { current: null as ReturnType<typeof setTimeout> | null }
+    const cleanup = connectWs(
+      'general',
+      (msg) => {
+        const m = msg as { type?: string }
+        if (!m?.type?.startsWith('worker.')) return
+        if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
+        wsRefreshRef.current = setTimeout(() => { void loadData() }, 800)
+      },
+      () => { /* status changes ignored; polling is the fallback */ },
+    )
+    return () => {
+      if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
+      cleanup()
+    }
   }, [loadData])
 
   const workingCount = Object.values(workerStates).filter(s => s.status === 'working' || s.status === 'meeting').length

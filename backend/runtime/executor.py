@@ -407,6 +407,37 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 except Exception as e:
                     logger.debug(f"MCP memory query exception (non-critical): {e}")
 
+                # FITUR 2: Query lessons_learned table for company memory
+                lessons_learned = []
+                try:
+                    from backend.database.session import AsyncSessionLocal
+                    from storage.models import LessonLearned
+                    from sqlalchemy import func, or_, and_, select
+                    async with AsyncSessionLocal() as lesson_db:
+                        q = select(LessonLearned).where(
+                            or_(
+                                LessonLearned.category.in_(["execution", "design", "security"]),
+                                and_(LessonLearned.lesson.is_not(None), func.lower(LessonLearned.lesson).like(func.lower(f"%{task.type}%"))) if task.type else True
+                            )
+                        ).order_by(LessonLearned.created_at.desc()).limit(5)
+                        result = await lesson_db.execute(q)
+                        lessons = result.scalars().all()
+                        lessons_learned = [
+                            {
+                                "lesson": l.lesson,
+                                "category": l.category or "general",
+                                "impact": l.impact or "medium",
+                                "recommendation": l.recommendation or "",
+                            }
+                            for l in lessons
+                        ]
+                        if lessons_learned:
+                            logger.info(f"Lessons learned: retrieved {len(lessons_learned)} for task {task.id[:8]} ({task.type or 'general'})")
+                except ImportError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Lessons learned query exception (non-critical): {e}")
+
                 task_ctx = {
                     "task_id": task.id,
                     "title": task.title,
@@ -417,6 +448,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     "handoffs": handoffs_dict,
                     "skills": active_worker_skills,
                     "memories": active_project_memories,
+                    "lessons_learned": lessons_learned,
                     "plugins": plugin_contexts,
                     "phase": phase,
                     "execution_level": execution_level,
@@ -576,6 +608,23 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
 
                     if result.success and result.output:
                         # Build the handoff locally and rely on the main loop to
+                        
+                        # D1: Save key lessons/deliverables to durable project memory
+                        try:
+                            from backend.memory_engine import save_memory_entry
+                            from datetime import timezone as tz
+                            await save_memory_entry(
+                                worker_session,
+                                key=f"{phase}_{wtype}",
+                                value=result.output[:1000],  # truncated for storage
+                                project_id=task.project_id if hasattr(task, 'project_id') else effective_repo_path or None,
+                                scope='project',
+                                category='deliverable',
+                                importance=0.85,
+                            )
+                            logger.info(f"Saved project memory entry [{phase}]_{wtype}")
+                        except Exception as e:
+                            logger.debug(f"Project memory save failed (non-critical): {e}")
                         # merge it after asyncio.gather returns, so concurrent
                         # worker coroutines never mutate the shared handoffs_dict
                         # / ctx / task.context (lost-update race).

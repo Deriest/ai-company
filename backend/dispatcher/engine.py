@@ -195,6 +195,20 @@ class DispatcherEngine:
                     "worker_type": node_data.get("worker_type", "backend"),
                     "title": node_data.get("title", ""),
                 })
+                
+                # D2: Broadcast worker status to all connected clients via WebSocket
+                try:
+                    from backend.routes.websocket import broadcast_worker_event
+                    await broadcast_worker_event(
+                        f"worker.{node_data.get('worker_type', 'unknown')}.started",
+                        node_id,
+                        {
+                            "title": node_data.get("title", ""),
+                            "phase": node_data.get("phase", ""),
+                        },
+                    )
+                except Exception as e:
+                    logger.debug(f"Worker event broadcast failed: {e}")
 
                 try:
                     run_result = await self._execute_node_in_new_session(
@@ -233,6 +247,22 @@ class DispatcherEngine:
                     "success": execution.status == "completed",
                     "worker_type": node_data.get("worker_type", "backend"),
                 })
+
+                # C1: broadcast completion/failure to WebSocket clients so the
+                # office floor can update instantly (no polling wait).
+                try:
+                    from backend.routes.websocket import broadcast_worker_event
+                    await broadcast_worker_event(
+                        f"worker.{node_data.get('worker_type', 'backend')}.{execution.status}",
+                        node_id,
+                        {
+                            "success": execution.status == "completed",
+                            "title": node_data.get("title", ""),
+                        },
+                    )
+                except Exception as e:
+                    logger.debug(f"Worker completion broadcast failed (non-critical): {e}")
+
                 return node_id, execution.status
 
             results = await asyncio.gather(

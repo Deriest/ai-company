@@ -76,6 +76,18 @@ class HeartbeatPolicy:
     interval_seconds: int = 300  # 5 min default
     actions: list[str] = field(default_factory=list)
 
+
+# ── Worker Tuning Policy ────────────────────────────────
+
+@dataclass
+class WorkerTuningPolicy:
+    """Per-worker execution tuning — how deeply and carefully this worker works."""
+    planning_depth: str = "standard"          # minimal | standard | comprehensive
+    verification_frequency: str = "after_each_step"  # none | after_each_step | at_key_checkpoints
+    checkpoint_strategy: str = "save_all_tool_calls"  # none | save_minimal | save_all_tool_calls
+    max_parallel_workers: int = 3
+    prompt_detail: str = "standard"           # terse | standard | detailed
+
 # ── Full Agent Definition ───────────────────────────────
 
 @dataclass
@@ -86,6 +98,7 @@ class AgentDefinition:
     tools: ToolPermissions
     model: ModelPolicy
     heartbeat: HeartbeatPolicy
+    tuning: WorkerTuningPolicy = field(default_factory=WorkerTuningPolicy)
     skills: list[str] = field(default_factory=list)
 
     @property
@@ -172,6 +185,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="thinker", temperature=0.2, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=True, interval_seconds=60, actions=["check_stale_tasks", "check_blocked_tasks"]),
+    tuning=WorkerTuningPolicy(
+        planning_depth="comprehensive",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=5,
+        prompt_detail="detailed"
+    ),
     skills=["discovery", "requirements", "delegation", "orchestration"],
 ))
 
@@ -200,6 +220,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="sprinter", temperature=0.2, timeout=60),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="minimal",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_minimal",
+        max_parallel_workers=1,
+        prompt_detail="terse",
+    ),
     skills=["governance", "closeout", "compliance", "review", "taste"],
 ))
 
@@ -230,6 +257,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="thinker", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="comprehensive",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=3,
+        prompt_detail="detailed",
+    ),
     skills=["discovery", "requirements", "user_stories", "acceptance_criteria", "taste"],
 ))
 
@@ -258,6 +292,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="thinker", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="comprehensive",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="detailed",
+    ),
     skills=["research", "analysis", "trade_off_evaluation", "documentation_review", "taste"],
 ))
 
@@ -286,6 +327,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.4, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_minimal",
+        max_parallel_workers=2,
+        prompt_detail="standard",
+    ),
     skills=["ui_design", "ux_design", "accessibility", "design_system"],
 ))
 
@@ -314,6 +362,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=90),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="minimal",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_minimal",
+        max_parallel_workers=2,
+        prompt_detail="terse",
+    ),
     skills=["documentation", "readme_generation", "api_docs", "user_guides", "taste"],
 ))
 
@@ -344,6 +399,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="thinker", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="comprehensive",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=3,
+        prompt_detail="detailed"
+    ),
     skills=["architecture", "system_design", "decomposition", "trade_off_analysis"],
 ))
 
@@ -372,6 +434,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=3,
+        prompt_detail="standard",
+    ),
     skills=["backend", "api_design", "database", "error_handling", "testing"],
 ))
 
@@ -400,6 +469,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=3,
+        prompt_detail="standard",
+    ),
     skills=["frontend", "react", "ui_implementation", "accessibility", "state_management"],
 ))
 
@@ -434,6 +510,13 @@ You are SKEPTICAL. You try to find problems. You NEVER rubber-stamp. Do NOT perf
     ),
     model=ModelPolicy(tier="sprinter", temperature=0.1, timeout=60),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=3,
+        prompt_detail="detailed",
+    ),
     skills=["qa", "testing", "verification", "syntax_checking", "requirements_validation", "code_review", "taste"],
 ))
 
@@ -462,6 +545,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="sprinter", temperature=0.1, timeout=60),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="detailed",
+    ),
     skills=["performance", "profiling", "optimization", "benchmarking"],
 ))
 
@@ -492,6 +582,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="standard",
+    ),
     skills=["database", "schema_design", "sql", "data_modeling", "migrations"],
 ))
 
@@ -520,6 +617,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="standard",
+    ),
     skills=["integration", "interface_design", "contract_testing", "system_testing"],
 ))
 
@@ -548,6 +652,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.3, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="standard",
+        verification_frequency="at_key_checkpoints",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="standard",
+    ),
     skills=["infrastructure", "ci_cd", "deployment", "docker", "monitoring"],
 ))
 
@@ -576,6 +687,13 @@ _register(AgentDefinition(
     ),
     model=ModelPolicy(tier="crafter", temperature=0.2, timeout=120),
     heartbeat=HeartbeatPolicy(enabled=False),
+    tuning=WorkerTuningPolicy(
+        planning_depth="comprehensive",
+        verification_frequency="after_each_step",
+        checkpoint_strategy="save_all_tool_calls",
+        max_parallel_workers=2,
+        prompt_detail="detailed",
+    ),
     skills=["security", "threat_modeling", "vulnerability_analysis", "input_validation", "secret_detection"],
 ))
 

@@ -20,7 +20,7 @@ export function CommandPalette({ open, onClose, onNavigate, onNewSession, onTogg
   const commands: Command[] = useMemo(() => [
     { id: 'office', label: 'Go to Office', category: 'Navigation', icon: LayoutDashboard, action: () => { onNavigate('home'); onClose() } },
     { id: 'command', label: 'Go to Command Center', category: 'Navigation', icon: MessageSquare, action: () => { onNavigate('hermes'); onClose() } },
-    { id: 'company', label: 'Go to Live Company', category: 'Navigation', icon: Users, action: () => { onNavigate('live'); onClose() } },
+    { id: 'office', label: 'Go to Office', category: 'Navigation', icon: LayoutDashboard, action: () => { onNavigate('home'); onClose() } },
     { id: 'skills', label: 'Go to Skills', category: 'Navigation', icon: Wrench, action: () => { onNavigate('skills'); onClose() } },
     { id: 'mcp', label: 'Go to MCP Servers', category: 'Navigation', icon: Plug, action: () => { onNavigate('mcp'); onClose() } },
     { id: 'plugins', label: 'Go to Plugins', category: 'Navigation', icon: Blocks, action: () => { onNavigate('plugins'); onClose() } },

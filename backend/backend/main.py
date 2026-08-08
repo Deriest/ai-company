@@ -186,6 +186,46 @@ async def lifespan(app: FastAPI):
     from backend.services.heartbeat import start_heartbeat
     start_heartbeat()
 
+    # Heartbeat subscribers — act on stale tasks / blocked leases via self-healing.
+    try:
+        from backend.self_healing import SelfHealingEngine
+        from events.bus import bus
+
+        async def _on_stale_tasks(event_data):
+            logger.info(f"Heartbeat: {event_data.get('count', 0)} stale task(s) detected — running self-heal")
+            try:
+                async with AsyncSessionLocal() as db:
+                    report = await SelfHealingEngine(db).audit_and_repair(
+                        redispatch_created=True,
+                        cancel_stale_in_progress=True,
+                    )
+                    await db.commit()
+                    if report.repairs:
+                        logger.info(f"Heartbeat self-heal repaired: {report.repairs}")
+            except Exception as e:
+                logger.warning(f"Heartbeat stale-task self-heal failed: {e}")
+
+        async def _on_blocked_leases(event_data):
+            logger.info(f"Heartbeat: {event_data.get('count', 0)} blocked lease(s) detected — running self-heal")
+            try:
+                async with AsyncSessionLocal() as db:
+                    report = await SelfHealingEngine(db).audit_and_repair(
+                        redispatch_created=False,
+                        cancel_stale_in_progress=False,
+                        expire_blocked_leases=True,
+                    )
+                    await db.commit()
+                    if report.repairs:
+                        logger.info(f"Heartbeat self-heal repaired: {report.repairs}")
+            except Exception as e:
+                logger.warning(f"Heartbeat blocked-lease self-heal failed: {e}")
+
+        await bus.subscribe("heartbeat.stale_tasks", _on_stale_tasks)
+        await bus.subscribe("heartbeat.blocked_leases", _on_blocked_leases)
+        logger.info("Heartbeat self-heal subscribers registered")
+    except Exception as e:
+        logger.warning(f"Failed to register heartbeat subscribers: {e}")
+
     # H7: start the background job worker so queued jobs actually execute.
     try:
         from backend.services.job_scheduler import job_scheduler
