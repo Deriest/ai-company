@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.72** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.78** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2471)
+- [Download](#download-v2478)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.71
+## Download v2.4.78
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.71.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-Setup-2.4.71.exe) |
-| Linux AppImage | [AIC-ADE-2.4.71-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-2.4.71-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.71-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.71/AIC-ADE-2.4.71-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.78.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-Setup-2.4.78.exe) |
+| Linux AppImage | [AIC-ADE-2.4.78-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.78-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.78/AIC-ADE-2.4.78-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.71)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.78)
 
 ### Checksums
 
@@ -125,7 +125,7 @@ Product, Engineering, and Platform departments.
 
 ### From the release build
 
-1. Download the installer for your platform (see [Download](#download-v2471)).
+1. Download the installer for your platform (see [Download](#download-v2478)).
 2. Install and launch.
 3. Open **Settings → Providers** and add your LLM provider (any OpenAI-compatible
    endpoint: OpenAI, OpenRouter, vLLM, Ollama, LM Studio, etc.).
@@ -218,7 +218,12 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.4.71
+## What's New in v2.4.78
+
+### Bug Fixes
+- **Conversation delete cascade fix**: Fixed silent failure when deleting conversations that have associated engineering pipelines. The delete handler now properly cascades through all FK-dependent tables: `engineering_briefs`, `planning_sessions`, `task_graphs`, `dispatch_sessions`, `verification_sessions`, `engineering_reports`, and `lessons_learned`. Previously, orphan rows would cause commit failures due to unhandled foreign key constraints.
+- **Batch conversation delete**: Added the same cascade handling to `/api/conversations/batch` endpoint for bulk delete operations.
+- **Improved error visibility**: Frontend `handleDelete` in `ChatView.tsx` now shows an alert dialog on delete failure instead of silently logging to console.
 
 - **Smarter workspace folders** — AIC-ADE remembers the folder you last worked
   in. If you start a new task without choosing a folder, it uses the last one
@@ -296,7 +301,7 @@ Your security and privacy are built in:
   trusted links (e.g. GitHub), never arbitrary web pages.
 - **One instance at a time** — the app prevents duplicate backends that could
   cause data conflicts.
-- **Enhanced security posture** — AIC-ADE v2.4.71 includes comprehensive security hardening:
+- **Enhanced security posture** — AIC-ADE v2.4.78 includes comprehensive security hardening:
   - All authentication endpoints use `Cache-Control: no-store` to prevent credential caching
   - Content Security Policy (CSP) with strict source restrictions
   - Permissions policy to disable unnecessary browser features
@@ -309,7 +314,7 @@ Your security and privacy are built in:
 
 ## Documentation
 
-- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.71)
+- [`CHANGELOG.md`](./CHANGELOG.md) — full release history (through v2.4.78)
 - [`docs/sot/`](./docs/sot/) — product and engineering source of truth
 - [`docs/product-discovery/`](./docs/product-discovery/) — architecture and implementation analysis
 
