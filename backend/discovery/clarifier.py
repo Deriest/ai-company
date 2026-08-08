@@ -144,7 +144,7 @@ they want and WHY — not HOW to implement it.
 
 Rules:
 - Ask 3-5 questions MAX
-- Round {round}: {"First questions — focus on purpose, audience, and success criteria" if round is 0 else "Follow-up — drill into gaps from previous answers"}
+- Round focus: {round_guide}
 - The first 1-2 questions MUST be intent-first: goal, audience, or a concrete example
 - Later questions may address technical gaps, but in plain language
 - NEVER ask about testing frameworks, CI/CD, or coverage unless the user mentioned testing
@@ -230,8 +230,13 @@ Respond ONLY as a JSON array:
             ]
             history_section = "Recent conversation:\n" + "\n".join(lines)
 
+        round_guide = (
+            "First questions — focus on purpose, audience, and success criteria"
+            if round_number == 0
+            else "Follow-up — drill into gaps from previous answers"
+        )
         prompt = cls._DISCOVERY_PROMPT.format(
-            round=round_number,
+            round_guide=round_guide,
             domain=domain or "general",
             content=str(content)[:1000],
             history_section=history_section,
