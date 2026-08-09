@@ -503,9 +503,31 @@ function formatClarify(p: ClarifyPayload): string {
   return lines.join('\n')
 }
 
-/** Structured "I need a few details" assistant block (clarify SSE event). */
-function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayload; onPickWorkspaceFolder?: () => void }) {
+/** Structured "I need a few details" assistant block (clarify SSE event).
+ *
+ * Interactive: each question renders clickable option chips plus a free-text
+ * field ("or specify your own"). "Send answers" submits a compact Q->A summary
+ * straight into the discovery pipeline - no manual typing needed.
+ */
+function ClarifyBlock({ payload, onPickWorkspaceFolder, onSubmitAnswer }: { payload: ClarifyPayload; onPickWorkspaceFolder?: () => void; onSubmitAnswer?: (text: string) => void }) {
   const intro = payload.reason || 'Before we start, I need some details:'
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+
+  const total = payload.questions?.length || 0
+  const answeredCount = payload.questions?.filter(q => (answers[q.id] || '').trim()).length || 0
+
+  // Compact "Q -> A" summary consumed by discovery.respond_to_clarification (plain text).
+  const buildAnswerText = (): string =>
+    (payload.questions || []).map((q, i) => {
+      const a = (answers[q.id] || '').trim()
+      return `${i + 1}. ${q.question} -> ${a || '(not answered)'}`
+    }).join('\n')
+
+  const handleSendAnswers = () => {
+    if (!answeredCount || !onSubmitAnswer) return
+    onSubmitAnswer(buildAnswerText())
+  }
+
   return (
     <div className="my-1 rounded-lg border border-info/30 bg-info/5 p-3">
       <div className="flex items-center gap-2">
@@ -514,35 +536,79 @@ function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayl
       </div>
       <p className="mt-2 text-[12px] leading-relaxed text-foreground/85">{intro}</p>
       <ol className="mt-2 space-y-2">
-        {payload.questions?.map((q, i) => (
-          <li key={q.id} className="rounded-md border border-border/50 bg-card/60 p-2">
-            <div className="flex items-start gap-2">
-              <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-info/15 text-[9px] font-semibold text-info">{i + 1}</span>
-              <span className="text-[12px] leading-snug">{q.question}</span>
-            </div>
-            {q.options?.length ? (
-              <div className="mt-1.5 flex flex-wrap gap-1 pl-6">
-                {q.options.map(opt => (
-                  <span key={opt} className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{opt}</span>
-                ))}
+        {payload.questions?.map((q, i) => {
+          const selected = answers[q.id] || ''
+          return (
+            <li key={q.id} className="rounded-md border border-border/50 bg-card/60 p-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-info/15 text-[9px] font-semibold text-info">{i + 1}</span>
+                <span className="text-[12px] leading-snug">{q.question}</span>
               </div>
-            ) : null}
-            {/* Workspace question affordance */}
-            {q.id === 'workspace' && onPickWorkspaceFolder && (
-              <button
-                type="button"
-                onClick={onPickWorkspaceFolder}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/70"
-                title="Select an absolute folder path to use as the workspace root"
-              >
-                <PanelRight className="size-3.5" />
-                Select a folder…
-              </button>
-            )}
-          </li>
-        ))}
+              {q.options?.length ? (
+                <div className="mt-1.5 flex flex-wrap gap-1 pl-6">
+                  {q.options.map(opt => {
+                    const isSel = selected === opt
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        disabled={!onSubmitAnswer}
+                        onClick={() => setAnswers(prev => ({ ...prev, [q.id]: isSel ? '' : opt }))}
+                        className={cn(
+                          'rounded border px-1.5 py-0.5 text-[10px] font-mono transition-colors',
+                          isSel
+                            ? 'border-info bg-info/15 text-info'
+                            : 'border-border/60 bg-muted/40 text-muted-foreground hover:border-info/50 hover:text-foreground',
+                        )}
+                      >
+                        {opt}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              {/* Free-text answer - doubles as "specify your own" for option questions */}
+              <div className="mt-1.5 pl-6">
+                <input
+                  type="text"
+                  placeholder={q.options?.length ? '...or type your own answer' : 'Type your answer...'}
+                  value={selected}
+                  onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+                  className="w-full max-w-[420px] rounded border border-border/50 bg-background/50 px-2 py-1 text-[11px] outline-none placeholder:text-muted-foreground/40 focus:border-info/50"
+                />
+              </div>
+              {/* Workspace question affordance */}
+              {q.id === 'workspace' && onPickWorkspaceFolder && (
+                <button
+                  type="button"
+                  onClick={onPickWorkspaceFolder}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/70"
+                  title="Select an absolute folder path to use as the workspace root"
+                >
+                  <PanelRight className="size-3.5" />
+                  Select a folder...
+                </button>
+              )}
+            </li>
+          )
+        })}
       </ol>
-      <p className="mt-2 text-[10px] text-muted-foreground/70">Reply in the next message to continue.</p>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] text-muted-foreground/70">
+          {answeredCount ? `${answeredCount}/${total} answered` : 'Pick an option or type an answer, then send.'}
+        </span>
+        {answeredCount > 0 && (
+          <button
+            type="button"
+            onClick={handleSendAnswers}
+            disabled={!onSubmitAnswer}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40 hover:bg-primary/90"
+          >
+            <Send className="size-3" />
+            Send answers
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -550,7 +616,7 @@ function ClarifyBlock({ payload, onPickWorkspaceFolder }: { payload: ClarifyPayl
 // Exported for the component test (ChatView.test.tsx) — a real component test
 // renders MessageRow directly with a sample message instead of mocking the
 // whole ChatView (api calls, SSE, sessionStorage, ResizeObserver…).
-export const MessageRow = memo(function MessageRow({ message, state, onPickWorkspaceFolder }: { message: MessageRecord; state?: AssistantMessageState; onPickWorkspaceFolder?: () => void }) {
+export const MessageRow = memo(function MessageRow({ message, state, onPickWorkspaceFolder, onSubmitAnswer }: { message: MessageRecord; state?: AssistantMessageState; onPickWorkspaceFolder?: () => void; onSubmitAnswer?: (text: string) => void }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -608,7 +674,7 @@ export const MessageRow = memo(function MessageRow({ message, state, onPickWorks
                 ? (message.message_metadata as { clarify?: ClarifyPayload } | undefined)?.clarify
                 : undefined)
             if (clarify) {
-              return <ClarifyBlock payload={clarify} onPickWorkspaceFolder={onPickWorkspaceFolder} />
+              return <ClarifyBlock payload={clarify} onPickWorkspaceFolder={onPickWorkspaceFolder} onSubmitAnswer={onSubmitAnswer} />
             }
             // Workflow stepper: when this turn runs a specific workflow, show the
             // phase pipeline (only the phases that workflow allows) instead of a
@@ -1198,11 +1264,12 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     } catch (e) { console.error(e) }
   }
 
-  const handleSend = async () => {
+  const handleSend = async (overrideText?: string) => {
     // BUG-1: guard on the ref (set synchronously) instead of the `sending`
     // state, which can be stale in a closure when two Enter presses land in
     // the same tick — the ref closes the double-send race.
-    if ((!input.trim() && attachments.length === 0) || sendingRef.current) return
+    const composed = overrideText ?? input
+    if ((!composed.trim() && attachments.length === 0) || sendingRef.current) return
     sendingRef.current = true
     stopRequestedRef.current = false
     const hasImages = attachments.some(file => file.type.startsWith('image/'))
@@ -1213,7 +1280,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       setVisionWarning('The selected Vision model does not support images. Select a model marked Vision in the Vision tier.')
       return
     }
-    const text = input.trim()
+    const text = composed.trim()
     const attachmentText = attachments.map(file => `[Attached file: ${file.name}]`).join('\n')
     const promptText = [text, attachmentText].filter(Boolean).join('\n')
     let attachmentPayload: { name: string; mime_type: string; data_url: string }[] = []
@@ -1503,6 +1570,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 
   // MEDIUM (clarify workspace): pick an absolute folder path and insert it into
   // the composer so the user can send it as their answer. Does NOT auto-send.
+  // Clarify answers: stable handler (memo-safe) that submits the Q->A summary
+  // straight through handleSend without touching the composer state.
+  const handleSendRef = useRef(handleSend)
+  handleSendRef.current = handleSend
+  const handleClarifyAnswer = useCallback((answerText: string) => {
+    void handleSendRef.current(answerText)
+  }, [])
+
   const handlePickWorkspaceFolder = useCallback(async () => {
     if (!window.aic?.selectDirectory) return
     try {
@@ -1589,7 +1664,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                 <div style={{ height: listWindow.spacerTop }} aria-hidden="true" />
                 <div ref={sliceRef}>
                   {messageSlice.map(m => (
-                    <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} onPickWorkspaceFolder={handlePickWorkspaceFolder} />
+                    <MessageRow key={m.id} message={m} state={m.role === 'assistant' ? assistantStates.get(m.id) : undefined} onPickWorkspaceFolder={handlePickWorkspaceFolder} onSubmitAnswer={handleClarifyAnswer} />
                   ))}
                 </div>
                 <div style={{ height: listWindow.spacerBottom }} aria-hidden="true" />
