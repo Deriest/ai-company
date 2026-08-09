@@ -926,6 +926,19 @@ async def chat_execute_endpoint(
             # Step 2: Start agent with real tool execution
             try:
                 yield f"data: {json.dumps({'type': 'status', 'status': 'executing', 'worker': worker_type})}\n\n"
+                # FIX: Broadcast worker.started event for Office Floor real-time updates
+                try:
+                    from backend.routes.websocket import broadcast_worker_event
+                    await broadcast_worker_event(
+                        f"worker.{worker_type}.started",
+                        f"worker-{worker_type}",
+                        {
+                            "title": user_content[:100],  # First 100 chars as preview
+                            "phase": "implementation",
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(f"Chat agent started broadcast failed: {e}")
 
                 # QA-FIX: image attachments require the vision tier — a
                 # non-vision tier with an image silently fails upstream.
@@ -1012,6 +1025,21 @@ async def chat_execute_endpoint(
                             yield f"data: {json.dumps({'type': 'error', 'stage': 'agent_execution', 'error': event.get('error', 'Unknown error')})}\n\n"
                             return
                         elif event["type"] == "done":
+                            # FIX: Broadcast worker.completed event for Office Floor real-time updates
+                            try:
+                                from backend.routes.websocket import broadcast_worker_event
+                                await broadcast_worker_event(
+                                    f"worker.{worker_type}.completed",
+                                    f"worker-{worker_type}",
+                                    {
+                                        "title": user_content[:100] if isinstance(user_content, str) else "Task completed",
+                                        "phase": "complete",
+                                        "iterations": event.get('iterations', 0),
+                                    }
+                                )
+                            except Exception as e:
+                                logger.debug(f"Chat agent completed broadcast failed: {e}")
+                            
                             yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'iterations': event.get('iterations', 0)})}\n\n"
                             deliverables = event.get("deliverables")
                             if deliverables:
