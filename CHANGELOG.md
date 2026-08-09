@@ -100,3 +100,19 @@ All notable releases for AIC-ADE (AI Company — AI Development Environment).
 - **Per-worker tuning policy** - WorkerTuningPolicy configured per role for all 15 workers
 - **Lessons loop** - lessons_learned entries retrieved at dispatch time
 - **Self-healing upgrade** - heartbeat subscribers trigger SelfHealingEngine
+## v2.4.88 — 2026-08-09
+
+### Bug Fixes & Real-Time Improvements
+
+#### Office Floor Real-Time Updates
+- **Activity Log now updates INSTANTLY** — No more waiting for 4s polling cycles
+- Added WebSocket broadcasts from chat task execution (AgentRunner path)
+- Broadcasts `worker.backend.started/completed/failed` events to frontend
+- Office Floor worker status updates immediately when tasks begin/end
+- Works for ALL task paths: chat → AgentRunner AND executor → FSM
+
+#### Related Fixes Included:
+- Discovery session marker clearing (prevents re-triggering on follow-up chat)
+- Worker name display improvements (clear, readable fonts)
+
+---
