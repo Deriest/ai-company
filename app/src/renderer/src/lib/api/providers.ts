@@ -167,6 +167,16 @@ export const providersApi = {
     await apiClient.delete(`/providers/${id}`);
   },
 
+  // FIX: Test provider using backend's stored encrypted key (not the masked "***")
+  async testProvider(id: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    const data = await apiClient.post<any>(`/providers/${id}/test`, {});
+    return {
+      ok: data.ok,
+      latencyMs: data.latencyMs,
+      error: data.error || (data.ok ? undefined : "Connection failed"),
+    };
+  },
+
   async fetchModels(endpoint: string, apiKey: string): Promise<ModelInfo[]> {
     const p = await apiClient.post<ProviderWithModelsResponse>("/providers/test-ephemeral", {
       name: "fetch",

@@ -57,16 +57,15 @@ function ProviderRegistry({ onProviderSaved }: { onProviderSaved?: () => void })
   const handleTest = async (p: ProviderRecord) => {
     setTestingId(p.id);
     try {
-      // BUG-16: The backend returns a masked key ("***") for stored providers.
-      // Sending "***" as the API key would fail the test — skip it instead.
-      if (p.apiKey === "***") {
-        setTestResults(prev => ({ ...prev, [p.id]: { success: false, error: "Masked key stored — reopen the provider to test with a fresh key" } }));
-        return;
-      }
-      const result = await providerManageApi.testConnection(p.endpoint, p.apiKey, p.id);
+      // FIX: Use the provider's own test endpoint which accesses the stored encrypted key
+      // Don't send the masked "***" — let backend use its own decrypted key
+      const result = await providersApi.testProvider(p.id);
       setTestResults(prev => ({ ...prev, [p.id]: result }));
-    } catch {
-      setTestResults(prev => ({ ...prev, [p.id]: { success: false, error: "Request failed" } }));
+    } catch (e: any) {
+      setTestResults(prev => ({ ...prev, [p.id]: { 
+        success: false, 
+        error: e.message || "Request failed" 
+      }}));
     } finally {
       setTestingId(null);
     }
