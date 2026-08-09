@@ -206,7 +206,8 @@ QUESTION QUALITY BAR (strict):
 - Tech-related follow-ups include: database needs (any? yes/no + which type?), hosting preference (cloud vs self-hosted), auth required (login/signup features)?
 
 GOOD EXAMPLES by domain:
-- website/app: main purpose (offer options), target audience, pages needed (offer a list), any reference site they like, content readiness (has text/images vs needs placeholders), design preferences (minimalist/modern/bold?)
+- website/app: main purpose (offer options + "other"), target audience, pages needed (offer checklist), reference sites they like, content readiness (has text/images vs needs placeholders), design preferences (minimalist/modern/bold?), tech stack familiarity (offer options + "recommend best")
+  Example: "Tech comfort level — (a) I know React/Next.js well, (b) Familiar with Vue/Nuxt, (c) Prefer plain HTML/CSS, (d) Recommend what's best → OR specify your own preference"
 - api/backend: who consumes it (web/mobile/third-party), core resources/entities, auth needed or not, expected scale (small/medium/large), deployment environment (cloud/self-hosted)
 - bugfix: what should happen vs what actually happens, how to reproduce, where it happens (page/feature), recent changes before it broke, workaround exists?
 - docs: which part to document, target reader (end-users/developers/integrators), format preference (step-by-step tutorial/reference-guide/API-ref), existing materials available
@@ -354,19 +355,20 @@ Respond ONLY as a JSON array:
                 q_text = (item.get("question", "") or "").strip()
                 if not q_text or len(q_text) < 10:
                     continue
+                
                 # Parse multi-choice options if present
-            options = []
-            if "options" in item and isinstance(item["options"], list):
-                options = [str(o).strip() for o in item["options"] if o]
-            
-            questions.append(ClarificationQuestion(
-                id=item.get("id", f"Q{len(questions) + 1}"),
-                category=item.get("category", "scope"),
-                question=q_text,
-                options=options,
-                priority=item.get("priority", "medium"),
-                relates_to="llm_generated",
-            ))
+                options = []
+                if "options" in item and isinstance(item["options"], list):
+                    options = [str(o).strip() for o in item["options"] if o]
+                
+                questions.append(ClarificationQuestion(
+                    id=item.get("id", f"Q{len(questions) + 1}"),
+                    category=item.get("category", "scope"),
+                    question=q_text,
+                    options=options,
+                    priority=item.get("priority", "medium"),
+                    relates_to="llm_generated",
+                ))
             
             return questions
         except (ValueError, TypeError, json.JSONDecodeError):
@@ -609,10 +611,12 @@ Respond ONLY as a JSON array:
 
         for q in result.questions:
             if q.options:
-                # Multiple choice
+                # Multiple choice with custom answer allowed
                 lines.append(f"\n{q.question}")
                 for i, opt in enumerate(q.options, 1):
                     lines.append(f"  {i}. {opt}")
+                # Always allow custom answers so users aren't boxed in
+                lines.append("  (or type your own answer)")
             else:
                 # Open-ended
                 lines.append(f"\n- {q.question}")
