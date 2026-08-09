@@ -523,21 +523,28 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
         const m = msg as { type?: string; data?: any }
         if (!m?.type?.startsWith('worker.')) return
         
-        // Extract relevant fields from worker event
-        const eventType = m.type.split('.').pop()?.toLowerCase() || ''
+        // Parse event type and worker type from message.type (format: "worker.{type}.{action}")
+        const parts = m.type.split('.')
+        if (parts.length < 3) return
+        
+        const workerTypeId = parts[1].toLowerCase()  // e.g., "backend" from "worker.backend.started"
+        const eventType = parts[2].toLowerCase()     // e.g., "started", "completed", "failed"
         const taskTitle = m.data?.title || m.data?.task_title || ''
-        const workerId = m.data?.worker_id || m.data?.worker_type || ''
+        
+        // Find matching worker definition to get the display name
+        const workerDef = WORKERS.find(w => w.id.toLowerCase() === workerTypeId)
+        const workerName = workerDef ? workerDef.name : 'unknown'
         
         // Add activity entry immediately based on event type (no delay!)
         switch (eventType) {
           case 'started':
-            addActivity(workerId || 'unknown', 'started working', 'primary')
+            addActivity(workerName, 'started working', 'primary')
             break
           case 'completed':
-            addActivity(workerId || 'unknown', `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
+            addActivity(workerName, `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
             break
           case 'failed':
-            addActivity(workerId || 'unknown', 'failed with error', 'error')
+            addActivity(workerName, 'failed with error', 'error')
             break
           default:
             break
