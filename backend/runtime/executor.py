@@ -313,6 +313,20 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     {"phase": phase, "task_title": task.title, "lease_phase": phase, "prev": prev_event_target}, "info"
                 )
 
+                # FIX: Broadcast worker.started to frontend for real-time Office Floor updates
+                try:
+                    from backend.routes.websocket import broadcast_worker_event
+                    await broadcast_worker_event(
+                        f"worker.{wtype}.started",
+                        f"worker-{wtype}",
+                        {
+                            "title": task.title,
+                            "phase": phase,
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(f"Worker started broadcast failed: {e}")
+
                 async def _reapply_started():
                     worker_session.add_all([lease, started_event])
 
@@ -673,6 +687,21 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         },
                         "info" if result.success else "error"
                     )
+                    
+                    # FIX: Also broadcast worker.event to frontend for real-time Office Floor updates
+                    try:
+                        from backend.routes.websocket import broadcast_worker_event
+                        await broadcast_worker_event(
+                            f"worker.{wtype}.{event_type.split('.')[-1]}",  # Extract "completed" or "failed"
+                            f"worker-{wtype}",
+                            {
+                                "title": task.title,
+                                "phase": phase,
+                                "success": result.success,
+                            }
+                        )
+                    except Exception as e:
+                        logger.debug(f"Worker event broadcast failed: {e}")
                     
                 except Exception as e:
                     worker_result = {"success": False, "error": str(e)}
