@@ -514,9 +514,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
     return () => clearInterval(interval)
   }, [loadData])
 
-  // WS-1: Instant refresh when backend broadcasts worker started/completed
-  // events (dispatcher/engine.py → broadcast_worker_event on channel "general").
-  // The general channel receives all worker.task events from the dispatcher.
+  // WS-1: Instant refresh AND activity logging when backend broadcasts worker events
   useEffect(() => {
     const wsRefreshRef = { current: null as ReturnType<typeof setTimeout> | null }
     const cleanup = connectWs(
@@ -524,6 +522,28 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
       (msg) => {
         const m = msg as { type?: string; data?: any }
         if (!m?.type?.startsWith('worker.')) return
+        
+        // Extract relevant fields from worker event
+        const eventType = m.type.split('.').pop()?.toLowerCase() || ''
+        const taskTitle = m.data?.title || m.data?.task_title || ''
+        const workerId = m.data?.worker_id || m.data?.worker_type || ''
+        
+        // Add activity entry immediately based on event type (no delay!)
+        switch (eventType) {
+          case 'started':
+            addActivity(workerId || 'unknown', 'started working', 'primary')
+            break
+          case 'completed':
+            addActivity(workerId || 'unknown', `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
+            break
+          case 'failed':
+            addActivity(workerId || 'unknown', 'failed with error', 'error')
+            break
+          default:
+            break
+        }
+        
+        // Also refresh state via loadData
         if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
         wsRefreshRef.current = setTimeout(() => { void loadData() }, 800)
       },
@@ -534,7 +554,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
       cleanup()
     }
-  }, [loadData])
+  }, [loadData, addActivity])
 
   const workingCount = Object.values(workerStates).filter(s => s.status === 'working' || s.status === 'meeting').length
 
