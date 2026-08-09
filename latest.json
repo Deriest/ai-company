@@ -5,24 +5,24 @@
     "releaseNotes": "v2.4.88 \u2014 See https://github.com/Deriest/ai-company/releases/tag/v2.4.88 for release notes.",
     "platforms": {
         "linux": {
-            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.87/AIC-ADE-2.4.87-linux-x86_64.AppImage",
-            "sha256": "4cac47a4441ebef0725c70596c367e9f2260738e360b14e50e47f14e6a40603f",
+            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.88/AIC-ADE-2.4.88-linux-x86_64.AppImage",
+            "sha256": "e8bddb3d3b0d95efac04983838d516cf732ccb25f3e6a574c6705c363ed2de73",
             "size": 184470934,
-            "filename": "AIC-ADE-2.4.87-linux-x86_64.AppImage",
+            "filename": "AIC-ADE-2.4.88-linux-x86_64.AppImage",
             "type": "AppImage"
         },
         "linux-deb": {
-            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.87/AIC-ADE-2.4.87-linux-amd64.deb",
-            "sha256": "82244873ca35ce903da7ead431c32a463c05c57f1316e44338dacd6f0b147e2d",
+            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.88/AIC-ADE-2.4.88-linux-amd64.deb",
+            "sha256": "dd077236a4e8100e712eaecab19004108e8100778a938451cb7df9324a4cca0e",
             "size": 127918840,
-            "filename": "AIC-ADE-2.4.87-linux-amd64.deb",
+            "filename": "AIC-ADE-2.4.88-linux-amd64.deb",
             "type": "deb"
         },
         "win32": {
-            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.87/AIC-ADE-Setup-2.4.87.exe",
-            "sha256": "21bce5b0f31197ea09c62ac742ad090426b9c7dd9c74447b32f89279de58f7c0",
+            "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.88/AIC-ADE-Setup-2.4.88.exe",
+            "sha256": "26992ea10dd30673450a4289840473810aaf86db3eea30b26692e6a5a6a2d720",
             "size": 139792430,
-            "filename": "AIC-ADE-Setup-2.4.87.exe",
+            "filename": "AIC-ADE-Setup-2.4.88.exe",
             "type": "nsis"
         }
     }
