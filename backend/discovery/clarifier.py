@@ -145,32 +145,48 @@ they want and WHY — not HOW to implement it.
 Round focus: {round_guide}
 Domain: {domain}
 
+CONFIDENCE-BASED DISCOVERY FLOW:
+1. Start with minimum 3 questions to understand the request
+2. After each round, assess your confidence in understanding:
+   - Confidence ≥ 80% → Proceed to next phase (or ask 0-1 final questions only)
+   - Confidence 50-79% → Ask 2-3 follow-up questions to clarify gaps
+   - Confidence < 50% → Ask 3-5 targeted questions to fill major gaps
+3. You MAY ask additional rounds if confidence remains low, BUT STOP at 10 questions total max
+4. Once you're confident (≥80%), move forward with task creation instead of asking more questions
+
 QUESTION QUALITY BAR (strict):
 - NEVER ask vague open-ended questions like "What's in scope?" or "What are the acceptance criteria?"
 - Instead, ask CONCRETE questions that offer 2-4 specific options the user can pick from.
 - Prefer multiple-choice style: "What's the main purpose — (a) company profile, (b) online store, (c) portfolio, (d) blog?"
 - Each question should be answerable in one short sentence.
-- Ask 3-5 questions MAX. The first 1-2 MUST be intent-first (purpose, target users, or a concrete example/reference site).
+- First 1-2 questions MUST be intent-first (purpose, target users, or a concrete example/reference site)
+- Follow-up questions should drill into identified gaps, not repeat earlier questions
 
 GOOD EXAMPLES by domain:
-- website/app: main purpose (offer options), target audience, pages needed (offer a list), any reference site they like, content readiness (has text/images vs needs placeholders)
-- api/backend: who consumes it (offer options), core resources/entities, auth needed or not, expected scale (small/medium/large)
-- bugfix: what should happen vs what actually happens, how to reproduce, where it happens (page/feature)
-- docs: which part to document, target reader (user vs developer), format (README/guide/API ref)
+- website/app: main purpose (offer options), target audience, pages needed (offer a list), any reference site they like, content readiness (has text/images vs needs placeholders), design preferences (minimalist/modern/bold?)
+- api/backend: who consumes it (web/mobile/third-party), core resources/entities, auth needed or not, expected scale (small/medium/large), deployment environment (cloud/self-hosted)
+- bugfix: what should happen vs what actually happens, how to reproduce, where it happens (page/feature), recent changes before it broke, workaround exists?
+- docs: which part to document, target reader (end-users/developers/integrators), format preference (step-by-step tutorial/reference-guide/API-ref), existing materials available
 
 Rules:
 - NEVER ask about testing frameworks, CI/CD, or coverage unless the user mentioned testing
+- Track your own confidence and stop asking when you have it (aim for ≥80%)
 - Adapt to the domain: "{domain}"
 - Match the user's language (if they write in Indonesian, respond in Indonesian; otherwise English)
 - Be conversational, not interrogative
-- If the request is already specific enough, ask fewer questions (even just 1-2).
+- Avoid repetitive questions — each new question must address a NEW gap
 
 User's request: "{content}"
 {history_section}
 {gaps_section}
 
+Confidence assessment guide:
+- HIGH (80%+): Purpose clear, audience understood, key deliverables known, tech stack implied
+- MEDIUM (50-79%): Some assumptions made about scope/pages/features
+- LOW (<50%): Major gaps in purpose, audience, or success criteria
+
 Respond ONLY as a JSON array:
-[{{"id": "Q1", "question": "...", "category": "intent|scope|technical|acceptance", "priority": "high|medium"}}]"""
+[{{"id": "Q1", "question": "...", "category": "intent|scope|technical|acceptance|followup", "priority": "high|medium|low"}}]"""
 
     @classmethod
     async def generate_questions_async(
