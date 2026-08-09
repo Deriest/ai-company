@@ -229,8 +229,10 @@ Confidence assessment guide:
 - MEDIUM (50-79%): Some assumptions made about scope/pages/features
 - LOW (<50%): Major gaps in purpose, audience, or success criteria
 
-Respond ONLY as a JSON array:
-[{{"id": "Q1", "question": "...", "category": "intent|scope|technical|acceptance|followup", "priority": "high|medium|low"}}]"""
+Respond ONLY as a JSON array. Every question MUST include an "options" array
+with 2-4 concrete choices the user can pick from (the UI renders them as
+clickable choices, plus a free-text "specify your own" field):
+[{{"id": "Q1", "question": "...", "options": ["choice A", "choice B", "choice C"], "category": "intent|scope|technical|acceptance|followup", "priority": "high|medium|low"}}]"""
 
     @classmethod
     async def generate_questions_async(
