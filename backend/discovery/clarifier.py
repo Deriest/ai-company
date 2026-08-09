@@ -145,14 +145,52 @@ they want and WHY — not HOW to implement it.
 Round focus: {round_guide}
 Domain: {domain}
 
-CONFIDENCE-BASED DISCOVERY FLOW:
-1. Start with minimum 3 questions to understand the request
-2. After each round, assess your confidence in understanding:
-   - Confidence ≥ 80% → Proceed to next phase (or ask 0-1 final questions only)
-   - Confidence 50-79% → Ask 2-3 follow-up questions to clarify gaps
-   - Confidence < 50% → Ask 3-5 targeted questions to fill major gaps
-3. You MAY ask additional rounds if confidence remains low, BUT STOP at 10 questions total max
-4. Once you're confident (≥80%), move forward with task creation instead of asking more questions
+SUPERPOWERS-STYLE GUIDED DISCOVERY (TARGETING 80-85% CONFIDENCE):
+
+GOAL: Build a crystal-clear requirements blueprint so we build EXACTLY what you need.
+
+APPROACH:
+1. START SMART (Round 1): Ask 3-5 focused questions covering all key dimensions
+   • Purpose/goal (What business/personal problem are you solving?)
+   • Target audience/users (Who will use this?)
+   • Core pages/features (The absolute essentials: home page, contact form, etc.)
+   • Design style preference (Minimalist/modern/playful/professional?)
+   • Tech stack familiarity (Comfortable with modern frameworks vs plain HTML?)
+
+2. DRILL DEEPER (Rounds 2-3): Follow up based on gaps in user's answers
+   • If purpose vague → ask about success metrics/goals
+   • If features unclear → ask about must-have pages/sections
+   • If no tech prefs stated → suggest modern approach AND ask if they prefer alternatives
+   • Always confirm critical decisions before proceeding
+
+3. VALIDATE UNDERSTANDING: End with one summary question
+   • "Just to confirm: you want a [X]-purpose website for [audience], focusing on [pages] with [style/design], correct?"
+
+RULES FOR QUESTIONS:
+• Each question MUST include 2-4 concrete multiple-choice options (like this example:)
+  ❌ BAD: "What's the tech stack?" (too open-ended)
+  ✅ GOOD: "Tech stack comfort level — (a) I know React/Next.js well, (b) Familiar with Vue/Nuxt, (c) Prefer plain HTML/CSS, (d) No preference, recommend what's best"
+• Prioritize decision-making over information-gathering
+• Don't ask about things the user just mentioned (active listening!)
+• Keep each question answerable in ONE short sentence or option selection
+• NEVER ask generic stuff like "What's in scope?" — always offer concrete examples
+
+ROUND 1 EXAMPLE (website):
+- Main purpose — (a) showcase company services/products, (b) sell products online, (c) build portfolio/showcase work, (d) share thoughts/blog, (e) recruit talent?
+- Primary users — (a) potential customers seeking solutions, (b) job candidates, (c) media/partners, (d) general public browsing?
+- Must-have sections/pages — (a) Home+About+Contact basic 3-pager, (b) Blog/Resources section, (c) Product/Services catalog, (d) Team member profiles?
+- Design vibe — (a) Clean minimalist corporate, (b) Bold creative modern, (c) Warm friendly welcoming, (d) Professional trustworthy?
+- Tech comfort — (a) React/Next.js familiar, (b) Vue/Nuxt comfortable, (c) Plain HTML/CSS okay, (d) Recommend modern stack?
+
+Confidence checkpoints:
+• <60% after Round 1 → Ask 2-3 more targeted follow-ups in Round 2
+• 60-80% → One validation round (summarize understanding, ask "any additions?")  
+• ≥80-85% → Perfect! Move to Engineering Brief generation
+
+NEVER:
+• Ask 10 generic open-ended questions upfront
+• Skip critical decisions hoping user clarifies later
+• Use technical jargon they might not understand
 
 QUESTION QUALITY BAR (strict):
 - NEVER ask vague open-ended questions like "What's in scope?" or "What are the acceptance criteria?"
@@ -316,13 +354,19 @@ Respond ONLY as a JSON array:
                 q_text = (item.get("question", "") or "").strip()
                 if not q_text or len(q_text) < 10:
                     continue
-                questions.append(ClarificationQuestion(
-                    id=item.get("id", f"Q{len(questions) + 1}"),
-                    category=item.get("category", "scope"),
-                    question=q_text,
-                    priority=item.get("priority", "medium"),
-                    relates_to="llm_generated",
-                ))
+                # Parse multi-choice options if present
+            options = []
+            if "options" in item and isinstance(item["options"], list):
+                options = [str(o).strip() for o in item["options"] if o]
+            
+            questions.append(ClarificationQuestion(
+                id=item.get("id", f"Q{len(questions) + 1}"),
+                category=item.get("category", "scope"),
+                question=q_text,
+                options=options,
+                priority=item.get("priority", "medium"),
+                relates_to="llm_generated",
+            ))
             
             return questions
         except (ValueError, TypeError, json.JSONDecodeError):

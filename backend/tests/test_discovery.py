@@ -27,9 +27,10 @@ class TestDiscoveryConfig:
     def test_default_config(self):
         config = DiscoveryConfig()
         assert config.enabled is True
-        assert config.max_clarification_rounds == 3
-        assert config.max_questions_per_round == 10
-        assert config.readiness_threshold == 0.80
+        # Targeting 80-85% confidence through smart guided discovery
+        assert config.max_clarification_rounds == 4
+        assert config.max_questions_per_round == 5
+        assert config.readiness_threshold == 0.80  # Keep high bar for accuracy
         assert config.dimension_floor == 0.40
 
     def test_config_from_env(self, monkeypatch):

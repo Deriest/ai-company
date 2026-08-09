@@ -21,9 +21,10 @@ class DiscoveryConfig:
     # Feature flag — master switch
     enabled: bool = True
 
-    # Clarification limits
-    max_clarification_rounds: int = 3
-    max_questions_per_round: int = 10
+    # Clarification limits — ACCURACY OVER SPEED
+    # Targeting 80-85% confidence before proceeding
+    max_clarification_rounds: int = 4           # Allow up to 4 rounds if needed
+    max_questions_per_round: int = 5           # Max 5 focused questions per round
 
     # Readiness thresholds
     readiness_threshold: float = 0.80
