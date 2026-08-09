@@ -264,7 +264,7 @@ function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) 
       {/* Status bubble */}
       <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap z-20">
         <span className={cn(
-          'rounded border px-1.5 py-px text-[7px] font-bold tracking-wider',
+          'rounded border px-1.5 py-px text-[9px] font-bold tracking-wider',
           cfg.cardBg, cfg.text, cfg.cardBorder,
         )}>
           {cfg.label.toUpperCase()}
@@ -290,9 +290,9 @@ function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) 
         </div>
         <div className="min-w-0 flex-1">
           <span className="truncate text-[10px] font-semibold text-foreground">{worker.name}</span>
-          <p className="truncate text-[8px] text-muted-foreground">{worker.role}</p>
+          <p className="truncate text-[10px] text-muted-foreground">{worker.role}</p>
         </div>
-        <span className={cn('rounded px-1 py-px text-[7px] font-bold uppercase', TIER_COLORS[worker.tier])}>
+        <span className={cn('rounded px-1 py-px text-[9px] font-bold uppercase', TIER_COLORS[worker.tier])}>
           {worker.tier}
         </span>
       </div>
@@ -301,7 +301,7 @@ function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) 
       {isActive && (
         <div className="mt-1.5">
           <ProgressBar value={state.progress} tone="primary" className="h-1" />
-          <p className="mt-0.5 truncate text-[8px] text-muted-foreground font-mono">
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground font-mono">
             {state.task || 'Processing…'}
           </p>
         </div>
@@ -309,12 +309,12 @@ function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) 
 
       {/* Idle / complete states */}
       {state.status === 'idle' && (
-        <p className="mt-1.5 text-[8px] text-muted-foreground/50">Available</p>
+        <p className="mt-1.5 text-[10px] text-muted-foreground/50">Available</p>
       )}
       {state.status === 'complete' && (
         <div className="mt-1.5 flex items-center gap-1">
           <CheckCircle2 className="size-2.5 text-success" />
-          <p className="truncate text-[8px] text-success/70">{state.task || 'Done'}</p>
+          <p className="truncate text-[10px] text-success/70">{state.task || 'Done'}</p>
         </div>
       )}
     </div>
@@ -540,15 +540,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {projectRoot && (
-        <div className="mx-6 mt-3 flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5">
-          <FolderOpen className="size-4 text-primary" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold text-primary truncate">{projectName || 'Active Project'}</p>
-            <p className="text-[10px] text-muted-foreground truncate font-mono">{projectRoot}</p>
-          </div>
-        </div>
-      )}
+      {/* Project header removed — showing under mission stats instead */}
 
       <PageHeader
         title="AIC Engineering Office"

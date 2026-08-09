@@ -1607,11 +1607,12 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
               {active && <span className="text-[9px] text-muted-foreground/50 font-mono">{visibleMessages.length} msgs</span>}
                {(activeProject || projectRoot) && (
                  <span
-                   className="max-w-[200px] items-center gap-1 rounded border border-border/50 bg-card/50 px-2 py-0.5 text-[9px] font-mono text-muted-foreground"
+                   className="flex max-w-[240px] items-center gap-1.5 rounded-md border border-border/50 bg-card/50 px-2 py-0.5"
                    title={activeProject?.repo_path || projectRoot || undefined}
                  >
-                   <GitBranch className="size-2.5 shrink-0 text-primary/70" />
-                   <span className="truncate">{activeProject?.name || projectName || activeProject?.repo_path || projectRoot}</span>
+                   <GitBranch className="size-3 shrink-0 text-primary/70" />
+                   <span className="truncate text-[10px] font-medium text-foreground">{activeProject?.name || projectName || 'Project'}</span>
+                   <span className="truncate text-[9px] font-mono text-muted-foreground">{activeProject?.repo_path || projectRoot}</span>
                  </span>
                )}
             </div>
@@ -1753,12 +1754,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
                 </button>
-
-                {/* Workflow — auto-detection only (no manual selection) */}
-                <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground">
-                  <Sparkles className="size-2.5" />
-                  Auto-detect
-                </span>
               </div>
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
