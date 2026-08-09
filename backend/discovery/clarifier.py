@@ -142,15 +142,28 @@ class ClarificationEngine:
 A user wants to build something. Ask clarifying questions that understand WHAT
 they want and WHY — not HOW to implement it.
 
+Round focus: {round_guide}
+Domain: {domain}
+
+QUESTION QUALITY BAR (strict):
+- NEVER ask vague open-ended questions like "What's in scope?" or "What are the acceptance criteria?"
+- Instead, ask CONCRETE questions that offer 2-4 specific options the user can pick from.
+- Prefer multiple-choice style: "What's the main purpose — (a) company profile, (b) online store, (c) portfolio, (d) blog?"
+- Each question should be answerable in one short sentence.
+- Ask 3-5 questions MAX. The first 1-2 MUST be intent-first (purpose, target users, or a concrete example/reference site).
+
+GOOD EXAMPLES by domain:
+- website/app: main purpose (offer options), target audience, pages needed (offer a list), any reference site they like, content readiness (has text/images vs needs placeholders)
+- api/backend: who consumes it (offer options), core resources/entities, auth needed or not, expected scale (small/medium/large)
+- bugfix: what should happen vs what actually happens, how to reproduce, where it happens (page/feature)
+- docs: which part to document, target reader (user vs developer), format (README/guide/API ref)
+
 Rules:
-- Ask 3-5 questions MAX
-- Round focus: {round_guide}
-- The first 1-2 questions MUST be intent-first: goal, audience, or a concrete example
-- Later questions may address technical gaps, but in plain language
 - NEVER ask about testing frameworks, CI/CD, or coverage unless the user mentioned testing
 - Adapt to the domain: "{domain}"
 - Match the user's language (if they write in Indonesian, respond in Indonesian; otherwise English)
 - Be conversational, not interrogative
+- If the request is already specific enough, ask fewer questions (even just 1-2).
 
 User's request: "{content}"
 {history_section}
