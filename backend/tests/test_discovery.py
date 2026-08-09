@@ -27,11 +27,10 @@ class TestDiscoveryConfig:
     def test_default_config(self):
         config = DiscoveryConfig()
         assert config.enabled is True
-        # Progressive discovery defaults (speed-over-perfection):
-        assert config.max_clarification_rounds == 2
-        assert config.max_questions_per_round == 2
-        assert config.readiness_threshold == 0.60
-        assert config.dimension_floor == 0.30
+        assert config.max_clarification_rounds == 3
+        assert config.max_questions_per_round == 10
+        assert config.readiness_threshold == 0.80
+        assert config.dimension_floor == 0.40
 
     def test_config_from_env(self, monkeypatch):
         monkeypatch.setenv("AIC_DISCOVERY_ENABLED", "false")

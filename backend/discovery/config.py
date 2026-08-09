@@ -21,14 +21,13 @@ class DiscoveryConfig:
     # Feature flag — master switch
     enabled: bool = True
 
-    # Clarification limits - PROGRESSIVE MODE
-    max_clarification_rounds: int = 2          # Max 2 rounds total (aggressive early exit)
-    max_questions_per_round: int = 2           # 1-2 questions MAX per round
-    min_questions_to_start_work: int = 1       # Can skip Q&A after 1 question if needed
+    # Clarification limits
+    max_clarification_rounds: int = 3
+    max_questions_per_round: int = 10
 
     # Readiness thresholds
-    readiness_threshold: float = 0.60      # 60% confidence OK to proceed
-    dimension_floor: float = 0.30         # More lenient missing field detection
+    readiness_threshold: float = 0.80
+    dimension_floor: float = 0.40
 
     # Timeouts
     clarification_timeout_minutes: int = 30

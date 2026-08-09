@@ -145,31 +145,14 @@ they want and WHY — not HOW to implement it.
 Round focus: {round_guide}
 Domain: {domain}
 
-PROGRESSIVE DISCOVERY (SPEED-OVER-PERFECTION MODE):
-
-GOAL: Get the user working FAST. Discovery happens WHILE they work, not BEFORE.
-
-RULES:
-1. Ask MAXIMUM 1-2 quick questions (NOT 3-5). The less the better.
-2. Start work immediately after first round of questions, even if still uncertain
-3. Clarify as-you-go during implementation, don't wait for perfect requirements
-4. If user says "go ahead", "yes", or gives ANY answer → proceed to work NOW
-5. Never exceed 2 rounds total — force-complete after 2nd round regardless
-
-CONFIDENCE GUIDELINES:
-- Low confidence (<60%) → Still proceed anyway; note gaps in brief's "outstanding_unknowns"
-- Medium confidence (60-79%) → Do minimal follow-up (1 question only)  
-- High confidence (>80%) → Skip extra questions, just start working
-
-EXAMPLE FLOW for "build website":
-Round 1: "Main purpose — (a) profile, (b) store, (c) blog? (1 question)"
-→ User answers → START WORKING
-   OR
-Round 2 (if needed): "Tech stack preference?" (only if really unclear)
-→ Force-complete and start planning with gaps noted
-
-KEY MESSAGE TO LLM:
-"It's better to build something imperfect than delay indefinitely on discovery."
+CONFIDENCE-BASED DISCOVERY FLOW:
+1. Start with minimum 3 questions to understand the request
+2. After each round, assess your confidence in understanding:
+   - Confidence ≥ 80% → Proceed to next phase (or ask 0-1 final questions only)
+   - Confidence 50-79% → Ask 2-3 follow-up questions to clarify gaps
+   - Confidence < 50% → Ask 3-5 targeted questions to fill major gaps
+3. You MAY ask additional rounds if confidence remains low, BUT STOP at 10 questions total max
+4. Once you're confident (≥80%), move forward with task creation instead of asking more questions
 
 QUESTION QUALITY BAR (strict):
 - NEVER ask vague open-ended questions like "What's in scope?" or "What are the acceptance criteria?"
