@@ -628,10 +628,15 @@ class ConversationEngine:
 
     async def _handle_status(self, conversation: Conversation) -> tuple[str, dict]:
         """Get project/task status."""
-        project_id = (conversation.context or {}).get("project_id")
+        # Primary source: the Conversation.project_id DB column (set when the
+        # user picks a project via the Project Picker). Fall back to the legacy
+        # context dict so older conversations keep working.
+        project_id = conversation.project_id
+        if not project_id and conversation.context:
+            project_id = conversation.context.get("project_id")
 
         if not project_id:
-            return "No active project in this conversation. Create a task first to start tracking.", {}
+            return "No active project in this conversation. Pick a project folder (Browse… in the project picker) or create a task first.", {}
 
         result = await self.session.execute(
             select(Task).where(
