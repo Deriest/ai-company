@@ -50,10 +50,9 @@ async def lifespan(app: FastAPI):
             await seed_workers(db)
     except Exception as e:
         logger.warning(f"Workers seed at startup failed (non-critical): {e}")
-    async with AsyncSessionLocal() as db:
-        await init_fts5(db)
-    # FIX: run_migrations is invoked inside init_db() — do not call it twice at
-    # startup (harmless but wasteful).
+    # FIX P8: init_fts5 is already called inside init_db() — removing redundant call.
+    # No FTS5 setup needed here; it's idempotent but wastes time initializing twice.
+    # if os.environ.get("AIC_TESTING") == "1":
 
     # Initialize LLM provider from environment
     from llm.provider import provider_manager, init_provider_from_env, ProviderConfig

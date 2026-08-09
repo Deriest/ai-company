@@ -233,8 +233,18 @@ def validate_url(value: str, field_name: str = "url") -> tuple[bool, str]:
     if not isinstance(value, str):
         return False, f"{field_name} must be a string"
     
-    if not value.startswith(("http://", "https://")):
-        return False, f"{field_name} must start with http:// or https://"
+    # FIX P15: Use proper urlparse parsing instead of bare startswith()
+    # which incorrectly accepted things like "http://evil.com.evil" or "httpx://bad".
+    from urllib.parse import urlparse
+    
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https"):
+            return False, f"{field_name} must start with http:// or https://"
+        if not parsed.netloc:
+            return False, f"{field_name} must include a hostname"
+    except Exception:
+        return False, f"{field_name} is invalid"
     
     if len(value) > 2048:
         return False, f"{field_name} too long (max 2048 characters)"

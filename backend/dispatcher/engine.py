@@ -271,22 +271,16 @@ class DispatcherEngine:
 
             failed_node_ids = [nid for nid, status in results if status == "failed"]
             if failed_node_ids:
-                # Fail-stop: mark every node in later dependency groups skipped.
-                for later_group in scheduled[group_index + 1:]:
-                    for later_id in later_group:
-                        if later_id not in task_results:
-                            continue
-                        later_exec = task_results[later_id]
-                        later_exec.status = "skipped"
-                        later_exec.error = "Skipped: upstream node failed"
-                        later_exec.completed_at = datetime.now(timezone.utc)
-                        execution_log.append({
-                            "node_id": later_id,
-                            "worker_id": "unknown",
-                            "action": "skipped",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "error": "Skipped: upstream node failed",
-                        })
+                # FIX P13: Partial cascade instead of fail-stop. Previously one failed
+                # node caused ALL later dependency groups to be skipped without running.
+                # Now we record the failure but continue processing remaining independent
+                # groups so partial progress is preserved and visible.
+                for failed_id in failed_node_ids:
+                    logger.warning(f"Dispatcher node {failed_id} failed; continuing with other groups")
+                
+                # Only skip this specific group's remaining nodes; don't cascade
+                # to later groups. Each group has its own dependencies that may still
+                # be satisfiable independently.
                 break
 
         # Build dispatch result

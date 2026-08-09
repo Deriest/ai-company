@@ -163,7 +163,14 @@ class SelfHealingEngine:
                     select(Task).where(Task.status == "created")
                 )
                 created = res2.scalars().all()
-                if created:
+                
+                # FIX P2: Also audit 'investigate' tasks that were orphaned mid-dispatch
+                res_investigate = await self.session.execute(
+                    select(Task).where(Task.status == "investigate")
+                )
+                investigate_tasks = res_investigate.scalars().all()
+                
+                if created or investigate_tasks:
                     issues.append(f"{len(created)} task(s) in status 'created'")
                     await self.session.commit()
                     from backend.routes.conversations import _dispatch_created_task
@@ -212,18 +219,70 @@ class SelfHealingEngine:
                             repairs.append(f"Skipped task {tid[:8]} (already claimed)")
                             continue
                         redispatched.append(tid)
-                        # L7: hold a strong reference so the task is not
-                        # garbage-collected before it completes.
-                        task_ref = asyncio.create_task(_dispatch_created_task(tid))
-                        _self_healing_tasks.add(task_ref)
-                        task_ref.add_done_callback(_self_healing_tasks.discard)
-                        repairs.append(f"Re-dispatched task {tid[:8]}")
+                        # FIX P2: Await dispatch directly instead of fire-and-forget,
+                        # so errors are visible and we can track re-dispatched tasks
+                        # with better logging. This prevents orphaned tasks if dispatch
+                        # fails silently.
+                        try:
+                            await _dispatch_created_task(tid)
+                            repairs.append(f"Re-dispatched task {tid[:8]} (awaited)")
+                        except Exception as dispatch_err:
+                            logger.error(f"Self-heal dispatch failed for {tid[:8]}: {dispatch_err}")
+                            # Mark the task as blocked so it doesn't loop forever
+                            await self.session.execute(
+                                update(Task).where(Task.id == tid).values(
+                                    status="blocked",
+                                    error_message=f"Self-heal dispatch failed: {str(dispatch_err)[:200]}"
+                                )
+                            )
+                            repairs.append(f"Blocked task {tid[:8]} (dispatch failed)")
+                    
+                    # FIX P2: Handle orphaned 'investigate' tasks (stuck after partial failure)
+                    for t in investigate_tasks:
+                        # Check if there's an active lease bound to this task via workers
+                        has_active_lease = await self.session.execute(
+                            select(Lease).where(
+                                Lease.task_id == t.id,
+                                Lease.status == LeaseStatus.ACTIVE.value,
+                            )
+                        ).scalar_one_or_none()
+                        
+                        if not has_active_lease:
+                            # Task is stuck in 'investigate' with no active work — likely
+                            # a failed or partial dispatch that left the task orphaned.
+                            attempt = 0
+                            max_attempts = 3
+                            current_status = "investigate"
+                            err = None
+                            
+                            while attempt < max_attempts and current_status == "investigate":
+                                attempt += 1
+                                try:
+                                    await _dispatch_created_task(t.id)
+                                    current_status = None  # cleared
+                                    repairs.append(f"Fixed orphaned task {t.id[:8]} on attempt {attempt}")
+                                    break
+                                except Exception as e:
+                                    err = e
+                                    logger.warning(f"Orphaned task {t.id[:8]} attempt {attempt}: {e}")
+                                    current_status = "blocked"
+                                    repairs.append(f"Blocked orphaned task {t.id[:8]} after {max_attempts} attempts")
+                                    break
+                            
+                            if current_status == "blocked":
+                                await self.session.execute(
+                                    update(Task)
+                                    .where(Task.id == t.id)
+                                    .values(
+                                        status="blocked",
+                                        error_message=f"Orphaned in investigate phase: {str(err)[:200] if err else 'unknown'}"
+                                    )
+                                )
+                                issues.append(f"Task {t.id[:8]} orphaned in 'investigate' (no active lease)")
                     # Persist the atomic claim updates (status -> in_progress).
                     await self.session.commit()
                 else:
                     await self.session.commit()
-            else:
-                await self.session.commit()
 
             status = "healthy" if not issues else "repaired"
             return HealthDiagnosticReport(

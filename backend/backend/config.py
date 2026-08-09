@@ -31,10 +31,10 @@ def _read_version_from_package_json() -> str:
             try:
                 with open(path) as f:
                     data = json.load(f)
-                    return data.get("version", "2.4.23")
+                    return data.get("version", "unknown")
             except (json.JSONDecodeError, KeyError):
                 pass
-    return "2.4.23"
+    return "unknown"
 
 
 class Settings(BaseSettings):

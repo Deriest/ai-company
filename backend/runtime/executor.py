@@ -274,19 +274,18 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
         # Release the lock now; post-merge task state is committed afterward.
         await session.commit()
 
-        # With-Phase Parallelism: Run all workers concurrently within the phase.
+        # WITH-PHASE PARALLELISM: Run all workers concurrently within the phase.
         # SESSION SAFETY: Each worker gets its own AsyncSession derived from the
         # executor session's bind (async_sessionmaker pattern from dispatcher/engine.py).
         # The main executor session remains for phase-level state transitions/commits.
         
+        # P9 HOIST: Create ONE sessionmaker per phase instead of one per worker invocation
+        from sqlalchemy.ext.asyncio import async_sessionmaker as worker_sessionmaker
+        worker_factory = worker_sessionmaker(bind=session.bind, class_=AsyncSession, expire_on_commit=False)
+
         async def _execute_worker_in_new_session(wtype: str) -> tuple[str, dict]:
             """Execute a single worker with a dedicated session."""
-            from sqlalchemy.ext.asyncio import async_sessionmaker as worker_sessionmaker
-            
-            # Derive a fresh session factory from the executor session's bind
-            worker_factory = worker_sessionmaker(
-                bind=session.bind, class_=AsyncSession, expire_on_commit=False
-            )
+            # Reuse the hoisted worker_factory (ONE per phase, not one per worker call)
             
             async with worker_factory() as worker_session:
                 worker_cls = WORKER_REGISTRY.get(wtype)
@@ -536,6 +535,33 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                             await _commit_with_lock_retry(worker_session, reapply=_reapply_recovery)
 
                             if not decision.should_proceed:
+                                break
+                            if decision.strategy == "ship_with_caveats":
+                                # P11 FIX: surface caveats loudly instead of silently
+                                # proceeding. Attach them to the worker result and emit
+                                # a warning event so the UI/report can show them.
+                                logger.warning(
+                                    f"Worker {wtype} shipping with caveats: {decision.caveats}"
+                                )
+                                worker_result["ship_with_caveats"] = decision.caveats
+                                caveat_event = Event(
+                                    type=EventType.WORKER_COMPLETED.value,
+                                    actor=f"recovery:{wtype}",
+                                    target=f"task:{task.id}",
+                                    data={
+                                        "phase": phase,
+                                        "strategy": "ship_with_caveats",
+                                        "attempt": attempt,
+                                        "caveats": decision.caveats,
+                                    },
+                                    severity="warn",
+                                )
+                                worker_session.add(caveat_event)
+
+                                async def _reapply_caveat():
+                                    worker_session.add(caveat_event)
+
+                                await _commit_with_lock_retry(worker_session, reapply=_reapply_caveat)
                                 break
                             if decision.strategy in ("retry", "refine_prompt", "fallback_model", "canonical_lock"):
                                 task_ctx = {
@@ -797,7 +823,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "title": task.title,
                         "description": task.description or "",
                         "type": task.type,
-                        "repo_path": ".",
+                        "repo_path": effective_repo_path,
                         "phase": "verification",
                         "execution_level": execution_level,
                         "model_tier": ctx.get("model_tier"),

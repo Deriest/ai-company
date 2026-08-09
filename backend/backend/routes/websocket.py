@@ -76,10 +76,22 @@ class ConnectionManager:
     def __init__(self):
         self.connections: dict[str, list[WebSocket]] = defaultdict(list)
         self.user_channels: dict[str, set[str]] = defaultdict(set)  # user_id → channels
+        self.ws_channels: dict[int, set[str]] = {}  # websocket id → all subscribed channels
+
+    def _get_ws_id(self, ws: WebSocket) -> int:
+        """Get a stable identifier for a WebSocket connection object."""
+        return id(ws)
 
     async def connect(self, websocket: WebSocket, channel: str, user_id: str | None = None):
         await websocket.accept()
         self.connections[channel].append(websocket)
+        
+        # Track this WS's subscriptions to enable proper cleanup (P4 fix)
+        ws_id = self._get_ws_id(websocket)
+        if ws_id not in self.ws_channels:
+            self.ws_channels[ws_id] = set()
+        self.ws_channels[ws_id].add(channel)
+        
         if user_id:
             self.user_channels[user_id].add(channel)
         logger.info(f"WebSocket connected: channel={channel} user={user_id or 'anonymous'}")
@@ -89,6 +101,25 @@ class ConnectionManager:
             self.connections[channel].remove(websocket)
         if user_id and user_id in self.user_channels:
             self.user_channels[user_id].discard(channel)
+
+    def disconnect_all(self, websocket: WebSocket, user_id: str | None = None):
+        """P4 fix: remove the WebSocket from EVERY channel it subscribed to.
+
+        Multi-channel subscriptions previously leaked — the finally block only
+        disconnected the initial channel, leaving dead references in
+        self.connections for every extra `subscribe` command.
+        """
+        ws_id = self._get_ws_id(websocket)
+        channels = self.ws_channels.pop(ws_id, set())
+        for ch in channels:
+            if websocket in self.connections.get(ch, []):
+                self.connections[ch].remove(websocket)
+            if user_id and user_id in self.user_channels:
+                self.user_channels[user_id].discard(ch)
+        # Also sweep the initial channel defensively in case connect() tracking missed it
+        for ch, conns in list(self.connections.items()):
+            if websocket in conns:
+                conns.remove(websocket)
 
     async def broadcast(self, channel: str, message: dict):
         dead = []
@@ -200,4 +231,7 @@ async def websocket_endpoint(
         # errors — the socket must still be removed from the manager.
         logger.warning(f"WebSocket error on channel={channel}: {e}")
     finally:
-        manager.disconnect(websocket, channel, user_id)
+        # P4 FIX: remove the socket from ALL channels it subscribed to, not just
+        # the initial one — multi-channel subscriptions previously leaked dead
+        # references into manager.connections for the lifetime of the process.
+        manager.disconnect_all(websocket, user_id)

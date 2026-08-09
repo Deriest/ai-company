@@ -191,19 +191,37 @@ class WorkerToolExecutor:
         except Exception as e:
             return ToolResult(tool="list_directory", success=False, output="", error=str(e))
     
-    async def search_files(self, pattern: str, path: str = ".", file_pattern: str = "*") -> ToolResult:
-        """Search for pattern in files (grep-like)."""
+    async def search_files(self, pattern: str, path: str = ".", file_pattern: str = "*", is_regex: bool = False) -> ToolResult:
+        """Search for pattern in files (grep-like).
+
+        P10 FIX: supports optional regex matching (is_regex=True) so the LLM can
+        run grep-like searches. Invalid regex falls back to case-insensitive
+        substring matching instead of failing the whole tool call.
+        """
         try:
             full_path = resolve_workspace_path(self.workspace_root, path)
             matches = []
             search_pattern = os.path.join(full_path, "**", file_pattern)
+
+            # Compile the regex once, outside the per-line loop (P10).
+            compiled = None
+            if is_regex:
+                try:
+                    compiled = re.compile(pattern)
+                except re.error:
+                    compiled = None  # fall back to substring search
+
             for filepath in glob_mod.glob(search_pattern, recursive=True):
                 if not os.path.isfile(filepath):
                     continue
                 try:
                     with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
                         for line_num, line in enumerate(f, 1):
-                            if pattern.lower() in line.lower():
+                            if compiled is not None:
+                                found = compiled.search(line) is not None
+                            else:
+                                found = pattern.lower() in line.lower()
+                            if found:
                                 rel_path = os.path.relpath(filepath, self.workspace_root)
                                 matches.append(f"{rel_path}:{line_num}: {line.strip()[:200]}")
                 except (IOError, UnicodeDecodeError, OSError):
