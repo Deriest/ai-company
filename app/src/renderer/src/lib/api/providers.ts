@@ -172,7 +172,7 @@ export const providersApi = {
     const data = await apiClient.post<any>(`/providers/${id}/test`, {});
     return {
       ok: data.ok,
-      latencyMs: data.latencyMs,
+      latencyMs: data.latencyMs || data.latency_ms,  // Support both camelCase/snake_case
       error: data.error || (data.ok ? undefined : "Connection failed"),
     };
   },
