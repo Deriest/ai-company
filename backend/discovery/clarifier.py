@@ -159,8 +159,13 @@ QUESTION QUALITY BAR (strict):
 - Instead, ask CONCRETE questions that offer 2-4 specific options the user can pick from.
 - Prefer multiple-choice style: "What's the main purpose — (a) company profile, (b) online store, (c) portfolio, (d) blog?"
 - Each question should be answerable in one short sentence.
+- For website/app requests, ALWAYS include at least one question about **tech stack** if not explicitly stated by user:
+  • Example: "Tech stack preference — (a) React/Next.js, (b) Vue/Nuxt, (c) plain HTML/CSS/JS, (d) no preference"
+  • If user says "modern" or "fast", assume frameworks and still confirm which ones
+  • Don't skip this step unless user explicitly says "just give me whatever works"
 - First 1-2 questions MUST be intent-first (purpose, target users, or a concrete example/reference site)
 - Follow-up questions should drill into identified gaps, not repeat earlier questions
+- Tech-related follow-ups include: database needs (any? yes/no + which type?), hosting preference (cloud vs self-hosted), auth required (login/signup features)?
 
 GOOD EXAMPLES by domain:
 - website/app: main purpose (offer options), target audience, pages needed (offer a list), any reference site they like, content readiness (has text/images vs needs placeholders), design preferences (minimalist/modern/bold?)
