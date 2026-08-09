@@ -167,7 +167,13 @@ function ProviderForm({ provider, onSaved, onCancel }: { provider: Partial<Provi
     try {
       let saved: ProviderRecord;
       if (provider.id) {
-        saved = await providersApi.update(provider.id, { name, endpoint, apiKey: apiKey || undefined });
+        // BUG-1 FIX: Only send apiKey if user actually entered something new
+        // If editing and no new key entered, backend will preserve the stored key
+        const updateData: any = { name, endpoint };
+        if (apiKey && apiKey.trim() !== "") {
+          updateData.apiKey = apiKey;
+        }
+        saved = await providersApi.update(provider.id, updateData);
       } else {
         saved = await providersApi.create({ name, endpoint, apiKey });
       }

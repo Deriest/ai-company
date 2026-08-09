@@ -90,7 +90,7 @@ class ClarificationEngine:
         for dim in readiness.dimension_details:
             if dim.score < discovery_config.dimension_floor:
                 dim_questions = cls._generate_dimension_questions(
-                    dim, domain, extraction, ambiguity, question_id
+                    dim, domain, extraction, ambiguity, question_id, intent
                 )
                 questions.extend(dim_questions)
                 question_id += len(dim_questions)
@@ -402,6 +402,12 @@ clickable choices, plus a free-text "specify your own" field):
             category="intent",
             question="What is the main goal you want to achieve?",
             priority="high",
+            options=[
+                "Solve a specific problem I'm having",
+                "Build a new capability from scratch",
+                "Improve or extend something existing",
+                "Automate something manual",
+            ],
         ))
         cid += 1
 
@@ -411,6 +417,12 @@ clickable choices, plus a free-text "specify your own" field):
             category="intent",
             question="Who is the target audience or user of this?",
             priority="high",
+            options=[
+                "Just me / my team",
+                "End users of a product",
+                "Other developers (API/tools)",
+                "Internal stakeholders",
+            ],
         ))
         cid += 1
 
@@ -421,6 +433,11 @@ clickable choices, plus a free-text "specify your own" field):
                 category="intent",
                 question="Can you give a concrete example of the desired outcome?",
                 priority="medium",
+                options=[
+                    "Yes — I'll describe the end result",
+                    "I have a reference/example to point at",
+                    "No example yet — describe options first",
+                ],
             ))
             cid += 1
 
@@ -434,27 +451,132 @@ clickable choices, plus a free-text "specify your own" field):
         extraction: ExtractionResult,
         ambiguity: AmbiguityReport,
         start_id: int,
+        intent: "IntentResult | None" = None,
     ) -> list[ClarificationQuestion]:
-        """Generate questions for a low-scoring dimension."""
+        """Generate context-aware questions for a low-scoring dimension.
+
+        BUG-3 FIX: questions now use the classified domain/intent and include
+        concrete multiple-choice options instead of a single generic prompt
+        (e.g. the old scope question was always "What should be included or
+        excluded?" regardless of task type). Every question carries an
+        options array so the UI renders clickable, context-rich choices.
+        """
         questions = []
+
+        # Prefer the classified intent domain; fall back to the passed domain.
+        domain_text = ((intent.domain if intent else None) or domain or "").lower()
 
         if dimension.name == "intent_clarity":
             questions.append(ClarificationQuestion(
                 id=f"Q{start_id}",
-                category="scope",
-                question="Could you describe what you're trying to achieve in one sentence?",
+                category="intent",
+                question=(
+                    f"To make sure we build the right thing for your {domain_text or 'project'} "
+                    "request, what outcome would make this a success?"
+                ),
                 priority="high",
                 relates_to="intent_clarity",
+                options=[
+                    "Build something new from scratch",
+                    "Fix a bug or broken behaviour",
+                    "Add a feature to existing code",
+                    "Improve/refactor what's already there",
+                    "Not sure yet — help me decide",
+                ],
             ))
 
         elif dimension.name == "scope_definition":
-            questions.append(ClarificationQuestion(
-                id=f"Q{start_id}",
-                category="scope",
-                question="What should be included in this change, and what should be explicitly excluded?",
-                priority="high",
-                relates_to="scope_definition",
-            ))
+            # Context-aware scope options per domain instead of the generic
+            # "what should be included/excluded" question.
+            if domain_text in ("frontend", "ui", "website", "coding", "feature"):
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="Which parts of this are must-haves for the first version?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "Core UI/page with basic layout",
+                        "Core UI + user interactions (forms, buttons, state)",
+                        "Core UI + data fetching/backend hookup",
+                        "Everything above plus polished styling",
+                        "Just a minimal proof-of-concept",
+                    ],
+                ))
+            elif domain_text in ("backend", "api", "database"):
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="Which API/data capabilities are in scope for this change?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "CRUD endpoints for the main resource",
+                        "CRUD + validation and error handling",
+                        "CRUD + authentication/permissions",
+                        "Full feature incl. pagination/filtering",
+                        "Just the single endpoint I described",
+                    ],
+                ))
+            elif domain_text in ("bugfix",):
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="How far should the fix go?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "Minimal fix for the reported symptom only",
+                        "Fix the root cause",
+                        "Fix root cause + add a regression test",
+                        "Fix + clean up related code",
+                    ],
+                ))
+            elif domain_text in ("test", "testing"):
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="What scope of testing do you need?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "Unit tests for core logic",
+                        "Integration tests for the flow I described",
+                        "End-to-end test of the user journey",
+                        "Both unit + integration",
+                        "Just enough to cover the happy path",
+                    ],
+                ))
+            elif domain_text in ("docs", "documentation"):
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="What should the documentation cover?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "Quick-start / getting started",
+                        "Full feature reference",
+                        "API reference for developers",
+                        "Troubleshooting / FAQ",
+                        "Just the part I mentioned",
+                    ],
+                ))
+            else:
+                questions.append(ClarificationQuestion(
+                    id=f"Q{start_id}",
+                    category="scope",
+                    question="For this request, what's in scope and what can we skip for now?",
+                    priority="high",
+                    relates_to="scope_definition",
+                    options=[
+                        "Everything I described",
+                        "The core part only — extras later",
+                        "Core + error handling",
+                        "A minimal working version",
+                        "I'll describe the exact scope",
+                    ],
+                ))
 
         elif dimension.name == "requirement_completeness":
             if dimension.missing:
@@ -462,27 +584,47 @@ clickable choices, plus a free-text "specify your own" field):
                 questions.append(ClarificationQuestion(
                     id=f"Q{start_id}",
                     category="technical",
-                    question=f"I need more information about: {missing_str}. Can you provide details?",
+                    question=f"I need a bit more detail on: {missing_str}. Which applies?",
                     priority="high",
                     relates_to="requirement_completeness",
+                    options=[
+                        "I'll provide specifics now",
+                        "Use sensible defaults for these",
+                        "These aren't needed — skip them",
+                        "Recommend the best approach for these",
+                    ],
                 ))
 
         elif dimension.name == "constraint_awareness":
             questions.append(ClarificationQuestion(
                 id=f"Q{start_id}",
                 category="constraint",
-                question="Are there any technical constraints, dependencies, or limitations I should be aware of?",
+                question=f"Any constraints I should respect for this {domain_text or 'change'}?",
                 priority="medium",
                 relates_to="constraint_awareness",
+                options=[
+                    "Must match existing code style/patterns",
+                    "Must work with the current stack",
+                    "There's a deadline — keep it lean",
+                    "No special constraints",
+                    "I have specific constraints to share",
+                ],
             ))
 
         elif dimension.name == "acceptance_criteria":
             questions.append(ClarificationQuestion(
                 id=f"Q{start_id}",
                 category="acceptance",
-                question="How will we know this is done? What should work correctly?",
+                question="How will we know this is done and working correctly?",
                 priority="medium",
                 relates_to="acceptance_criteria",
+                options=[
+                    "The behaviour I described works",
+                    "Works + no regressions",
+                    "Works + tests pass",
+                    "Works + reviewed/polished",
+                    "I'll define acceptance criteria myself",
+                ],
             ))
 
         return questions
@@ -569,16 +711,76 @@ clickable choices, plus a free-text "specify your own" field):
         ambiguity: Ambiguity,
         question_id: int,
     ) -> ClarificationQuestion | None:
-        """Generate a question for a detected ambiguity."""
+        """Generate a question for a detected ambiguity.
+
+        BUG-3 FIX: include context-rich options derived from the detected
+        ambiguity type so the question is actionable instead of a bare
+        suggestion string with nothing to pick from.
+        """
         if not ambiguity.suggestion:
             return None
+
+        # Options keyed by ambiguity type — concrete, pickable clarifications.
+        options_by_type = {
+            "lexical": [
+                "I mean the UI element / component",
+                "I mean the backend service / API",
+                "I mean the database / stored data",
+                "I'll name the exact element",
+            ],
+            "referential": [
+                "It refers to the feature I described",
+                "It refers to the existing code/system",
+                "It refers to a new thing we're adding",
+                "I'll specify exactly what it refers to",
+            ],
+            "scope": [
+                "Only the part I explicitly described",
+                "That feature plus its direct dependencies",
+                "The full flow end-to-end",
+                "I'll define the boundaries myself",
+            ],
+            "technical": [
+                "Use the standard/default configuration",
+                "Optimize for speed/performance",
+                "Optimize for simplicity/maintainability",
+                "I have specific technical requirements",
+            ],
+            "missing_context": [
+                "Use the current project context",
+                "It's a greenfield — no existing context",
+                "I'll provide the missing context",
+                "Make a reasonable assumption and note it",
+            ],
+            "conflicting": [
+                "The first requirement wins",
+                "The second requirement wins",
+                "Balance both — explain the trade-off",
+                "I'll resolve the conflict myself",
+            ],
+            "temporal": [
+                "As soon as possible — no hard deadline",
+                "There's a specific deadline (I'll share it)",
+                "It's an ongoing/iterative task",
+                "Timing doesn't matter for this",
+            ],
+        }
+        options = options_by_type.get(
+            ambiguity.type,
+            [
+                "Yes — I'll clarify this now",
+                "Use your best judgement here",
+                "This part isn't important yet",
+            ],
+        )
 
         return ClarificationQuestion(
             id=f"Q{question_id}",
             category="scope",
-            question=ambiguity.suggestion,
+            question=f"{ambiguity.suggestion} — which of these fits?",
             priority="medium",
             relates_to=f"ambiguity_{ambiguity.type}",
+            options=options,
         )
 
     @classmethod

@@ -516,19 +516,19 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
 
   // WS-1: Instant refresh when backend broadcasts worker started/completed
   // events (dispatcher/engine.py → broadcast_worker_event on channel "general").
-  // Debounced so event bursts coalesce into a single refetch; polling remains
-  // the fallback when the socket is unavailable.
+  // The general channel receives all worker.task events from the dispatcher.
   useEffect(() => {
     const wsRefreshRef = { current: null as ReturnType<typeof setTimeout> | null }
     const cleanup = connectWs(
-      'general',
+      'general',  // Primary channel - dispatcher broadcasts here
       (msg) => {
-        const m = msg as { type?: string }
+        const m = msg as { type?: string; data?: any }
         if (!m?.type?.startsWith('worker.')) return
         if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
         wsRefreshRef.current = setTimeout(() => { void loadData() }, 800)
       },
       () => { /* status changes ignored; polling is the fallback */ },
+      [] // extraChannels - not needed since we only listen to general channel
     )
     return () => {
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)

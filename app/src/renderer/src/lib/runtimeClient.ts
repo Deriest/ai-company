@@ -99,6 +99,7 @@ export function connectWs(
   channel: string,
   onMessage: (msg: unknown) => void,
   onStatus: (status: string) => void,
+  extraChannels?: string[],
 ): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -133,7 +134,15 @@ export function connectWs(
     }
     try {
       ws = new WebSocket(currentWsUrl());
-      ws.onopen = () => onStatus("connected");
+      ws.onopen = () => {
+        onStatus("connected");
+        // Subscribe to extra channels after initial connection
+        if (extraChannels && extraChannels.length > 0) {
+          for (const ch of extraChannels) {
+            ws?.send(JSON.stringify({ type: "subscribe", channel: ch }));
+          }
+        }
+      };
       ws.onmessage = (ev) => {
         try { onMessage(JSON.parse(ev.data)); } catch { onMessage(ev.data); }
       };

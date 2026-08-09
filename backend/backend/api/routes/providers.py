@@ -233,8 +233,14 @@ async def update_provider(
 
     if update.name is not None: provider.name = update.name
     if update.endpoint is not None: provider.base_url = update.endpoint
-    if update.apiKey is not None and update.apiKey != "***":
+    # BUG-1 FIX: Only update api_key if explicitly provided AND not empty/placeholder
+    # This preserves the existing encrypted key when editing without changing the key
+    if update.apiKey is not None and update.apiKey != "***" and update.apiKey.strip():
         provider.api_key = encrypt(update.apiKey)
+    elif update.apiKey is None:
+        # If apiKey is not in the update payload at all, preserve the existing key
+        # (no change needed - but being explicit about intent)
+        pass
     if update.enabled is not None:
         provider.enabled = update.enabled
         if not provider.enabled:
