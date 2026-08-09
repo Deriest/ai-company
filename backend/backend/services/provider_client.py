@@ -292,7 +292,13 @@ def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
 
 class ProviderClient:
     def __init__(self, base_url: str, api_key: str):
+        # Normalize base URL to avoid duplicate /v1 paths
+        # If user enters "https://api.aicompany.biz.id/v1", strip trailing /v1
+        # then add /v1 back when needed — prevents "https://.../v1/v1/chat..."
         self.base_url = base_url.rstrip("/")
+        if self.base_url.endswith("/v1"):
+            self.base_url = self.base_url[:-3]  # Remove trailing "/v1"
+        
         self.api_key = api_key
         headers = {"Content-Type": "application/json"}
         if api_key:
