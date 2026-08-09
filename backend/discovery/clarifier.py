@@ -286,7 +286,10 @@ clickable choices, plus a free-text "specify your own" field):
 
         provider = provider_manager.get_active_with_key()
         if not provider:
-            raise RuntimeError("No LLM provider")
+            raise RuntimeError(
+                "No LLM provider configured with usable API key — discovery questions require an active AI provider. "
+                "Please configure your LLM provider in Settings → Providers first."
+            )
 
         gaps = []
         if readiness is not None:
@@ -467,12 +470,21 @@ clickable choices, plus a free-text "specify your own" field):
         domain_text = ((intent.domain if intent else None) or domain or "").lower()
 
         if dimension.name == "intent_clarity":
+            # Personalize based on classified goal/intent when available
+            goal_hint = ""
+            if domain_text in ("bugfix",):
+                goal_hint = "For fixing this bug:"
+            elif domain_text in ("docs", "documentation"):
+                goal_hint = "For creating documentation:"
+            elif domain_text in ("test", "testing"):
+                goal_hint = "For adding tests:"
+            
             questions.append(ClarificationQuestion(
                 id=f"Q{start_id}",
                 category="intent",
                 question=(
-                    f"To make sure we build the right thing for your {domain_text or 'project'} "
-                    "request, what outcome would make this a success?"
+                    f"{goal_hint} To make sure we build exactly what you need, "
+                    f"what outcome would make this a success?"
                 ),
                 priority="high",
                 relates_to="intent_clarity",
