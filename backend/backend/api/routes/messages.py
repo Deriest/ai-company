@@ -7,7 +7,7 @@ from sqlalchemy import delete
 from typing import List
 
 from backend.database.session import get_db
-from backend.api.dependencies import require_current_user
+from backend.api.dependencies import require_current_user, validate_ownership
 from storage.models import Conversation, Message
 from backend.models.conversation import Attachment
 from backend.schemas.conversation_schemas import (
@@ -140,7 +140,13 @@ async def update_message(id: str, payload: MessageUpdate, db: AsyncSession = Dep
 
 
 @router.delete("/messages/{id}")
-async def delete_message(id: str, db: AsyncSession = Depends(get_db)):
+async def delete_message(id: str, db: AsyncSession = Depends(get_db), user: str = Depends(require_current_user)):
+    # H1 FIX: Verify user owns this message before allowing delete
+    try:
+        await validate_ownership(db, id, "message", user)
+    except HTTPException as e:
+        raise  # Re-raise ownership violations (403)
+    
     res = await db.execute(select(Message).where(Message.id == id))
     msg = res.scalars().first()
     if not msg:

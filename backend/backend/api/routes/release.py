@@ -9,12 +9,18 @@ from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from backend.api.dependencies import require_current_user
 
 # ── Signing Infrastructure ──────────────────────────────
 
 SECRET_KEY_PATH = Path(__file__).parent.parent.parent.parent / "secrets" / "release_private_key.pem"
 PUBLIC_KEY_PUB_PATH = Path(__file__).parent.parent.parent.parent / "secrets" / "release_public_key.pub"
+
+
+def _is_dev_mode() -> bool:
+    """Check if running in development mode."""
+    return os.getenv("ENVIRONMENT", "development").lower() in ("development", "dev", "local")
 
 
 def _load_signing_keys() -> tuple:
@@ -55,7 +61,15 @@ async def get_signed_manifest(version: str) -> Dict[str, Any]:
     """Get signed manifest for a specific version.
     
     Returns manifest with cryptographic signature for client verification.
+    
+    M5 FIX: Dev-only endpoint - returns 501 Not Implemented in production.
     """
+    if not _is_dev_mode():
+        raise HTTPException(
+            status_code=501, 
+            detail="Not Implemented: Release endpoints are dev-only"
+        )
+    
     # In production, this would fetch from S3/CDN
     # For development, generate mock manifest
     
@@ -94,17 +108,19 @@ async def get_signed_manifest(version: str) -> Dict[str, Any]:
     manifest_json = json.dumps(manifest_data, sort_keys=True, separators=(",", ":"))
     signature = _generate_ed25519_signature(manifest_json.encode("utf-8"))
     
-    return {
+    result = {
         "manifest": manifest_data,
         "signature": signature,
         "algorithm": "Ed25519-SHA256",
     }
+    resp = JSONResponse(content=result)
+    resp.headers["X-Dev-Mode"] = "true"
+    return resp
 
 
 @router.get("/latest-manifest", dependencies=[Depends(require_current_user)])
 async def get_latest_signed_manifest() -> Dict[str, Any]:
     """Get signed manifest for latest version."""
-    # Return latest version's signed manifest
     return await get_signed_manifest("v2.4.89")
 
 
@@ -117,7 +133,15 @@ async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
     
     Returns:
         Signed manifest with signature
+    
+    M5 FIX: Dev-only endpoint - returns 501 Not Implemented in production.
     """
+    if not _is_dev_mode():
+        raise HTTPException(
+            status_code=501, 
+            detail="Not Implemented: Release endpoints are dev-only"
+        )
+    
     try:
         data = {
             "version": payload.get("version", "unknown"),
@@ -129,11 +153,14 @@ async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
         data_json = json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
         signature = _generate_ed25519_signature(data_json)
         
-        return {
+        result = {
             "signed_data": data,
             "signature": signature,
             "hash": hashlib.sha256(data_json).hexdigest(),
         }
+        resp = JSONResponse(content=result)
+        resp.headers["X-Dev-Mode"] = "true"
+        return resp
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
@@ -143,13 +170,22 @@ async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
 @router.get("/public-key", dependencies=[Depends(require_current_user)])
 async def get_public_key() -> Dict[str, str]:
     """Get public key for client-side verification."""
+    if not _is_dev_mode():
+        raise HTTPException(
+            status_code=501, 
+            detail="Not Implemented: Release endpoints are dev-only"
+        )
+    
     if not PUBLIC_KEY_PUB_PATH.exists():
         raise HTTPException(status_code=404, detail="Public key not found")
     
     with open(PUBLIC_KEY_PUB_PATH, "r") as f:
         public_key = f.read().strip()
     
-    return {
+    result = {
         "key": public_key,
         "algorithm": "Ed25519",
     }
+    resp = JSONResponse(content=result)
+    resp.headers["X-Dev-Mode"] = "true"
+    return resp

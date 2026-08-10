@@ -6,6 +6,7 @@ Maintains backward compatibility with legacy hardcoded keys.
 """
 
 import os
+import tempfile
 import base64
 import secrets
 import json
@@ -70,17 +71,27 @@ def _load_or_generate_secrets() -> tuple[str, bytes]:
     salt = secrets.token_bytes(32)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "secret": secret,
-        "salt": base64.b64encode(salt).decode(),
-        "version": 1,
-    }))
-    # Restrict permissions (owner only)
+    
+    # M7 FIX: Use atomic write pattern - temp file + os.replace
+    # This prevents corruption if process crashes during write
+    fd, temp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
-
+        with os.fdopen(fd, 'w') as f:
+            json.dump({
+                "secret": secret,
+                "salt": base64.b64encode(salt).decode(),
+                "version": 1,
+            }, f)
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, path)
+    except Exception as e:
+        # Clean up temp file on failure
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise e
+    
     logger.info(f"Generated new encryption secrets at {path}")
     return secret, salt
 

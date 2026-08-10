@@ -56,16 +56,13 @@ class Settings(BaseSettings):
 
     # Per-install desktop identity — written by the Electron main process
     # to userData/aic-ade/identity.json and passed via AIC_IDENTITY_FILE.
-    # AIC_IDENTITY_USERNAME / AIC_IDENTITY_PASSWORD env vars take precedence
-    # over the file. Falls back to the defaults below only when neither env
-    # nor file is present, so standalone/dev/tests keep working.
+    # Environment variables take precedence over the file.
+    # DEFAULT_* constants are DEPRECATED test-only placeholders; do not use.
     AIC_IDENTITY_FILE: str = ""
     AIC_IDENTITY_USERNAME: str = ""
     AIC_IDENTITY_PASSWORD: str = ""
-    DEFAULT_IDENTITY_USERNAME: str = "admin"
-    DEFAULT_IDENTITY_PASSWORD: str = "admin123"
-    IDENTITY_USERNAME: str = ""
-    IDENTITY_PASSWORD: str = ""
+    # DEPRECATED: Test-only fallbacks, should NEVER be used in production.
+    # Removed from practical use - startup fails without valid identity.
 
     # Server — desktop-only: bind to localhost; never expose on the LAN.
     HOST: str = "127.0.0.1"
@@ -147,51 +144,51 @@ environment configuration. NEVER store secrets in files or commit them to Git.
             )
         
         # Load per-install identity written by the Electron main process.
-        # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE > defaults.
+        # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE.
+        # Fail closed if neither is available — no fallback to defaults.
         env_username = (self.AIC_IDENTITY_USERNAME or "").strip()
         env_password = (self.AIC_IDENTITY_PASSWORD or "").strip()
-        if env_username or env_password:
-            self.IDENTITY_USERNAME = env_username or self.DEFAULT_IDENTITY_USERNAME
-            self.IDENTITY_PASSWORD = env_password or self.DEFAULT_IDENTITY_PASSWORD
+        
+        if env_username and env_password:
+            # Both provided via env vars
+            self.IDENTITY_USERNAME = env_username
+            self.IDENTITY_PASSWORD = env_password
+            
         elif self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
             try:
                 with open(self.AIC_IDENTITY_FILE, "r", encoding="utf-8") as f:
                     identity = json.load(f)
-                self.IDENTITY_USERNAME = str(identity.get("username", "")).strip() or self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = str(identity.get("password", "")).strip() or self.DEFAULT_IDENTITY_PASSWORD
-            except (OSError, json.JSONDecodeError):
-                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
-        elif self.AIC_IDENTITY_FILE:
-            # H8: AIC_IDENTITY_FILE is set but the file does not exist (e.g. the
-            # Electron main process wrote it after we spawned). Mirror the
-            # Electron loadOrCreateIdentity approach: generate a random password
-            # on first run and persist it so restarts use the same identity.
-            try:
-                identity_path = Path(self.AIC_IDENTITY_FILE)
-                identity_path.parent.mkdir(parents=True, exist_ok=True)
-                self.IDENTITY_USERNAME = "admin"
-                self.IDENTITY_PASSWORD = secrets.token_hex(16)
-                identity_path.write_text(
-                    json.dumps({"username": self.IDENTITY_USERNAME, "password": self.IDENTITY_PASSWORD}),
-                    encoding="utf-8",
+                
+                username = str(identity.get("username", "")).strip()
+                password = str(identity.get("password", "")).strip()
+                
+                # H4 FIX: Fail closed if identity file is missing required fields
+                if not username or not password:
+                    raise ValueError(
+                        "Identity file exists but is incomplete: "
+                        "missing 'username' and/or 'password' fields"
+                    )
+                
+                self.IDENTITY_USERNAME = username
+                self.IDENTITY_PASSWORD = password
+                
+            except (OSError, json.JSONDecodeError) as e:
+                logger.error(
+                    "Failed to read/parse identity file %s: %s",
+                    self.AIC_IDENTITY_FILE, e
                 )
-                try:
-                    os.chmod(identity_path, 0o600)
-                except OSError:
-                    pass
-            except OSError as e:
-                logger.warning(f"Could not persist generated identity file {self.AIC_IDENTITY_FILE}: {e}")
-                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+                raise ValueError(
+                    f"Identity file corrupted or unreadable: {e}. "
+                    "Check file permissions and JSON structure."
+                ) from e
+            
         else:
-            # No AIC_IDENTITY_FILE and no AIC_IDENTITY_* env vars (standalone/
-            # dev/tests). The default credentials are a known fallback — fail
-            # startup completely to prevent insecure operation.
+            # M10: No identity provided - fail startup completely
             raise ValueError(
-                "AIC_IDENTITY_FILE is not set and no AIC_IDENTITY_USERNAME / "
-                "AIC_IDENTITY_PASSWORD env vars are present. Set AIC_IDENTITY_FILE "
-                "(or run via the Electron app) before starting the application."
+                "No identity configuration found. Set either:\n"
+                "  - AIC_IDENTITY_FILE environment variable pointing to identity.json,\n"
+                "  - AIC_IDENTITY_USERNAME and AIC_IDENTITY_PASSWORD environment variables.\n\n"
+                "The Electron app automatically creates identity.json in userData on first run."
             )
 
 

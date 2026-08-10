@@ -21,57 +21,10 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional, Any
 
+from backend.security.shell_security import check_dangerous_patterns, _close_proc_pipes
 from backend.services.path_utils import resolve_workspace_path
 
 logger = logging.getLogger("aic.workers.tools")
-
-from urllib.parse import unquote
-
-
-# ── Shell command safety patterns ──────────────────────
-# Block ONLY truly dangerous patterns at WORD BOUNDARIES while allowing
-# legitimate multi-command usage (git add . && git commit).
-
-_DANGEROUS_COMMANDS = [
-    r'\brm\s+-rf\s+/\s*$',           # rm -rf /
-    r'\brm\s+-rf\s+~\s*$',           # rm -rf ~
-    r'\brm\s+-rf\s+\$HOME\s*$',      # rm -rf $HOME
-    r'\bmkfs\b',                        # mkfs (format filesystem)
-    r'\bdd\s+(?:if=.+?|of=.+?)?',       # dd (raw disk access)
-    r'>\s*/dev/sd',                      # write to raw block device
-    r'\b(eval|exec|system)\b',          # exact word matches only
-    r':\(\)\s*\{[^}]*\};:',         # fork bomb pattern
-    r'\bchmod\s+-R\s+777\s+/\s*$',  # chmod -R 777 /
-]
-
-
-def _normalize_command_for_check(command: str) -> str:
-    """Normalize command to catch homoglyph attacks and decode URLs."""
-    decoded = unquote(command)
-    normalized = unicodedata.normalize('NFD', decoded).encode('ascii', 'ignore').decode('ascii')
-    return normalized
-
-
-def check_dangerous_patterns(command: str) -> None:
-    """Check command against dangerous patterns with proper word boundaries.
-    
-    Raises PermissionError if command contains a dangerous pattern.
-    """
-    if not command:
-        return
-    
-    normalized = _normalize_command_for_check(command)
-    
-    for pattern in _DANGEROUS_COMMANDS:
-        if re.search(pattern, normalized, re.IGNORECASE):
-            raise PermissionError(f"Command contains dangerous pattern: {pattern}")
-
-
-# Command contains a shell background token: a standalone `&` (not `&&`, `&>`,
-# `2>&1`), or an explicit `nohup` / `setsid`. Backgrounded commands keep the
-# output pipe write-ends open after the shell exits, which makes
-# proc.communicate() hang forever — so they are detached instead.
-_BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
 
 
 def _close_proc_pipes(proc) -> None:
@@ -90,6 +43,8 @@ def _close_proc_pipes(proc) -> None:
         except Exception:
             pass
 
+
+_BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
 
 async def _kill_process_group(proc) -> None:
     """Kill the whole process group (shell + any backgrounded children) and reap.
@@ -162,32 +117,108 @@ def _ip_is_blocked(ip) -> bool:
     return False
 
 
-def _validate_web_url(url: str, previous_scheme: str | None = None) -> None:
+def _validate_web_url(url: str, previous_scheme: str | None = None) -> tuple[bool, str, str | None]:
     """Validate a web_fetch URL — scheme + hostname resolution (SSRF guard).
-
-    Raises ValueError with a safe message when the URL is not fetchable.
+    
+    FIX H3: Return resolved IP for TOCTOU prevention. Caller must use this
+    validated IP when making the actual connection to prevent DNS rebinding.
+    
+    Returns: (is_valid: bool, error_msg: str, resolved_ip: str | None)
     """
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
-        raise ValueError(f"Blocked URL scheme '{scheme or 'none'}' — only http/https allowed")
+        return False, f"Blocked URL scheme '{scheme or 'none'}' — only http/https allowed", None
     if previous_scheme == "https" and scheme == "http":
-        raise ValueError("Blocked HTTPS→HTTP redirect downgrade")
+        return False, "Blocked HTTPS→HTTP redirect downgrade", None
 
     host = parsed.hostname
     if not host:
-        raise ValueError("URL has no hostname")
+        return False, "URL has no hostname", None
 
     port = parsed.port or (443 if scheme == "https" else 80)
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except OSError as e:
-        raise ValueError(f"Could not resolve hostname: {host}") from e
+        return False, f"Could not resolve hostname: {host}", None
 
+    # Resolve and validate ALL IPs that hostname resolves to
+    resolved_ips = []
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
+        ip_str = info[4][0]
+        ip = ipaddress.ip_address(ip_str)
         if _ip_is_blocked(ip):
-            raise ValueError(f"Blocked private/internal IP: {ip}")
+            return False, f"Blocked private/internal IP: {ip}", None
+        resolved_ips.append((ip_str, port))
+    
+    # Return first valid IP for direct connection (TOCTOU fix)
+    return True, "", resolved_ips[0] if resolved_ips else None
+
+
+class _SocketSafeHTTPConnection(urllib.request.HTTPHandler):
+    """HTTP handler that connects to a pre-resolved IP address (no DNS at fetch time)."""
+    
+    def __init__(self, ip_addr, host_header):
+        super().__init__()
+        self._ip_addr = ip_addr  # (ip, port) tuple
+        self._host_header = host_header
+    
+    def https_open(self, req):
+        return self._open_connection(req, socket.SOCK_STREAM)
+    
+    def http_open(self, req):
+        return self._open_connection(req, socket.SOCK_STREAM)
+    
+    def _open_connection(self, req, proto):
+        # Create a custom opener that uses our pre-resolved IP
+        class SafeOpener(urllib.request.OpenerDirector):
+            def __init__(self, ip_tuple, host_header):
+                super().__init__()
+                self._ip_tuple = ip_tuple
+                self._host_header = host_header
+                
+            def add_handler(self, handler):
+                pass  # Ignore default handlers
+            
+            def open(self, fullurl, data=None, timeout=30):
+                if isinstance(fullurl, str):
+                    url = fullurl
+                else:
+                    url = fullurl.full_url
+                    
+                parsed = urllib.parse.urlparse(url)
+                ip_str, port = self._ip_tuple
+                
+                # Use http.client for direct IP connection
+                import http.client
+                conn_cls = http.client.HTTPSConnection if parsed.scheme == 'https' else http.client.HTTPConnection
+                
+                # Connect directly to pre-validated IP
+                conn = conn_cls(ip_str, port, timeout=timeout)
+                
+                # Build request manually with original Host header
+                if parsed.query:
+                    path = parsed.path + "?" + parsed.query
+                else:
+                    path = parsed.path
+                    
+                headers = dict(req.headers) if hasattr(req, 'headers') else {}
+                headers['Host'] = self._host_header
+                headers.setdefault('User-Agent', 'AIC-Platform/1.0')
+                
+                method = 'GET'
+                if hasattr(req, 'data'):
+                    method = 'POST'
+                    body = req.data
+                else:
+                    body = None
+                    
+                conn.request(method, path, body, headers)
+                return conn.getresponse()
+        
+        opener = SafeOpener(self._ip_addr, self._host_header)
+        opener.add_handler(self)
+        return opener.open(req)
 
 
 class _WebFetchRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -195,7 +226,9 @@ class _WebFetchRedirectHandler(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         previous = getattr(req, "type", None)
-        _validate_web_url(newurl, previous_scheme=previous)
+        is_valid, err_msg, _ = _validate_web_url(newurl, previous_scheme=previous)
+        if not is_valid:
+            raise ValueError(err_msg)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -892,12 +925,32 @@ class ToolExecutor:
             return tc
 
         try:
-            # QA-SEC FIX: SSRF guard — validate scheme + block private/loopback/
-            # link-local/metadata targets, and reject redirects that escape to
-            # a blocked IP.
-            _validate_web_url(url)
+            # QA-SEC FIX + H3 TOCTOU: SSRF guard with pre-resolved IP to prevent DNS rebinding
+            is_valid, err_msg, resolved_addr = _validate_web_url(url)
+            if not is_valid or resolved_addr is None:
+                raise ValueError(err_msg or "Invalid URL")
+            
+            ip_str, port = resolved_addr
+            
+            # Extract host for Host header
+            parsed = urllib.parse.urlparse(url)
+            host_header = parsed.hostname
+            
             req = urllib.request.Request(url, headers={"User-Agent": "AIC-Platform/1.0"})
-            opener = urllib.request.build_opener(_WebFetchRedirectHandler())
+            
+            # Use socket-safe handler that connects directly to pre-validated IP
+            opener = urllib.request.build_opener(_SocketSafeHTTPConnection((ip_str, port), host_header))
+            
+            # Also block redirects to unsafe IPs by using our custom redirect handler
+            class StrictRedirectHandler(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    is_valid2, err_msg2, _ = _validate_web_url(newurl)
+                    if not is_valid2:
+                        raise ValueError(err_msg2)
+                    return super().redirect_request(req, fp, code, msg, headers, newurl)
+            
+            opener.add_handler(StrictRedirectHandler())
+            
             with opener.open(req, timeout=30) as resp:
                 content = resp.read().decode("utf-8", errors="replace")[:50000]
             tc.output = content

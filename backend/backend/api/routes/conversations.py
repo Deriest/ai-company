@@ -8,7 +8,7 @@ from typing import List, Optional
 import json
 
 from backend.database.session import get_db
-from backend.api.dependencies import require_current_user
+from backend.api.dependencies import require_current_user, validate_ownership
 from storage.models import Conversation, Message
 from backend.models.conversation import (
     Attachment,
@@ -306,7 +306,13 @@ async def update_conversation(id: str, payload: ConversationUpdate, db: AsyncSes
 
 
 @router.delete("/conversations/{id}")
-async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
+async def delete_conversation(id: str, db: AsyncSession = Depends(get_db), user: str = Depends(require_current_user)):
+    # H1 FIX: Verify user owns this conversation before allowing delete
+    try:
+        await validate_ownership(db, id, "conversation", user)
+    except HTTPException as e:
+        raise  # Re-raise ownership violations (403)
+    
     res = await db.execute(select(Conversation).where(Conversation.id == id))
     conv = res.scalars().first()
     if not conv:
