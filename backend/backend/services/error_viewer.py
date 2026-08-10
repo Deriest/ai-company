@@ -348,3 +348,16 @@ def handle_agent_error(
                          workspace_root=workspace_root,
                          task_description=task_description,
                          agent_role=agent_role)
+
+# Convenience class for error handling with auto-formatting
+class ErrorViewer:
+    '''High-level error viewing with suggestions'''
+    
+    def __init__(self):
+        self.viewer = ErrorContextFormatter()
+    
+    def format_error(self, error_type: str, message: str, code_location: str = "") -> str:
+        return self.viewer.format_error(error_type, message, code_location)
+    
+    def get_suggestion(self, error_type: str) -> Optional[str]:
+        return self.viewer.get_suggestion(error_type)

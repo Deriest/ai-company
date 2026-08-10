@@ -297,11 +297,9 @@ class RAGContextRetriever:
             file_vector = self.index.token_vectors.get(rel_path, {})
             file_tokens = set(file_vector.keys())
             jaccard = jaccard_similarity(query_tokens, file_tokens)
-            jaccard = jaccard_similarity(query_tokens, file_tokens)
             if jaccard > 0:
                 score += jaccard * 30  # Weight for direct token match
             
-            cosine = calculate_cosine_similarity(query_vector, file_vector)
             if cosine > 0:
             # Factor 2: Cosine similarity on term frequencies
             cosine = calculate_cosine_similarity(query_vector, file_vector)
