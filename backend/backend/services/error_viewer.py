@@ -361,3 +361,23 @@ class ErrorViewer:
     
     def get_suggestion(self, error_type: str) -> Optional[str]:
         return self.viewer.get_suggestion(error_type)
+
+class ErrorContextFormatter:
+    """Format errors with context and suggestions"""
+    
+    def format_error(self, error_type: str, message: str, code_location: str = "") -> str:
+        lines = [f"[{error_type}] {message}"]
+        if code_location:
+            lines.append(f"  at {code_location}")
+        return "\n".join(lines)
+    
+    def get_suggestion(self, error_type: str) -> Optional[str]:
+        suggestions = {
+            "ValueError": "Check input values and data types",
+            "KeyError": "Verify key exists in dictionary",
+            "TypeError": "Ensure correct types are used",
+            "FileNotFoundError": "Check file path exists",
+            "ConnectionError": "Verify network connection is available",
+        }
+        return suggestions.get(error_type, "Review error message for details")
+

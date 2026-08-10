@@ -134,7 +134,7 @@ def detect_language(file_path: str) -> str:
 class RAGIndex:
     """Hash-based semantic index for file retrieval."""
     
-    def __init__(self, workspace_root: str):
+    def __init__(self, workspace_root: str = ".", chunk_size: int = 500):
         self.workspace_root = workspace_root
         self.embeddings: dict[str, FileEmbedding] = {}
         self.token_vectors: dict[str, dict[str, int]] = {}
@@ -250,7 +250,7 @@ class RAGIndex:
 class RAGContextRetriever:
     """Semantic file retrieval service for agent context building."""
     
-    def __init__(self, workspace_root: str):
+    def __init__(self, workspace_root: str = ".", chunk_size: int = 500):
         self.workspace_root = workspace_root
         self.index = RAGIndex(workspace_root)
         self._is_indexed = False
@@ -300,9 +300,9 @@ class RAGContextRetriever:
             if jaccard > 0:
                 score += jaccard * 30  # Weight for direct token match
             
-            if cosine > 0:
             # Factor 2: Cosine similarity on term frequencies
             cosine = calculate_cosine_similarity(query_vector, file_vector)
+            if cosine > 0:
                 score += cosine * 70  # Weight for proportional similarity
             
             # Factor 3: Path relevance (filename contains query terms)
@@ -415,3 +415,20 @@ async def init_rag_index(workspace_root: str = ".") -> int:
     """Initialize the RAG index for the workspace."""
     retriever = get_rag_context_retriever(workspace_root)
     return await retriever.initialize()
+
+
+# Convenience wrapper for RAG functionality
+class RagContextService:
+    """Convenience wrapper around RAGContextRetriever"""
+    def __init__(self):
+        self.retriever = RAGContextRetriever()
+    
+    def add_file(self, filepath: str, content: str):
+        return self.retriever.add_file(filepath, content)
+    
+    def find_relevant_files(self, query: str, top_k: int = 10) -> list[RetrievalResult]:
+        return self.retriever.find_relevant_files(query, top_k)
+
+
+# Alias for better discoverability
+DocumentIndexer = RAGIndex
