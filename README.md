@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.4.81** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.4.89** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.4.81
+## Download v2.4.89
 
 | Platform | Download |
 |---|---|
-| Windows x64 | [AIC-ADE-Setup-2.4.81.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-Setup-2.4.81.exe) |
-| Linux AppImage | [AIC-ADE-2.4.81-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-2.4.81-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.4.81-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.81/AIC-ADE-2.4.81-linux-amd64.deb) |
+| Windows x64 | [AIC-ADE-Setup-2.4.89.exe](https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-Setup-2.4.89.exe) |
+| Linux AppImage | [AIC-ADE-2.4.89-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-2.4.89-linux-x86_64.AppImage) |
+| Linux Debian | [AIC-ADE-2.4.89-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-2.4.89-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.81)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.4.89)
 
 ### Checksums
 
@@ -218,35 +218,57 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.4.81
+## What's New in v2.4.89
 
-### Worker Maximization
-- **Full soul injection** — all 9 soul fields (including `engineering_philosophy`,
-  `risk_philosophy`, `collaboration_style`, `escalation_policy`) are now injected
-  into every worker's runtime context, not just the operating constraints.
-- **Per-worker tuning policy** — each of the 15 workers now has a
-  `WorkerTuningPolicy` (planning depth, verification frequency, checkpoint
-  strategy, prompt detail) tuned to its role — Hermes thinks comprehensively,
-  Rex reviews tersely, crafters verify after every step.
-- **Lessons loop** — `lessons_learned` entries from past deliveries are now
-  retrieved at dispatch time and injected into worker context, so the company
-  learns from its own history.
-- **Self-healing upgrade** — heartbeat alerts now actually act: stale tasks and
-  blocked leases trigger `SelfHealingEngine`, and leases stuck >30 minutes are
-  auto-expired with their workers reset to idle.
+### Critical Security Vulnerability Remediation
 
-### Office Floor
-- **Unified workforce view** — the redundant "Live Company" nav entry is gone.
-  The pixel-art Office floor is now the single workforce view, showing live
-  worker status, active task, and progress per desk.
-- **Live status endpoint** — new `GET /runtime/workforce` returns each worker's
-  busy state, current task (title/phase/progress), and configured model.
-- **WebSocket push** — the office floor now refreshes instantly on worker
-  started/completed events instead of waiting for the next poll.
+This release addresses **30 security and stability issues** (6 critical, 10 high, 14 medium/low) identified in a comprehensive code audit:
 
-### Bug Fixes
-- Memory persistence stores deliverables under the correct project id.
-- Office floor reads the correct workforce endpoint and data shape.
+#### 🔴 Critical Fixes (C1-C6)
+
+- **C1: Database Auto-Commit Pattern** — Fixed silent data loss where all INSERT/UPDATE/DELETE operations were rolling back due to missing `commit()` calls. All database sessions now use auto-commit context manager pattern with proper rollback on error.
+
+- **C2: Conversation API Path Mismatch** — Fixed broken Conversations feature caused by frontend calling `/conversations/*` while backend mounted at `/api/conversations`. Updated path prefixes and HTTP method from PATCH to PUT.
+
+- **C3: Backup Integrity** — Fixed empty archive bug in backup script. Now uses temp file + gzip with `gzip -t` validation before considering backup valid and pruning older archives.
+
+- **C4: Updater RCE Prevention** — Hardened renderer-controlled `aic:store-set` IPC handler with strict key allowlist (`password`, `projectRoot`, `AIC_IDENTITY_PASSWORD`) and validated `channel`/`baseUrl` against trusted hosts only.
+
+- **C5: Secure Update Signing** — Configured macOS notarization and signing support for secure auto-update artifacts.
+
+- **C6: Terminal CWD Validation** — Fixed arbitrary shell execution vulnerability by requiring paths under projectRoot or appDataDir, rejecting invalid configurations.
+
+#### 🟠 High Severity Fixes (H1-H10)
+
+- **H1: Test Mode Auth Bypass** — Require dual flags (`AIC_TESTING=1` AND `AIC_ALLOW_TEST_AUTH=true`) for test mode authentication bypass. Defaults to fail-closed.
+
+- **H2: SQL Injection Prevention** — Added realpath resolution + DATA_DIR prefix validation for `VACUUM INTO` snapshot paths.
+
+- **H3: Automation Endpoint Auth** — Added authentication requirements to all /hooks mutation endpoints (create/fire/delete).
+
+- **H4: Shell Command Sanitization** — Dangerous pattern rejection list added ($(`, backticks, `;`, `|`, `&&`, eval, exec, base64 encoding) before shell command execution.
+
+- **H5: Secret Management** — Replaced hardcoded secrets in `.env.example` files with clear placeholders.
+
+- Additional improvements to process guards, error handling, and race condition prevention.
+
+#### 🟡 Medium/Low Priority Fixes (M7-M14, L1-L14)
+
+- Multi-process safety documentation and worker count warnings
+- Enhanced error logging throughout event recorder and background tasks
+- Path traversal protection in workspace creation
+- Rate limiter per-client bucket isolation via IP address
+- Warning logs for unauthenticated websocket subscriptions
+- Optimized O(n²) dependency detection to indexed O(n) lookup
+- Standardized timeout defaults across workers
+- SQLite persistence for login lockout counters
+- Fixed duplicate command IDs and regex look-alike patterns
+
+---
+
+### Documentation
+
+Full technical details available in [`RELEASE_NOTES_v2.4.89.md`](./RELEASE_NOTES_v2.4.89.md).
 
 ## Tips & Best Practices
 
