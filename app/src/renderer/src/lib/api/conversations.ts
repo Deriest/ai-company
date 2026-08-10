@@ -56,15 +56,15 @@ export const conversationsApi = {
     if (params?.tag) query.append("tag", params.tag);
     
     const qs = query.toString() ? `?${query.toString()}` : "";
-    return apiClient.get<ConversationRecord[]>(`/conversations${qs}`);
+    return apiClient.get<ConversationRecord[]>(`/api/conversations${qs}`);
   },
 
   async create(title = "New Conversation", folder_id?: string, tags: string[] = [], project_id?: string): Promise<ConversationRecord> {
-    return apiClient.post<ConversationRecord>("/conversations", { title, folder_id, tags, project_id });
+    return apiClient.post<ConversationRecord>(`/api/conversations`, { title, folder_id, tags, project_id });
   },
 
   async get(id: string): Promise<ConversationRecord> {
-    return apiClient.get<ConversationRecord>(`/conversations/${id}`);
+    return apiClient.get<ConversationRecord>(`/api/conversations/${id}`);
   },
 
   /**
@@ -87,37 +87,37 @@ export const conversationsApi = {
   },
 
   async update(id: string, partial: Partial<{ title: string; folder_id: string | null; is_archived: boolean; is_favorite: boolean; is_pinned: boolean; tags: string[] }>): Promise<ConversationRecord> {
-    return apiClient.patch<ConversationRecord>(`/conversations/${id}`, partial);
+    return apiClient.put<ConversationRecord>(`/api/conversations/${id}`, partial);
   },
 
   async delete(id: string): Promise<void> {
-    await apiClient.delete(`/conversations/${id}`);
+    await apiClient.delete(`/api/conversations/${id}`);
   },
 
   async duplicate(id: string): Promise<ConversationRecord> {
-    return apiClient.post<ConversationRecord>(`/conversations/${id}/duplicate`);
+    return apiClient.post<ConversationRecord>(`/api/conversations/${id}/duplicate`);
   },
 
   async search(query: string): Promise<SearchResultItem[]> {
-    return apiClient.get<SearchResultItem[]>(`/conversations/search?q=${encodeURIComponent(query)}`);
+    return apiClient.get<SearchResultItem[]>(`/api/conversations/search?q=${encodeURIComponent(query)}`);
   },
 
   async listMessages(conversationId: string, limit?: number): Promise<MessageRecord[]> {
     // Backend caps limit at 1000 (messages route). Explicit limit avoids the
     // 500-message default silently truncating long conversations.
     const qs = limit !== undefined ? `?limit=${Math.min(Math.max(limit, 1), 1000)}` : "";
-    return apiClient.get<MessageRecord[]>(`/conversations/${conversationId}/messages${qs}`);
+    return apiClient.get<MessageRecord[]>(`/api/conversations/${conversationId}/messages${qs}`);
   },
 
   async createMessage(conversationId: string, payload: { role: string; content: string; message_metadata?: any; token_count?: number; model_id?: string; provider_id?: string; status?: string; attachments?: any[] }): Promise<MessageRecord> {
-    return apiClient.post<MessageRecord>(`/conversations/${conversationId}/messages`, payload);
+    return apiClient.post<MessageRecord>(`/api/conversations/${conversationId}/messages`, payload);
   },
 
   async updateMessage(messageId: string, partial: Partial<{ content: string; message_metadata: any; token_count: number; status: string }>): Promise<MessageRecord> {
-    return apiClient.patch<MessageRecord>(`/messages/${messageId}`, partial);
+    return apiClient.patch<MessageRecord>(`/api/messages/${messageId}`, partial);
   },
 
   async deleteMessage(messageId: string): Promise<void> {
-    await apiClient.delete(`/messages/${messageId}`);
+    await apiClient.delete(`/api/messages/${messageId}`);
   }
 };

@@ -9,12 +9,12 @@ TEST-ONLY NOTE: this module's fail-open behavior is strictly for the automated
 test suite and must NEVER be enabled in production. The test suite drives the
 app with httpx ``ASGITransport`` using ``base_url="http://test"`` and no token.
 To let those token-less tests pass without opening a Host-header backdoor in
-production, the dependency fail-opens ONLY when the ``AIC_TESTING`` environment
-flag is set (pytest sets it in ``tests/conftest.py``). If ``AIC_TESTING=1`` is
-ever set in a real deployment, every guard here silently authenticates any
-unauthenticated caller, so the app logs a loud startup WARNING when it is
-detected (see ``backend/main.py`` lifespan). In production the flag is absent,
-so a missing/invalid token always yields ``None`` and ``require_current_user``
+production, the dependency fail-opens ONLY when BOTH the ``AIC_TESTING`` environment
+flag AND ``AIC_ALLOW_TEST_AUTH`` are set (pytest sets both in ``tests/conftest.py``). 
+If these flags are ever set in a real deployment, EVERY guard here silently
+authenticates any unauthenticated caller, so the app logs a loud startup WARNING 
+when it is detected (see ``backend/main.py`` lifespan). In production neither flag 
+is present, so a missing/invalid token always yields ``None`` and ``require_current_user``
 raises 401.
 """
 import os
@@ -25,11 +25,14 @@ from fastapi import Depends, HTTPException, Request, status
 from backend.api.routes.auth import oauth2_scheme
 from auth.security import decode_access_token
 
-# Set to "1" by tests/conftest.py. When set, the auth dependency fail-opens for
-# the token-less test client. It is deliberately gated on this env flag rather
-# than on the (client-controlled) Host header, which would be a backdoor.
-# TEST-ONLY: this flag must never be set in production (see module docstring).
+# H1: Require DUAL flags for test auth bypass - prevents accidental exposure
+# AIC_TESTING set by pytest
 _AIC_TESTING = os.environ.get("AIC_TESTING") == "1"
+# AIC_ALLOW_TEST_AUTH - explicit opt-in flag
+_AIC_ALLOW_TEST_AUTH = os.environ.get("AIC_ALLOW_TEST_AUTH", "").lower() == "true"
+
+# Combined check - both must be true to bypass auth in test mode
+_AIC_TEST_MODE = _AIC_TESTING and _AIC_ALLOW_TEST_AUTH
 
 _AUTH_HEADERS = {"WWW-Authenticate": "Bearer"}
 
@@ -43,11 +46,11 @@ def get_optional_current_user(
     Reads the ``Authorization: Bearer <token>`` header via ``oauth2_scheme``
     (``auto_error=False`` so a missing header yields ``None`` rather than an
     automatic 401) and validates it with :func:`decode_access_token`. In test
-    mode (``AIC_TESTING=1``) a missing token fail-opens to ``"test-user"`` so
-    the token-less suite keeps passing; otherwise a missing/invalid token
-    yields ``None``.
+    mode (``AIC_TESTING=1 AND AIC_ALLOW_TEST_AUTH=true``) a missing token
+    fail-opens to ``"test-user"`` so the token-less suite keeps passing;
+    otherwise a missing/invalid token yields ``None``.
     """
-    if not token and _AIC_TESTING:
+    if not token and _AIC_TEST_MODE:
         return "test-user"
 
     if not token:

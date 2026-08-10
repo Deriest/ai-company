@@ -2,6 +2,8 @@
 
 export type UpdateChannel = "stable" | "beta" | "dev";
 
+export const VALID_CHANNELS: Set<string> = new Set(["stable", "beta", "dev"]);
+
 export type PlatformKey = "win32" | "linux" | "darwin";
 
 export type PlatformArtifact = {
@@ -98,6 +100,12 @@ export function parseManifest(raw: unknown): UpdateManifest {
 export const DEFAULT_UPDATE_BASE_URL = "https://raw.githubusercontent.com/Deriest/ai-company/main";
 export const PUBLIC_UPDATE_BASE_URL = "https://raw.githubusercontent.com/Deriest/ai-company/main";
 
+// C4: Trusted hosts only — restrict baseUrl to known safe origins
+export const TRUSTED_UPDATE_HOSTS: Set<string> = new Set([
+  "raw.githubusercontent.com",
+  "127.0.0.1",
+]);
+
 export type UpdateConfig = {
   baseUrl: string;
   channel: UpdateChannel;
@@ -106,6 +114,14 @@ export type UpdateConfig = {
   notifyBeforeInstall: boolean;
   lastCheckedAt: string | null;
 };
+
+/** C4: Validate channel against allowlist and restrict baseUrl to trusted hosts */
+export function validateUpdateChannel(channel: unknown): UpdateChannel {
+  if (typeof channel !== "string" || !VALID_CHANNELS.has(channel)) {
+    throw new Error(`Invalid update channel: "${channel}". Must be one of: stable, beta, dev`);
+  }
+  return channel as UpdateChannel;
+}
 
 export function resolveUpdateBaseUrl(
   stored?: string | null,
@@ -119,6 +135,7 @@ export function resolveUpdateBaseUrl(
 /**
  * Require https:// for update sources. Only http://127.0.0.1 is allowed
  * for local development mirrors. Throws for anything else (http, file, ftp).
+ * Also validates hostname against trusted host list.
  */
 export function validateUpdateBaseUrl(url: string): string {
   let u: URL;
@@ -129,8 +146,10 @@ export function validateUpdateBaseUrl(url: string): string {
   }
   const isLocal = u.protocol === "http:" && u.hostname === "127.0.0.1";
   const isHttps = u.protocol === "https:";
-  if (!isLocal && !isHttps) {
-    throw new Error("Update base URL must use https:// (or http://127.0.0.1 for local dev)");
+  const isTrustedHost = TRUSTED_UPDATE_HOSTS.has(u.hostname);
+  
+  if (!isLocal && !isHttps && !isTrustedHost) {
+    throw new Error("Update base URL must use https:// (or http://127.0.0.1 for local dev) and be from a trusted host");
   }
   return url.replace(/\/$/, "");
 }

@@ -81,11 +81,25 @@ async def _snapshot_db(snapshot_path: Path) -> Path | None:
     is missing, or VACUUM INTO is unavailable on this driver, fall back to a
     plain copy of ``aic.db`` — with the caveat that a concurrent write during
     the copy could race.
+    
+    H2: Add path resolution + DATA_DIR validation for VACUUM INTO security.
+    The snapshot path must be under DATA_DIR to prevent arbitrary file writes.
     """
     db_path = Path(settings.DATA_DIR) / "aic.db"
     if not db_path.is_file():
         logger.warning("No aic.db at %s — backing up without a DB snapshot", db_path)
         return None
+    
+    # Resolve paths and validate they're under DATA_DIR
+    resolved_data_dir = Path(settings.DATA_DIR).resolve()
+    resolved_snapshot = snapshot_path.resolve()
+    
+    # Security check: snapshot path must be under DATA_DIR
+    try:
+        resolved_snapshot.relative_to(resolved_data_dir)
+    except ValueError:
+        raise RuntimeError(f"Invalid snapshot path outside DATA_DIR: {snapshot_path}")
+    
     escaped = str(snapshot_path).replace("'", "''")
     try:
         from backend.database.session import engine as db_engine

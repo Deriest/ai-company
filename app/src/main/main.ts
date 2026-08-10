@@ -574,6 +574,10 @@ function registerIpc(): void {
 
   ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
     const store = readStore();
+    
+    // C4: Strict allowlist for sensitive config keys to prevent RCE
+    const ALLOWED_CONFIG_KEYS = new Set(['password', 'projectRoot', 'AIC_IDENTITY_PASSWORD']);
+    
     if (key === "projectRoot") {
       // projectRoot is the trust boundary for file access — never let the
       // renderer set an arbitrary path. Only validated non-sensitive paths
@@ -593,9 +597,16 @@ function registerIpc(): void {
       writeStore(store);
       return true;
     }
-    store[key] = value;
-    writeStore(store);
-    return true;
+    
+    // Allow only whitelisted keys that require special handling
+    if (ALLOWED_CONFIG_KEYS.has(key)) {
+      store[key] = value;
+      writeStore(store);
+      return true;
+    }
+    
+    // Reject all other keys to prevent arbitrary config injection
+    throw new Error(`Security violation: cannot set store key "${key}" from renderer`);
   });
 
   ipcMain.handle("aic:open-path", async (_e, target: string) => {
@@ -675,7 +686,24 @@ function registerIpc(): void {
     }
     const root = cwd || projectRoot;
     if (!root) throw new Error("No project root — open a folder first");
-    const safeCwd = resolveSafe(root, [root], [appDataDir()]);
+    
+    // C6: Fix terminal CWD tautology - properly validate paths under projectRoot or appDataDir
+    // Don't just check projectRoot is in path; verify the resolved path is actually UNDER one of them
+    const resolvedProjectRoot = projectRoot ? path.resolve(projectRoot) : "";
+    const resolvedAppDataDir = appDataDir();
+    const targetCwd = cwd || resolvedProjectRoot;
+    const normalizedTarget = path.normalize(targetCwd);
+    
+    // Validate: must be under projectRoot OR appDataDir
+    const isUnderProjectRoot = normalizedTarget.startsWith(resolvedProjectRoot + path.sep) || normalizedTarget === resolvedProjectRoot;
+    const isUnderAppDataDir = normalizedTarget.startsWith(resolvedAppDataDir + path.sep) || normalizedTarget === resolvedAppDataDir;
+    
+    if (!isUnderProjectRoot && !isUnderAppDataDir) {
+      throw new Error(`Terminal CWD ${targetCwd} is not allowed (must be under projectRoot or appDataDir)`);
+    }
+    
+    const safeCwd = normalizedTarget;
+    
     const shellPath =
       process.platform === "win32"
         ? process.env.COMSPEC || "cmd.exe"

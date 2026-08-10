@@ -173,7 +173,12 @@
       ],
       "category": "public.app-category.developer-tools",
       "identity": null,
-      "notarize": false
+      "notarize": true,
+      "hardenedRuntime": true,
+      "extendInfo": {
+        "NSHighEntropyCache": true,
+        "LSMinimumSystemVersion": "10.15"
+      }
     }
   },
   "engines": {

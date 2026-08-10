@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 
 router = APIRouter()
 
@@ -12,7 +13,7 @@ from backend.services.automation_service import automation_service
 # ── Automation Endpoints ─────────────────────────────────────
 
 @router.post("/hooks")
-async def create_hook(payload: dict, db: AsyncSession = Depends(get_db)):
+async def create_hook(payload: dict, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     event_type = payload.get("event_type")
     name = payload.get("name")
     action_type = payload.get("action_type")
@@ -35,17 +36,17 @@ async def list_hooks(event_type: Optional[str] = Query(None), db: AsyncSession =
     ]
 
 @router.delete("/hooks/{hook_id}")
-async def delete_hook(hook_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_hook(hook_id: str, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     await automation_service.delete_hook(db, hook_id)
     return {"status": "ok"}
 
 @router.post("/hooks/fire/{event_type}")
-async def fire_event(event_type: str, db: AsyncSession = Depends(get_db)):
+async def fire_event(event_type: str, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     fired = await automation_service.fire_event(db, event_type)
     return {"fired": len(fired)}
 
 @router.post("/triggers")
-async def create_trigger(payload: dict, db: AsyncSession = Depends(get_db)):
+async def create_trigger(payload: dict, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     name = payload.get("name")
     condition = payload.get("condition")
     action = payload.get("action")
@@ -67,7 +68,7 @@ async def list_triggers(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.delete("/triggers/{trigger_id}")
-async def delete_trigger(trigger_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_trigger(trigger_id: str, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     await automation_service.delete_trigger(db, trigger_id)
     return {"status": "ok"}
 
@@ -81,11 +82,11 @@ async def list_notifications(is_read: Optional[bool] = Query(None), db: AsyncSes
     ]
 
 @router.patch("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: str, db: AsyncSession = Depends(get_db)):
+async def mark_notification_read(notif_id: str, _auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     notif = await automation_service.mark_read(db, notif_id)
     return {"id": notif.id, "isRead": notif.is_read}
 
 @router.post("/notifications/read-all")
-async def mark_all_notifications_read(db: AsyncSession = Depends(get_db)):
+async def mark_all_notifications_read(_auth: str = require_current_user, db: AsyncSession = Depends(get_db)):
     await automation_service.mark_all_read(db)
     return {"status": "ok"}

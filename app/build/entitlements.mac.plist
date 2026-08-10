@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS Hardened Runtime Entitlements for Notarization -->
+    
+    <!-- Network access (client only) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <!-- User-selected file access (read/write for app data and downloads) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- Accessibility for terminal emulation -->
+    <key>com.apple.security.temporary-exception.apple-events</key>
+    <array>
+        <string>AXSystemEvents</string>
+    </array>
+    
+    <!-- Temporary exception for PTY terminal spawn -->
+    <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+    <array>
+        <string>com.apple.terminal</string>
+    </array>
+    
+    <!-- Development team ID (REQUIRED - update with your actual Team ID) -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    
+    <!-- Allow execution of dynamically generated code (required for PTY) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <false/>
+</dict>
+</plist>

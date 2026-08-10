@@ -38,12 +38,34 @@ _SHELL_DENYLIST = [
     (re.compile(r"\bchmod\s+-R\s+777\s+/(?:\s|$)", re.I), "chmod -R 777 / (world-writable root)"),
 ]
 
+# H4: Additional dangerous pattern rejection list for code injection prevention
+_DANGEROUS_PATTERNS = [
+    (re.compile(r"`[^`]+`"), "backtick execution (command substitution)"),
+    (re.compile(r"\$\([^)]+\)"), "backslash-dollar parenthesized execution"),
+    (re.compile(r"\$\(`.*`\)", re.S), "nested backtick with dollar sign"),
+    (re.compile(r"&&|;\s*\w+"), "chained command execution (dangerous chaining)"),
+    (re.compile(r">>\s*/(proc|sys)/", re.I), "append to /proc or /sys"),
+    (re.compile(r"eval\s*[^(]", re.I), "eval function call"),
+    (re.compile(r"\bexec\s+", re.I), "exec builtin (replace process)"),
+    (re.compile(r"\:\(\)\s*\{\s*:\|\|\:\}", re.I), "extended fork bomb variant"),
+    (re.compile(r"xargs\s+-I", re.I), "xargs interactive execution"),
+    (re.compile(r"python\s+-c\s+[\"'][^\"']*import\s+os", re.I), "Python import os (system access)"),
+    (re.compile(r"python\s+-c\s+[\"'][^\"']*subprocess", re.I), "Python subprocess module"),
+    (re.compile(r"node\s+-e\s+[\"'][^\"'].*require\s*[\'\"]child_process", re.I), "Node.js child_process require"),
+    (re.compile(r"perl\s+-e\s+.*\Qopen\E", re.I), "Perl file handle manipulation"),
+]
+
 
 def _denylisted_shell_command(command: str) -> str | None:
     """Return a human-readable reason if the command is blocked, else None."""
     if not command:
         return None
+    # Check shell denylist first
     for pattern, reason in _SHELL_DENYLIST:
+        if pattern.search(command):
+            return reason
+    # H4: Also check dangerous code injection patterns
+    for pattern, reason in _DANGEROUS_PATTERNS:
         if pattern.search(command):
             return reason
     return None
