@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from backend.api.dependencies import require_current_user
 
 # ── Signing Infrastructure ──────────────────────────────
 
@@ -49,7 +50,7 @@ def _generate_ed25519_signature(data: bytes) -> str:
 router = APIRouter(prefix="/release", tags=["release"])
 
 
-@router.get("/manifest/{version}")
+@router.get("/manifest/{version}", dependencies=[Depends(require_current_user)])
 async def get_signed_manifest(version: str) -> Dict[str, Any]:
     """Get signed manifest for a specific version.
     
@@ -100,14 +101,14 @@ async def get_signed_manifest(version: str) -> Dict[str, Any]:
     }
 
 
-@router.get("/latest-manifest")
+@router.get("/latest-manifest", dependencies=[Depends(require_current_user)])
 async def get_latest_signed_manifest() -> Dict[str, Any]:
     """Get signed manifest for latest version."""
     # Return latest version's signed manifest
     return await get_signed_manifest("v2.4.89")
 
 
-@router.post("/sign")
+@router.post("/sign", dependencies=[Depends(require_current_user)])
 async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
     """Manually sign release data for testing purposes.
     
@@ -139,7 +140,7 @@ async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Signing failed: {e}")
 
 
-@router.get("/public-key")
+@router.get("/public-key", dependencies=[Depends(require_current_user)])
 async def get_public_key() -> Dict[str, str]:
     """Get public key for client-side verification."""
     if not PUBLIC_KEY_PUB_PATH.exists():

@@ -11,11 +11,17 @@ test_e2e.py / test_memory_engine.py / test_skills_engine.py) is consolidated
 here so all three suites share a single definition.
 """
 import os
+import secrets
 import tempfile
 
 # Must be set before backend.config / backend.database.session are imported.
 _TEST_DATA_DIR = tempfile.mkdtemp(prefix="aic-test-data-")
 os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
+# GAP-1 FIX: JWT secret must be provided via environment variable (no file
+# fallback). Tests generate a fresh secret per session so the suite runs
+# hermetically without touching any real secret. MUST be set before
+# backend.config is imported.
+os.environ.setdefault("AIC_JWT_SECRET", secrets.token_hex(32))
 # Enable the deterministic test flag so the auth fail-open (and the
 # localhost Host-header allowlist for httpx ASGITransport "test") applies
 # during the test run but never at runtime. Read by backend/api/dependencies.py

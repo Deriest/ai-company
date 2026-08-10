@@ -111,19 +111,41 @@ class Settings(BaseSettings):
         # Force absolute SQLite path so packaged installs never write into read-only resources
         db_path = (self.DATA_DIR / "aic.db").resolve()
         self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
-        # Auto-generate secure JWT secret if not set via env
-        if not self.SECRET_KEY:
-            key_file = self.DATA_DIR / ".jwt_secret"
-            if key_file.exists():
-                self.SECRET_KEY = key_file.read_text().strip()
-            else:
-                self.SECRET_KEY = secrets.token_hex(32)
-                key_file.write_text(self.SECRET_KEY)
-                # M4: restrict the secret file to the owner only.
-                try:
-                    os.chmod(key_file, 0o600)
-                except OSError:
-                    pass
+        # CRITICAL GAP-1 FIX: JWT secret MUST be provided via environment variable
+        # Remove file-based fallback to prevent accidental Git commits and enable rotation
+        from os import environ
+        
+        if "AIC_JWT_SECRET" not in environ:
+            raise ValueError(
+                """
+JWT_SECRET must be provided via AIC_JWT_SECRET environment variable!
+
+Generate a secure 32+ character secret with:
+    python -c "import secrets; print(secrets.token_hex(32))"
+
+Set it like:
+    export AIC_JWT_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
+
+In production deployments (Docker, systemd, etc.), set AIC_JWT_SECRET in your
+environment configuration. NEVER store secrets in files or commit them to Git.
+""".strip()
+            )
+        
+        self.SECRET_KEY = environ["AIC_JWT_SECRET"]
+        
+        # Validate minimum length for cryptographic security
+        if len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                f"JWT_SECRET too short (minimum 32 characters required, got {len(self.SECRET_KEY)})"
+            )
+            
+        # Optional: Warn about non-alphanumeric characters
+        if not all(c.isalnum() for c in self.SECRET_KEY):
+            logger.warning(
+                "AIC_JWT_SECRET contains non-alphanumeric characters. "
+                "This is supported but consider using only [a-zA-Z0-9] for maximum compatibility."
+            )
+        
         # Load per-install identity written by the Electron main process.
         # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE > defaults.
         env_username = (self.AIC_IDENTITY_USERNAME or "").strip()

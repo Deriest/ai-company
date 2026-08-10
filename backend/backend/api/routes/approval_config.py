@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.session import get_db
 from backend.models.local_profile import LocalProfile
 from sqlalchemy.future import select
+from backend.api.dependencies import require_current_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class ApprovalScope(BaseModel):
