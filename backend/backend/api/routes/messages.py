@@ -7,6 +7,7 @@ from sqlalchemy import delete
 from typing import List
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message
 from backend.models.conversation import Attachment
 from backend.schemas.conversation_schemas import (
@@ -20,7 +21,7 @@ from backend.api.routes.conversations import _build_msg_responses, _build_msg_re
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/conversations/{id}/messages", response_model=List[MessageResponse])

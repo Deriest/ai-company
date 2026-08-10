@@ -1,0 +1,408 @@
+{
+  "timestamp": "2026-08-10T12:57:05.941935",
+  "app_title": "AIC-ADE Backend",
+  "total_routes": 181,
+  "options_skipped": 0,
+  "routes_tested": 181,
+  "passed": 146,
+  "failed": 35,
+  "pass_rate": 80.66,
+  "public_endpoints_checked": [
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "status_code": 200
+    },
+    {
+      "method": "GET",
+      "path": "/readiness",
+      "status_code": 200
+    }
+  ],
+  "failures": [
+    {
+      "path": "/auth/me",
+      "method": "GET",
+      "actual_status_code": 401,
+      "expected_status_codes": [
+        200
+      ],
+      "response_detail": "Missing token"
+    },
+    {
+      "path": "/api/usage/pricing",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'pricing': [{'provider': 'openai', 'model_id': 'gpt-4o', 'prompt_price_per_1k': 0.005, 'completion_"
+    },
+    {
+      "path": "/api/delivery/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'total_reports': 0, 'total_lessons': 0, 'outcomes': {}}"
+    },
+    {
+      "path": "/api/autonomy/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'total_anomalies': 0, 'total_recoveries': 0, 'total_healings': 0, 'success_rate': 0.0}"
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "actual_status_code": 401,
+      "expected_status_codes": [
+        200
+      ],
+      "response_detail": "Authentication required"
+    },
+    {
+      "path": "/auth/login",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        200
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/workflows",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/workflows/{wf_id}/instantiate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/approval-config",
+      "method": "PUT",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/usage/session/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'conversation_id': '1', 'total_requests': 0, 'total_prompt_tokens': 0, 'total_completion_tokens': 0"
+    },
+    {
+      "path": "/api/discovery/{session_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Discovery session not found"
+    },
+    {
+      "path": "/api/discovery/{session_id}/brief",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Brief not found"
+    },
+    {
+      "path": "/api/discovery/conversation/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/workflows",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/planning/{plan_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Plan not found"
+    },
+    {
+      "path": "/api/planning/brief/{brief_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No plan found for this brief"
+    },
+    {
+      "path": "/api/taskgraph/{graph_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Task Graph not found"
+    },
+    {
+      "path": "/api/taskgraph/plan/{plan_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No graph found for this plan"
+    },
+    {
+      "path": "/workflows/{wf_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Workflow not found"
+    },
+    {
+      "path": "/api/dispatcher/{execution_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Execution not found"
+    },
+    {
+      "path": "/api/verification/{verification_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Verification not found"
+    },
+    {
+      "path": "/api/delivery/brief/{brief_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No report found for this brief"
+    },
+    {
+      "path": "/api/delivery/{report_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Report not found"
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/resume",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Session 1 not found"
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/checkpoints",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/approval-config",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'mode': 'semi', 'scope': {'verifications': True, 'lint_type_checks': True, 'unit_tests': True, 'bui"
+    },
+    {
+      "path": "/api/conversations",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': 'f8904fc38b2547ad9af25892bb47ccc1', 'title': 'Worker status test', 'project_id': None, 'stat"
+    },
+    {
+      "path": "/api/conversations/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/messages",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/context/{project_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': '1', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions': {"
+    },
+    {
+      "path": "/api/context/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': 'stats', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions"
+    },
+    {
+      "path": "/api/context/sources",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': 'sources', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventio"
+    },
+    {
+      "path": "/api/usage/daily",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'period_days': 7, 'daily': [{'date': '2026-08-06', 'requests': 104, 'tokens': 314775, 'cost': 0.0}]"
+    },
+    {
+      "path": "/api/usage/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'period_days': 30, 'total_requests': 104, 'total_prompt_tokens': 273170, 'total_completion_tokens':"
+    },
+    {
+      "path": "/api/usage/recent",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'entries': [{'id': '9d1446e2a1ba404dbf23f6cab0486ffa', 'provider': 'default', 'model': 'kc/nvidia/n"
+    }
+  ],
+  "summary_line": "PASS: 146/181"
+}

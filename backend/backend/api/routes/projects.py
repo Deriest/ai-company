@@ -7,12 +7,13 @@ from sqlalchemy import text
 from typing import Optional
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.models.local_profile import LocalProfile
 from backend.models.conversation import Attachment
 from backend.services.attachment_store import delete_attachment
 from storage.models import Project
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 async def _get_active_project_id(db: AsyncSession) -> Optional[str]:

@@ -4,6 +4,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from backend.services.profile_service import (
     get_profile, create_profile, update_profile, complete_onboarding,
 )
@@ -26,7 +27,7 @@ def _is_valid_github_token(token: str) -> bool:
         return False
     return True
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/profile")

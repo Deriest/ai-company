@@ -1,6 +1,6 @@
 """Plugin management routes — install, list, update, uninstall, resolve."""
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,7 +12,7 @@ from backend.plugin_engine import (
 )
 from backend.services.plugin_adapter import build_plugin_context
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.post("/plugins/install")

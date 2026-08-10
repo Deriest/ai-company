@@ -37,7 +37,7 @@ from discovery.states import is_terminal
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 # Per-conversation in-process locks serializing the discovery auto-continuation
 # (find-pending → respond → clear-pending). Two concurrent /chat/execute calls

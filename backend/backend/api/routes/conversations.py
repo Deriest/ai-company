@@ -8,6 +8,7 @@ from typing import List, Optional
 import json
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message
 from backend.models.conversation import (
     Attachment,
@@ -29,7 +30,7 @@ from backend.services.attachment_store import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 # ---------------------------------------------------------------------------
