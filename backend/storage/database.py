@@ -1,7 +1,7 @@
 """AIC Platform — storage metadata and shared database session access."""
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import scoped_session
 
@@ -52,11 +52,15 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def make_session():
-    """Make an async session directly (for internal use only)."""
+def make_session():
+    """Make an async session directly (for internal use only).
+    
+    Returns a callable that creates sessions without auto-commit management.
+    Deprecated: use get_session() context manager instead.
+    """
     logger.warning("make_session() is deprecated; use get_session() context manager")
-    return session_factory()
+    return session_factory
 
 
-# Legacy export for compatibility
+# Legacy export for compatibility - returns a callable, not a coroutine
 async_session = make_session

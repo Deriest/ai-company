@@ -22,9 +22,11 @@ async def record(event: Event) -> None:
     writer. Retry ONLY the "database is locked" OperationalError with a short
     backoff; any other error is logged and dropped.
     """
+    from storage.database import get_session
+    
     for attempt in range(1, 7):
         try:
-            async with async_session() as session:
+            async with get_session(auto_commit=True) as session:
                 session.add(
                     EventModel(
                         type=event.type,
