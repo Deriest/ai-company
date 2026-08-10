@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -28,7 +29,7 @@ from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)]))
 
 # Directory names (case-insensitive) that are never included in a backup.
 _EXCLUDED_DIR_NAMES = {"logs", "cache", "backups"}

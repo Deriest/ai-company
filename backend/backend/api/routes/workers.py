@@ -1,6 +1,7 @@
 """Worker routes — runtime management, worker CRUD, tool execution."""
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -17,7 +18,7 @@ from backend.services.tool_dispatcher import tool_dispatcher
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)]))
 
 
 # ---------------------------------------------------------------------------

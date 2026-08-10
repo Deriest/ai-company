@@ -12,13 +12,10 @@
 # Error details
 
 ```
-Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:5174
-Call log:
-  - → GET http://127.0.0.1:5174/health
-    - user-agent: Playwright/1.62.1 (x64; ubuntu 24.04) node/22.23
-    - accept: */*
-    - accept-encoding: gzip,deflate,br
+Error: expect(received).toBe(expected) // Object.is equality
 
+Expected: "2.4.88"
+Received: "2.4.90"
 ```
 
 # Test source
@@ -36,11 +33,11 @@ Call log:
   10 | 
   11 | test.describe('Backend API Integration', () => {
   12 |   test('health endpoint returns version info', async ({ request }) => {
-> 13 |     const response = await request.get(`${BASE_URL}/health`);
-     |                                    ^ Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:5174
+  13 |     const response = await request.get(`${BASE_URL}/health`);
   14 |     expect(response.ok()).toBeTruthy();
   15 |     const data = await response.json();
-  16 |     expect(data.version).toBe('2.4.88');
+> 16 |     expect(data.version).toBe('2.4.88');
+     |                          ^ Error: expect(received).toBe(expected) // Object.is equality
   17 |     expect(data.service).toBe('AIC-ADE Backend');
   18 |     expect(data.data_dir || data['data-dir']).toBeTruthy();
   19 |     console.log('✅ Health check passed:', JSON.stringify(data));

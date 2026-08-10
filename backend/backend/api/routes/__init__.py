@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi import Depends
 from backend.api.routes.core import router as core_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.orchestration import router as orchestration_router
@@ -9,7 +10,7 @@ from backend.api.routes.memory import router as memory_router
 from backend.api.routes.rag import router as rag_router
 from backend.api.routes.automation import router as automation_router
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)]))
 
 router.include_router(core_router, tags=["core"])
 router.include_router(auth_router, tags=["auth"])

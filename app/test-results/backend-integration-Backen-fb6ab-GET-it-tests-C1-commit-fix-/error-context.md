@@ -12,15 +12,9 @@
 # Error details
 
 ```
-Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5174
-Call log:
-  - → POST http://127.0.0.1:5174/api/conversations
-    - user-agent: Playwright/1.62.1 (x64; ubuntu 24.04) node/22.23
-    - accept: */*
-    - accept-encoding: gzip,deflate,br
-    - content-type: application/json
-    - content-length: 23
+Error: expect(received).toBeTruthy()
 
+Received: false
 ```
 
 # Test source
@@ -58,12 +52,12 @@ Call log:
   30 | 
   31 |   test('create conversation then GET it (tests C1 commit fix)', async ({ request }) => {
   32 |     // Create a test conversation
-> 33 |     const createResponse = await request.post(`${BACKEND_URL}/conversations`, {
-     |                                          ^ Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:5174
+  33 |     const createResponse = await request.post(`${BACKEND_URL}/conversations`, {
   34 |       data: { user_id: 'test-user' },
   35 |     });
   36 |     
-  37 |     expect(createResponse.ok()).toBeTruthy();
+> 37 |     expect(createResponse.ok()).toBeTruthy();
+     |                                 ^ Error: expect(received).toBeTruthy()
   38 |     const created = await createResponse.json();
   39 |     if (created.conversation?.id) {
   40 |       console.log(`✅ Created conversation ID: ${created.conversation.id}`);

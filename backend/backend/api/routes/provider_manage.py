@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.database.session import get_db
@@ -14,7 +15,7 @@ from backend.services.crypto import encrypt, decrypt
 from backend.services.provider_client import ProviderClient, ProviderAPIError, ProviderConnectionError, ProviderTimeoutError
 from backend.api.routes.providers import _validate_provider_url
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)]))
 
 logger = logging.getLogger(__name__)
 

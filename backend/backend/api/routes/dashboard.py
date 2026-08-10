@@ -8,6 +8,7 @@ Provides a single endpoint that returns all the data the dashboard needs:
 - Recent activity
 """
 from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
@@ -16,8 +17,9 @@ from datetime import datetime, timezone
 from backend.database.session import get_db
 from storage.models import Task, Project
 from agents.registry import AGENT_REGISTRY
+from backend.api.dependencies import require_current_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])dependencies=[Depends(require_current_user)])
 
 
 @router.get("/dashboard")

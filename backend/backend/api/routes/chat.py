@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -37,7 +38,7 @@ from discovery.states import is_terminal
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])dependencies=[Depends(require_current_user)])
 
 # Per-conversation in-process locks serializing the discovery auto-continuation
 # (find-pending → respond → clear-pending). Two concurrent /chat/execute calls
