@@ -415,8 +415,25 @@ class AgentRunner:
         # FIX: stuck-loop detection — track identical (tool, args) signatures.
         call_signatures: dict[str, int] = {}
         loop_warned = False
+        
         # FIX: self-check — ask the model to verify before finishing exactly once.
         verify_prompted = False
+        
+        # PHASE 3 FIX: Track verification state
+        test_passed = False
+        has_errors_in_last_iteration = False
+        
+        # PHASE 2 FIX: Plan tracking
+        from typing import Optional
+        task_plan: Optional[TaskPlan] = None
+        from backend.services.checkpoint_service import CheckpointService
+        checkpoint_service: Optional[CheckpointService] = None
+        
+        # PHASE 3: Create checkpoint service for state persistence
+        try:
+            checkpoint_service = CheckpointService()
+        except Exception as e:
+            logger.warning(f"Checkpoint service init failed: {e}, continuing without checkpoints")
 
         for iteration in range(max_iterations):
             # ── Cooperative cancellation ─────────────────────────────
