@@ -10,7 +10,6 @@ This is the core API that enables workers to actually DO things:
 Not just chat.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
@@ -20,7 +19,7 @@ import logging
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 logger = logging.getLogger("aic.agent")
 

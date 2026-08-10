@@ -1,7 +1,6 @@
 """Message routes — CRUD for conversation messages."""
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -22,7 +21,7 @@ from backend.api.routes.conversations import _build_msg_responses, _build_msg_re
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(require_current_user)])dependencies=[Depends(require_current_user)])
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/conversations/{id}/messages", response_model=List[MessageResponse])

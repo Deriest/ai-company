@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 from backend.schemas.orchestration_schemas import (
     OrchestrationSessionCreate, OrchestrationTaskCreate, ApprovalResolve

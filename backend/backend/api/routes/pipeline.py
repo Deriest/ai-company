@@ -6,7 +6,6 @@ Provides endpoints for the frontend to:
 - Get pipeline stage details (brief, plan, graph, dispatch)
 """
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Optional
@@ -22,7 +21,7 @@ from storage.models import (
     DispatchSession,
 )
 
-router = APIRouter(dependencies=[Depends(require_current_user)])dependencies=[Depends(require_current_user)])
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/pipeline/task/{task_id}")

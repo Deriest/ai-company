@@ -1,6 +1,5 @@
 """Provider routes."""
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -24,7 +23,7 @@ from backend.services.provider_client import ProviderClient, ProviderAPIError, P
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 async def _register_provider_live(provider: Provider, db: AsyncSession) -> None:

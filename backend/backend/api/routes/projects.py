@@ -1,6 +1,5 @@
 """Project management routes — CRUD, active project, scoping."""
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -8,12 +7,14 @@ from sqlalchemy import text
 from typing import Optional
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
+from backend.api.dependencies import require_current_user
 from backend.models.local_profile import LocalProfile
 from backend.models.conversation import Attachment
 from backend.services.attachment_store import delete_attachment
 from storage.models import Project
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 async def _get_active_project_id(db: AsyncSession) -> Optional[str]:

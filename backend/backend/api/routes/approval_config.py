@@ -1,7 +1,6 @@
 """Auto-approve configuration routes."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import Depends
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +9,7 @@ from backend.api.dependencies import require_current_user
 from backend.models.local_profile import LocalProfile
 from sqlalchemy.future import select
 
-router = APIRouter(dependencies=[Depends(require_current_user)])dependencies=[Depends(require_current_user)])
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class ApprovalScope(BaseModel):

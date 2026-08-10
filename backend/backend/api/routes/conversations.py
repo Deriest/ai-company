@@ -1,7 +1,6 @@
 """Conversation routes — CRUD, search, folders, tags, export/import."""
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete, desc, text
@@ -31,7 +30,7 @@ from backend.services.attachment_store import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 # ---------------------------------------------------------------------------

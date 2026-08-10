@@ -1,6 +1,5 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import Depends
 from pathlib import Path
 import asyncio
 import logging
@@ -20,7 +19,7 @@ from backend.skill_engine import (
 from storage.models import SkillEntry
 from sqlalchemy import select
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 logger = logging.getLogger("aic.skills")
 

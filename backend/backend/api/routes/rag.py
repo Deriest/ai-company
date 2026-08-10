@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import Optional, List
 import json
 
 from backend.database.session import get_db
+from backend.api.dependencies import require_current_user
 
-router = APIRouter(dependencies=[Depends(require_current_user)]))
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 from backend.services.rag_service import rag_service
 
