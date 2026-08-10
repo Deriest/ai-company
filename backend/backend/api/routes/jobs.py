@@ -4,6 +4,8 @@ from sqlalchemy.future import select
 from typing import Optional, List
 import json
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -15,7 +17,7 @@ from backend.models.jobs import Job, JobLog
 
 # ── Job Scheduler Endpoints ──────────────────────────────────
 
-@router.post("/jobs")
+router.post(post, [require_roles(Role.USER)])
 async def create_job(payload: dict, db: AsyncSession = Depends(get_db)):
     title = payload.get("title")
     job_type = payload.get("job_type")
@@ -73,7 +75,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
         "logs": [{"level": l.level, "message": l.message, "createdAt": l.created_at.isoformat()} for l in logs],
     }
 
-@router.post("/jobs/{job_id}/cancel")
+router.post(post, [require_roles(Role.USER)])
 async def cancel_job(job_id: str, db: AsyncSession = Depends(get_db)):
     try:
         job = await job_scheduler.cancel_job(db, job_id)
@@ -81,7 +83,7 @@ async def cancel_job(job_id: str, db: AsyncSession = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/jobs/{job_id}/pause")
+router.post(post, [require_roles(Role.USER)])
 async def pause_job(job_id: str, db: AsyncSession = Depends(get_db)):
     try:
         job = await job_scheduler.pause_job(db, job_id)
@@ -89,7 +91,7 @@ async def pause_job(job_id: str, db: AsyncSession = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/jobs/{job_id}/resume")
+router.post(post, [require_roles(Role.USER)])
 async def resume_job(job_id: str, db: AsyncSession = Depends(get_db)):
     try:
         job = await job_scheduler.resume_job(db, job_id)

@@ -11,6 +11,8 @@ from sqlalchemy.future import select
 from typing import List, Optional
 from datetime import datetime
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 from storage.models import (

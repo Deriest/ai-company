@@ -1,5 +1,5 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
-from fastapi import APIRouter, Depends, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, Depends, HTTPException
 from pathlib import Path
 import asyncio
 import logging
@@ -12,6 +12,7 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.session import get_db
+from backend.api.auth import require_roles, Role
 from backend.api.dependencies import require_current_user
 from backend.skill_engine import (
     list_skills, toggle_skill, assign_skill_workers, seed_builtin_skills,

@@ -5,6 +5,8 @@ from typing import Optional, List
 import json
 import logging
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -18,7 +20,7 @@ from backend.models.mcp import MCPRegistry, MCPTool, MCPToolExecution
 
 # ── MCP Framework Endpoints ──────────────────────────────────
 
-@router.post("/mcp/servers")
+router.post(post, [require_roles(Role.USER)])
 async def register_mcp_server(
     payload: dict,
     db: AsyncSession = Depends(get_db),
@@ -46,7 +48,7 @@ async def list_mcp_servers(db: AsyncSession = Depends(get_db)):
         for s in servers
     ]
 
-@router.patch("/mcp/servers/{server_id}")
+router.patch(patch, [require_roles(Role.USER)])
 async def update_mcp_server(
     server_id: str,
     payload: dict,
@@ -59,7 +61,7 @@ async def update_mcp_server(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.delete("/mcp/servers/{server_id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def delete_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
@@ -73,7 +75,7 @@ async def delete_mcp_server(
         logger.warning("MCP server delete failed: server_id=%s error=%s", server_id, e)
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/mcp/servers/{server_id}/discover")
+router.post(post, [require_roles(Role.USER)])
 async def discover_mcp_tools(
     server_id: str,
     payload: dict,
@@ -95,7 +97,7 @@ async def list_mcp_tools(server_id: Optional[str] = Query(None), db: AsyncSessio
         for t in tools
     ]
 
-@router.post("/mcp/tools/{tool_id}/execute")
+router.post(post, [require_roles(Role.USER)])
 async def execute_mcp_tool(
     tool_id: str,
     payload: dict,
@@ -115,7 +117,7 @@ async def execute_mcp_tool(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/mcp/executions/{execution_id}/approve")
+router.post(post, [require_roles(Role.USER)])
 async def approve_mcp_execution(
     execution_id: str,
     payload: dict,
@@ -140,7 +142,7 @@ async def list_mcp_executions(
     ]
 
 
-@router.post("/mcp/servers/{server_id}/connect")
+router.post(post, [require_roles(Role.USER)])
 async def connect_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
@@ -161,7 +163,7 @@ async def connect_mcp_server(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/mcp/servers/{server_id}/disconnect")
+router.post(post, [require_roles(Role.USER)])
 async def disconnect_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
@@ -216,7 +218,7 @@ async def get_mcp_presets():
     return presets
 
 
-@router.post("/mcp/servers/register-memory")
+router.post(post, [require_roles(Role.USER)])
 async def register_memory_server(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_current_user),

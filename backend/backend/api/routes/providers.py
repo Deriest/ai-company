@@ -1,5 +1,5 @@
 """Provider routes."""
-from fastapi import APIRouter, Depends, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -12,6 +12,7 @@ import socket
 from urllib.parse import urlparse
 
 from backend.database.session import get_db
+from backend.api.auth import require_roles, Role
 from backend.api.dependencies import require_current_user
 from backend.models.schema import Provider, ProviderModel
 from backend.schemas.api_models_v2 import (

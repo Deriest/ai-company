@@ -7,6 +7,8 @@ from sqlalchemy import delete, desc, text
 from typing import List, Optional
 import json
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message
@@ -200,7 +202,7 @@ async def list_conversations(
 
 from datetime import datetime, timezone
 
-@router.post("/conversations", response_model=ConversationResponse)
+router.post(post, [require_roles(Role.USER)])
 async def create_conversation(payload: ConversationCreate, db: AsyncSession = Depends(get_db)):
     now = datetime.now(timezone.utc)
     conv = Conversation(
@@ -272,7 +274,7 @@ async def get_conversation(id: str, db: AsyncSession = Depends(get_db)):
     return await _build_conv_response(db, conv)
 
 
-@router.patch("/conversations/{id}", response_model=ConversationResponse)
+router.patch(patch, [require_roles(Role.USER)])
 async def update_conversation(id: str, payload: ConversationUpdate, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Conversation).where(Conversation.id == id))
     conv = res.scalars().first()
@@ -305,7 +307,7 @@ async def update_conversation(id: str, payload: ConversationUpdate, db: AsyncSes
     return c_res
 
 
-@router.delete("/conversations/{id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Conversation).where(Conversation.id == id))
     conv = res.scalars().first()
@@ -403,7 +405,7 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     return {"status": "ok"}
 
 
-@router.post("/conversations/{id}/duplicate", response_model=ConversationResponse)
+router.post(post, [require_roles(Role.USER)])
 async def duplicate_conversation(id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Conversation).where(Conversation.id == id))
     orig = res.scalars().first()
@@ -532,7 +534,7 @@ async def export_conversation(id: str, format: str = Query("json"), db: AsyncSes
     return Response(content=json.dumps(payload.model_dump(), indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{c_res.title}.json"'})
 
 
-@router.post("/conversations/import", response_model=ConversationResponse)
+router.post(post, [require_roles(Role.USER)])
 async def import_conversation(payload: ImportConversationPayload, db: AsyncSession = Depends(get_db)):
     conv = Conversation(
         title=payload.title,
@@ -609,7 +611,7 @@ async def list_folders(db: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.post("/folders", response_model=FolderResponse)
+router.post(post, [require_roles(Role.USER)])
 async def create_folder(payload: FolderCreate, db: AsyncSession = Depends(get_db)):
     f = ConversationFolder(name=payload.name)
     db.add(f)
@@ -623,7 +625,7 @@ async def create_folder(payload: FolderCreate, db: AsyncSession = Depends(get_db
     )
 
 
-@router.delete("/folders/{id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def delete_folder(id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(ConversationFolder).where(ConversationFolder.id == id))
     f = res.scalars().first()

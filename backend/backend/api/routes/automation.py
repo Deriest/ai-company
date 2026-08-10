@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -12,7 +14,7 @@ from backend.services.automation_service import automation_service
 
 # ── Automation Endpoints ─────────────────────────────────────
 
-@router.post("/hooks")
+router.post(post, [require_roles(Role.USER)])
 async def create_hook(payload: dict, db: AsyncSession = Depends(get_db)):
     event_type = payload.get("event_type")
     name = payload.get("name")
@@ -35,17 +37,17 @@ async def list_hooks(event_type: Optional[str] = Query(None), db: AsyncSession =
         for h in hooks
     ]
 
-@router.delete("/hooks/{hook_id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def delete_hook(hook_id: str, db: AsyncSession = Depends(get_db)):
     await automation_service.delete_hook(db, hook_id)
     return {"status": "ok"}
 
-@router.post("/hooks/fire/{event_type}")
+router.post(post, [require_roles(Role.USER)])
 async def fire_event(event_type: str, db: AsyncSession = Depends(get_db)):
     fired = await automation_service.fire_event(db, event_type)
     return {"fired": len(fired)}
 
-@router.post("/triggers")
+router.post(post, [require_roles(Role.USER)])
 async def create_trigger(payload: dict, db: AsyncSession = Depends(get_db)):
     name = payload.get("name")
     condition = payload.get("condition")
@@ -67,7 +69,7 @@ async def list_triggers(db: AsyncSession = Depends(get_db)):
         for t in triggers
     ]
 
-@router.delete("/triggers/{trigger_id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def delete_trigger(trigger_id: str, db: AsyncSession = Depends(get_db)):
     await automation_service.delete_trigger(db, trigger_id)
     return {"status": "ok"}
@@ -81,12 +83,12 @@ async def list_notifications(is_read: Optional[bool] = Query(None), db: AsyncSes
         for n in notifs
     ]
 
-@router.patch("/notifications/{notif_id}/read")
+router.patch(patch, [require_roles(Role.USER)])
 async def mark_notification_read(notif_id: str, db: AsyncSession = Depends(get_db)):
     notif = await automation_service.mark_read(db, notif_id)
     return {"id": notif.id, "isRead": notif.is_read}
 
-@router.post("/notifications/read-all")
+router.post(post, [require_roles(Role.USER)])
 async def mark_all_notifications_read(db: AsyncSession = Depends(get_db)):
     await automation_service.mark_all_read(db)
     return {"status": "ok"}

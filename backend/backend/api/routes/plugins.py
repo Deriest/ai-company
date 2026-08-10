@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+
+from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 from backend.plugin_engine import (
@@ -15,7 +17,7 @@ from backend.services.plugin_adapter import build_plugin_context
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
-@router.post("/plugins/install")
+router.post(post, [require_roles(Role.USER)])
 async def install_plugin_endpoint(
     payload: dict,
     db: AsyncSession = Depends(get_db),
@@ -48,7 +50,7 @@ async def list_plugins_endpoint(db: AsyncSession = Depends(get_db)):
     return await list_plugins(db)
 
 
-@router.patch("/plugins/{plugin_id}")
+router.patch(patch, [require_roles(Role.USER)])
 async def update_plugin_endpoint(
     plugin_id: str,
     payload: dict,
@@ -62,7 +64,7 @@ async def update_plugin_endpoint(
     return result
 
 
-@router.post("/plugins/{plugin_id}/update")
+router.post(post, [require_roles(Role.USER)])
 async def update_plugin_repo_endpoint(
     plugin_id: str,
     db: AsyncSession = Depends(get_db),
@@ -82,7 +84,7 @@ async def update_plugin_repo_endpoint(
     return result
 
 
-@router.delete("/plugins/{plugin_id}")
+router.delete(delete, [require_roles(Role.USER)])
 async def uninstall_plugin_endpoint(
     plugin_id: str,
     db: AsyncSession = Depends(get_db),
