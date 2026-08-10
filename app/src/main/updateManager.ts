@@ -410,9 +410,10 @@ export class UpdateManager {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
       
       // Fetch manifest and signature side-by-side
+      const fetchOptions: RequestInit = { headers: { 'Accept': 'application/json' } };
       const [raw, signature] = await Promise.all([
-        this.io.fetchJson(url),
-        this.io.fetchText(`${url}.sig` || ""), // Optional signature endpoint
+        fetch(url, fetchOptions).then(r => r.json()),
+        fetch(`${url}.sig`, { headers: { 'Accept': 'text/plain' } }).then(r => r.text()).catch(() => ""),
       ]);
       
       // Verify cryptographic signature before parsing
