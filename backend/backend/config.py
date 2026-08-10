@@ -128,17 +128,19 @@ class Settings(BaseSettings):
         env_username = (self.AIC_IDENTITY_USERNAME or "").strip()
         env_password = (self.AIC_IDENTITY_PASSWORD or "").strip()
         if env_username or env_password:
-            self.IDENTITY_USERNAME = env_username or self.DEFAULT_IDENTITY_USERNAME
-            self.IDENTITY_PASSWORD = env_password or self.DEFAULT_IDENTITY_PASSWORD
+            self.IDENTITY_USERNAME = env_username
+            self.IDENTITY_PASSWORD = env_password
         elif self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
             try:
                 with open(self.AIC_IDENTITY_FILE, "r", encoding="utf-8") as f:
                     identity = json.load(f)
-                self.IDENTITY_USERNAME = str(identity.get("username", "")).strip() or self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = str(identity.get("password", "")).strip() or self.DEFAULT_IDENTITY_PASSWORD
-            except (OSError, json.JSONDecodeError):
-                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+                self.IDENTITY_USERNAME = str(identity.get("username", "")).strip()
+                self.IDENTITY_PASSWORD = str(identity.get("password", "")).strip()
+                if not self.IDENTITY_USERNAME or not self.IDENTITY_PASSWORD:
+                    raise ValueError("Identity file missing username or password")
+            except (OSError, json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Invalid identity file {self.AIC_IDENTITY_FILE}: {e}")
+                raise
         elif self.AIC_IDENTITY_FILE:
             # H8: AIC_IDENTITY_FILE is set but the file does not exist (e.g. the
             # Electron main process wrote it after we spawned). Mirror the
@@ -159,12 +161,10 @@ class Settings(BaseSettings):
                     pass
             except OSError as e:
                 logger.warning(f"Could not persist generated identity file {self.AIC_IDENTITY_FILE}: {e}")
-                self.IDENTITY_USERNAME = self.DEFAULT_IDENTITY_USERNAME
-                self.IDENTITY_PASSWORD = self.DEFAULT_IDENTITY_PASSWORD
+                raise
         else:
             # No AIC_IDENTITY_FILE and no AIC_IDENTITY_* env vars (standalone/
-            # dev/tests). The default credentials are a known fallback — fail
-            # startup completely to prevent insecure operation.
+            # dev/tests). Fail startup completely to prevent insecure operation.
             raise ValueError(
                 "AIC_IDENTITY_FILE is not set and no AIC_IDENTITY_USERNAME / "
                 "AIC_IDENTITY_PASSWORD env vars are present. Set AIC_IDENTITY_FILE "
