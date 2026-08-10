@@ -269,6 +269,7 @@ async function ensureBackendRunning(): Promise<void> {
         'PYTHONUNBUFFERED', 
         'AIC_DATA_DIR',
         'AIC_IDENTITY_FILE',
+        'AIC_JWT_SECRET',  // Required for JWT authentication
         'AIC_TESTING',
         'CI',
     ]);
@@ -280,6 +281,9 @@ async function ensureBackendRunning(): Promise<void> {
         }
     }
     
+    // Generate fallback JWT secret if not provided via env var
+    const jwtSecret = process.env.AIC_JWT_SECRET || crypto.randomBytes(32).toString('hex');
+    
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
       env: {
@@ -287,6 +291,7 @@ async function ensureBackendRunning(): Promise<void> {
         PYTHONUNBUFFERED: "1",
         AIC_DATA_DIR: appDataDir(),
         AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
+        AIC_JWT_SECRET: jwtSecret,  // Provide secret for production use
         PYTHONPATH: [platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
       },
       stdio: "pipe",
