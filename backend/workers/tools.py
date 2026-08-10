@@ -25,6 +25,48 @@ from backend.services.path_utils import resolve_workspace_path
 
 logger = logging.getLogger("aic.workers.tools")
 
+from urllib.parse import unquote
+
+
+# ── Shell command safety patterns ──────────────────────
+# Block ONLY truly dangerous patterns at WORD BOUNDARIES while allowing
+# legitimate multi-command usage (git add . && git commit).
+
+_DANGEROUS_COMMANDS = [
+    r'\brm\s+-rf\s+/\s*$',           # rm -rf /
+    r'\brm\s+-rf\s+~\s*$',           # rm -rf ~
+    r'\brm\s+-rf\s+\$HOME\s*$',      # rm -rf $HOME
+    r'\bmkfs\b',                        # mkfs (format filesystem)
+    r'\bdd\s+(?:if=.+?|of=.+?)?',       # dd (raw disk access)
+    r'>\s*/dev/sd',                      # write to raw block device
+    r'\b(eval|exec|system)\b',          # exact word matches only
+    r':\(\)\s*\{[^}]*\};:',         # fork bomb pattern
+    r'\bchmod\s+-R\s+777\s+/\s*$',  # chmod -R 777 /
+]
+
+
+def _normalize_command_for_check(command: str) -> str:
+    """Normalize command to catch homoglyph attacks and decode URLs."""
+    decoded = unquote(command)
+    normalized = unicodedata.normalize('NFD', decoded).encode('ascii', 'ignore').decode('ascii')
+    return normalized
+
+
+def check_dangerous_patterns(command: str) -> None:
+    """Check command against dangerous patterns with proper word boundaries.
+    
+    Raises PermissionError if command contains a dangerous pattern.
+    """
+    if not command:
+        return
+    
+    normalized = _normalize_command_for_check(command)
+    
+    for pattern in _DANGEROUS_COMMANDS:
+        if re.search(pattern, normalized, re.IGNORECASE):
+            raise PermissionError(f"Command contains dangerous pattern: {pattern}")
+
+
 # Command contains a shell background token: a standalone `&` (not `&&`, `&>`,
 # `2>&1`), or an explicit `nohup` / `setsid`. Backgrounded commands keep the
 # output pipe write-ends open after the shell exits, which makes
@@ -477,6 +519,18 @@ class ToolExecutor:
         if not self._permission_checker or not self._permission_checker("shell"):
             tc.status = "error"
             tc.error = "Permission denied for tool: shell"
+            tc.output = tc.error
+            tc.duration_ms = 0
+            self.tool_calls.append(tc)
+            await self._emit("tool_result", {"tool_call": tc.to_dict()})
+            return tc
+
+        # QA-S2.1: Shell command safety - block dangerous patterns at word boundaries
+        try:
+            check_dangerous_patterns(command)
+        except PermissionError as e:
+            tc.status = "error"
+            tc.error = f"Command rejected: {e}"
             tc.output = tc.error
             tc.duration_ms = 0
             self.tool_calls.append(tc)

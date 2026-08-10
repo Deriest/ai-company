@@ -263,10 +263,27 @@ async function ensureBackendRunning(): Promise<void> {
     backendPort = await findFreePort();
     logLine(`Backend port: ${backendPort}`);
 
+    // Whitelist explicit env vars to prevent secret leakage
+    const allowedEnvVars = new Set([
+        'PYTHONPATH',
+        'PYTHONUNBUFFERED', 
+        'AIC_DATA_DIR',
+        'AIC_IDENTITY_FILE',
+        'AIC_TESTING',
+        'CI',
+    ]);
+    
+    const filteredEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (allowedEnvVars.has(key) && value) {
+            filteredEnv[key] = value;
+        }
+    }
+    
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
       env: {
-        ...process.env,
+        ...filteredEnv,
         PYTHONUNBUFFERED: "1",
         AIC_DATA_DIR: appDataDir(),
         AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
@@ -664,6 +681,37 @@ function registerIpc(): void {
   );
 
   // PTY terminal — proper pseudo-terminal with colors, interactive programs
+  // Validate CWD against symlinks and allowed roots
+  async function validateCWD(cwdPath: string): Promise<string> {
+    const fs = require('fs');
+    const path = require('path');
+    
+    const stat = fs.statSync(cwdPath);
+    if (!stat.isDirectory()) throw new Error("Path is not a directory");
+    
+    // Recursively resolve symlinks
+    let resolvedPath = path.resolve(cwdPath);
+    while (true) {
+      try {
+        const realPath = fs.realpathSync(resolvedPath);
+        if (realPath === resolvedPath) break;  // No more symlinks
+        resolvedPath = realPath;
+      } catch (e) {
+        break;  // Stop at last resolvable point
+      }
+    }
+    
+    // Validate against allowed roots
+    const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
+    if (allowedRoots.length === 0) throw new Error("No valid root configured");
+    
+    for (const root of allowedRoots) {
+      if (resolvedPath.startsWith(root + path.sep)) return resolvedPath;
+    }
+    
+    throw new Error("Path escapes allowed roots via symlink");
+  }
+
   ipcMain.handle("aic:term-start", async (_e, cwd?: string) => {
     if (termPty) {
       termPty.kill();
@@ -675,7 +723,12 @@ function registerIpc(): void {
     }
     const root = cwd || projectRoot;
     if (!root) throw new Error("No project root — open a folder first");
-    const safeCwd = resolveSafe(root, [root], [appDataDir()]);
+    let safeCwd = root;
+    try {
+      safeCwd = await validateCWD(root);
+    } catch (e: any) {
+      throw new Error(`Invalid CWD: ${e.message}`);
+    }
     const shellPath =
       process.platform === "win32"
         ? process.env.COMSPEC || "cmd.exe"

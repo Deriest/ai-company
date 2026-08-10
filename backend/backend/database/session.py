@@ -1,8 +1,12 @@
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+import os
+import logging
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.DATABASE_URL
 
@@ -69,6 +73,20 @@ async def init_db():
     # Seed the workers table (Lease rows FK -> workers.id). Idempotent —
     # INSERT OR IGNORE per WORKER_REGISTRY key. Required so the executor's
     # Lease inserts never crash with a FOREIGN KEY constraint failure.
+    # Seed the workers table (Lease rows FK -> workers.id). Idempotent —
+    # INSERT OR IGNORE per WORKER_REGISTRY key. Required so the executor's
+    # Lease inserts never crash with a FOREIGN KEY constraint failure.
     from backend.database.workers_seed import seed_workers
     async with AsyncSessionLocal() as db:
         await seed_workers(db)
+
+    # Enforce strict file permissions on database (S3.2)
+    try:
+        db_path_str = DATABASE_URL.replace('sqlite+aiosqlite:///', '')
+        if '/' in db_path_str:  # Not in-memory
+            db_path = __import__('pathlib').Path(db_path_str.split('?')[0])
+            if db_path.exists():
+                os.chmod(db_path, 0o600)  # Owner read/write only
+                logger.info(f"Set database permissions to 0o600 for {db_path}")
+    except Exception as e:
+        logger.warning(f"Could not set DB permissions: {e} - continuing anyway")

@@ -27,6 +27,7 @@ import {
   isMandatoryUpdate,
   parseManifest,
 } from "../shared/updateLogic";
+import { verifyManifestSignature, getVerificationStatus } from "../shared/updateSecurity";
 
 export type {
   UpdateChannel,
@@ -407,7 +408,29 @@ export class UpdateManager {
     this.setState({ status: "checking", error: undefined });
     try {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
-      const raw = await this.io.fetchJson(url);
+      
+      // Fetch manifest and signature side-by-side
+      const [raw, signature] = await Promise.all([
+        this.io.fetchJson(url),
+        this.io.fetchText(`${url}.sig` || ""), // Optional signature endpoint
+      ]);
+      
+      // Verify cryptographic signature before parsing
+      if (signature) {
+        const sigValid = verifyManifestSignature(raw, signature);
+        if (!sigValid) {
+          throw new Error("Manifest signature verification failed - possible MITM attack");
+        }
+      } else {
+        // No signature provided - log warning in production
+        const status = getVerificationStatus();
+        if (status.nodeEnv === "production") {
+          console.warn(
+            "[UpdateManager] Manifest served without signature - deployment misconfigured"
+          );
+        }
+      }
+      
       const manifest = parseManifest(raw);
       const now = new Date().toISOString();
       this.config.lastCheckedAt = now;
