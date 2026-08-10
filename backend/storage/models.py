@@ -21,6 +21,15 @@ def _uuid() -> str:
     return uuid4().hex
 
 
+
+
+class DatabaseVersion(Base):
+    __tablename__ = 'db_version'
+    
+    version = Column(Integer, primary_key=True, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Base(DeclarativeBase):
     pass
 

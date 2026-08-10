@@ -170,3 +170,27 @@ class ErrorRecoveryService:
     def reset_stats(self):
         """Reset all statistics."""
         self.recovery_stats.clear()
+
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+def get_process_memory_usage() -> dict | None:
+    """Get current process memory usage for monitoring."""
+    if not psutil:
+        return None
+    try:
+        p = psutil.Process(os.getpid())
+        m = p.memory_info()
+        return {"rss_mb": m.rss/1024/1024, "vms_mb": m.vms/1024/1024}
+    except:
+        return None
+
+
+def log_mem(tag: str):
+    """Log memory usage."""
+    u = get_process_memory_usage()
+    if u:
+        logger.info(f"[MEM {tag}] RSS: {u['rss_mb']:.1f}MB VMS: {u['vms_mb']:.1f}MB")
