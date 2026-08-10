@@ -28,3 +28,6 @@ secret_*
 
 # GitHub token backup (if created for manual testing)
 .github-token.backup
+.slim/deepwork/
+# Cursor-like agent harness deepwork tracking
+.slim/deepwork/
