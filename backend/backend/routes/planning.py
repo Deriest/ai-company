@@ -13,7 +13,10 @@ from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.planning.api")
 
-router = APIRouter()
+from fastapi import Depends
+from backend.api.dependencies import require_current_user
+
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class PlanRequest(BaseModel):

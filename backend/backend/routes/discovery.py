@@ -15,7 +15,10 @@ from storage.models import DiscoverySession, EngineeringBrief as EngineeringBrie
 
 logger = logging.getLogger("aic.discovery.api")
 
-router = APIRouter()
+from fastapi import Depends
+from backend.api.dependencies import require_current_user
+
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class ClarificationResponse(BaseModel):

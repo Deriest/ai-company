@@ -18,7 +18,10 @@ from backend.models.ai_runtime import GenerationLog
 
 logger = logging.getLogger("aic.usage.api")
 
-router = APIRouter()
+from fastapi import Depends
+from backend.api.dependencies import require_current_user
+
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/usage/stats")

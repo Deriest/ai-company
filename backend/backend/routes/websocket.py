@@ -16,7 +16,10 @@ from collections import defaultdict
 
 from auth.security import decode_access_token
 
-router = APIRouter()
+from fastapi import Depends
+from backend.api.dependencies import require_current_user
+
+router = APIRouter(dependencies=[Depends(require_current_user)])
 logger = logging.getLogger("aic.websocket")
 
 _LOCALHOST_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})

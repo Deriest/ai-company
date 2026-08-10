@@ -10,7 +10,10 @@ from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.delivery.api")
 
-router = APIRouter()
+from fastapi import Depends
+from backend.api.dependencies import require_current_user
+
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class DeliverRequest(BaseModel):

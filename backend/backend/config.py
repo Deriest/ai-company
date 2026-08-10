@@ -63,7 +63,6 @@ class Settings(BaseSettings):
     AIC_IDENTITY_USERNAME: str = ""
     AIC_IDENTITY_PASSWORD: str = ""
     DEFAULT_IDENTITY_USERNAME: str = "admin"
-    DEFAULT_IDENTITY_PASSWORD: str = "admin123"
     IDENTITY_USERNAME: str = ""
     IDENTITY_PASSWORD: str = ""
 

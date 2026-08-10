@@ -6,10 +6,11 @@ from pydantic import BaseModel
 
 from storage.database import get_session
 from backend.api.dependencies import require_current_user
+from fastapi import Depends
 
 logger = logging.getLogger("aic.autonomy.api")
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 class DetectAnomalyRequest(BaseModel):
