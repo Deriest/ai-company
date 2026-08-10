@@ -18,7 +18,11 @@ import {
   DEFAULT_UPDATE_BASE_URL,
   type UpdateConfig,
 } from "./updateConfig";
-import { findFreePort, isAllowedNavigation, sanitizeProjectRoot, resolveSafe } from "./security";
+import {
+  isAllowedNavigation,
+  sanitizeProjectRoot,
+  resolveSafe,
+} from "./security";
 
 const isDev = !app.isPackaged && process.env.AIC_IDE_DEV === "1";
 
@@ -120,7 +124,7 @@ async function ensureBackendRunning(): Promise<void> {
     return;
   }
   
-  (ensureBackendRunning as any)._promise = new Promise(async (resolve, reject) => {
+  (ensureBackendRunning as any)._promise = new Promise<void>(async (resolve, reject) => {
     try {
       // Simple placeholder - actual implementation would spawn uvicorn
       console.log("[ensureBackendRunning] Backend startup");

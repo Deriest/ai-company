@@ -1,28 +1,28 @@
 {
-  "version": "2.4.89",
+  "version": "2.4.90",
   "channel": "stable",
   "releaseDate": "2026-08-10",
-  "releaseNotes": "v2.4.89 — See https://github.com/Deriest/ai-company/releases/tag/v2.4.89 for release notes.",
+  "releaseNotes": "v2.4.90 — See https://github.com/Deriest/ai-company/releases/tag/v2.4.90 for release notes.",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-2.4.89-linux-x86_64.AppImage",
-      "sha256": "e8703a20401382c7f8cc51c84b7fc23decf5de092f477ca5331b105294120ac9",
-      "size": 176290088,
-      "filename": "AIC-ADE-2.4.89-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.90/AIC-ADE-2.4.90-linux-x86_64.AppImage",
+      "sha256": "43183aac9318ceca4f12818b9e4e48fb291a1c5f7e0881915e15a89841a7b3c9",
+      "size": 173437140,
+      "filename": "AIC-ADE-2.4.90-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-2.4.89-linux-amd64.deb",
-      "sha256": "3e089e27eee77e2ba9c585a06eafb8ea0b578e1f7d70b32de883b1850beaa537",
-      "size": 123988140,
-      "filename": "AIC-ADE-2.4.89-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.90/AIC-ADE-2.4.90-linux-amd64.deb",
+      "sha256": "7cc0de22ef5cdee378c31b2eb62a5dc51b47e7acb2e6f9ce39f8fbc813f0deb4",
+      "size": 121893952,
+      "filename": "AIC-ADE-2.4.90-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.89/AIC-ADE-Setup-2.4.89.exe",
-      "sha256": "3380ccfe606e76e6579e718d10e340783abb26f5a61be2074608effc9132d268",
-      "size": 138534143,
-      "filename": "AIC-ADE-Setup-2.4.89.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.4.90/AIC-ADE-Setup-2.4.90.exe",
+      "sha256": "1a6e7316a6beae91c7609b90044809c462b20e5f0f801997a1c6bf669444e067",
+      "size": 136539379,
+      "filename": "AIC-ADE-Setup-2.4.90.exe",
       "type": "nsis"
     }
   }
