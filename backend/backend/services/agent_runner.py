@@ -370,6 +370,15 @@ class AgentRunner:
                                 if candidate.exists():
                                     script_path = str(candidate)
                             if script_path and Path(script_path).exists():
+                                # SECURITY FIX: validate plugin script BEFORE execution
+                                from backend.plugin_engine import validate_plugin_script
+                                if not validate_plugin_script(script_path):
+                                    logger.error(
+                                        f"Plugin tool '{pname}' blocked: script {script_path} "
+                                        f"failed security validation"
+                                    )
+                                    continue  # Skip this tool
+                
                                 def make_tool_fn(sp=script_path):
                                     # QA-E2E FIX: quote the script path — a
                                     # plugin path containing "'" previously

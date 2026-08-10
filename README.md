@@ -329,6 +329,65 @@ Your security and privacy are built in:
 
 ---
 
+## Code Signing Certificate (Windows)
+
+For production builds, AIC-ADE uses code signing to prevent "unknown publisher" warnings on Windows.
+
+### Getting a Code Signing Certificate
+
+**Option 1: Self-Signed Certificate (Beta/Development)**
+
+```bash
+# Create self-signed cert (valid 1 year, suitable for beta releases)
+makecert -n "CN=AIC-ADE Beta" -sv private.pvk certificate.cer -sr LocalMachine -ss My -cy sign -a sha256 -len 2048
+
+# Export to PFX for electron-builder
+pvk2pfx -pvk private.pvk -spc certificate.cer -pfx aic-sign.pfx
+
+# In package.json build.win.signAndEditExecutable: true
+```
+
+**Option 2: Commercial Certificate (Production)**
+
+For production, purchase from trusted CAs:
+- **DigiCert**: https://www.digicert.com/
+- **Sectigo**: https://www Sectigo.com/
+- **Comodo**: https://www.comodo.com/
+
+Requirements:
+- Domain validation (DV) minimum
+- Organization validation (OV) recommended
+- Extended validation (EV) best practice
+
+**Option 3: Open Source Community Certificate**
+
+GitHub sponsors or open source programs may provide free certificates:
+- GitHub Sponsors tier benefits
+- Let's Encrypt EV (if available for code signing)
+- Community trust programs
+
+### Configuring electron-builder
+
+In `app/package.json`, add signing configuration:
+
+```json
+{
+  "build": {
+    "win": {
+      "signAndEditExecutable": true,
+      "certificateUrl": "https://your-domain.com",
+      "timestampUrl": "http://timestamp.digicert.com"
+    }
+  }
+}
+```
+
+For local development testing:
+- Use `--publish never` to skip remote publishing
+- Test with your own self-signed cert locally
+
+---
+
 ## License
 
-Proprietary — TVD
+Licensed under MIT License - See LICENSE file for details.

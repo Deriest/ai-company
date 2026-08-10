@@ -93,7 +93,9 @@
             "**/*"
           ]
         }
-      ]
+      ],
+      "certificateUrl": "https://your-domain.com",
+      "timestampUrl": "http://timestamp.digicert.com"
     },
     "directories": {
       "output": "release"

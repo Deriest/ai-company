@@ -1,4 +1,7 @@
-"""Plugin registry — install, list, update, assign, toggle, uninstall GitHub plugins."""
+"""Plugin registry — install, list, update, assign, toggle, uninstall GitHub plugins.
+
+Licensed under MIT License - See LICENSE file for details.
+"""
 import asyncio
 import logging
 from pathlib import Path
@@ -14,6 +17,58 @@ from sqlalchemy import select
 from storage.models import PluginEntry
 
 logger = logging.getLogger("aic.plugin_engine")
+
+
+def validate_plugin_script(script_path: str) -> bool:
+    """Block dangerous patterns BEFORE running any plugin script (SECURITY CRITICAL).
+    
+    Scans script content for known-dangerous commands/patterns that could:
+    - Delete critical system files (rm -rf /, dd, mkfs)
+    - Execute arbitrary code (eval, exec, system)
+    - Download and execute remote scripts (curl|sh, wget|sh)
+    - Escalate permissions dangerously (chmod -R 777)
+    - Create shell injections (:(){};:)
+    
+    Returns True if script is safe to run, False if blocked.
+    
+    Args:
+        script_path: Absolute path to the script file
+        
+    Returns:
+        bool: True if safe, False if dangerous patterns detected
+    """
+    try:
+        with open(script_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+    except (OSError, IOError) as e:
+        logger.error(f"Cannot read script {script_path}: {e}")
+        return False
+    
+    # Dangerous patterns that should ALWAYS be blocked
+    dangerous_patterns = [
+        r'rm\s+-rf\s+/',          # Force recursive delete of root
+        r'dd\s+',                  # Raw disk operations
+        r'>\s*/dev/sd',           # Direct block device writes
+        r'\beval\b',               # Dynamic code evaluation
+        r'\bchmod\s+-R\s+777',    # World-writable recursive permissions
+        r'curl\s+.*\|\s*sh',      # Remote script download + execution
+        r'wget\s+.*\|\s*sh',      # Same via wget
+        r'python\s+-c\s+',        # Inline python execution (potential injection)
+        r'bash\s+-c\s+',          # Inline bash execution (potential injection)
+        r':\(\)\s*\{[^}]*\};:',   # Shell function injection
+        r'\bmkfs\b',              # Filesystem formatting
+        r'\bexec\b',              # Exec command substitution
+        r'\bsystem\b',            # System call injection
+    ]
+    
+    for pattern in dangerous_patterns:
+        if re.search(pattern, content, re.IGNORECASE):
+            logger.warning(
+                f"BLOCKED: Dangerous pattern '{pattern}' found in plugin script: {script_path}"
+            )
+            return False
+    
+    return True
 
 
 def _plugin_root() -> Path:

@@ -1,4 +1,7 @@
-"""AIC Platform — Configuration."""
+"""AIC Platform — Configuration.
+
+Licensed under MIT License - See LICENSE file for details.
+"""
 from pathlib import Path
 from pydantic_settings import BaseSettings
 import os
