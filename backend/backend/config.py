@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     WORKER_TIMEOUT: int = 600  # seconds
     BARRIER_TIMEOUT: int = 600  # seconds
     MAX_RECOVERY_ATTEMPTS: int = 3
+    # PHASE 2 FIX: Configurable max iterations for agent runs
+    MAX_AGENT_ITERATIONS: int = 20  # Increased from 10 to support multi-phase tasks
 
     # Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent

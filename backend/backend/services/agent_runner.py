@@ -2,6 +2,9 @@
 
 This is the key innovation: workers actually READ files, WRITE code,
 RUN tests, SEARCH codebases — not just chat.
+
+PHASE 2 FIX: Added explicit planning phase before implementation loop.
+Supports task decomposition into subtasks with milestone tracking.
 """
 import asyncio
 import json
@@ -12,7 +15,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 import logging
-from typing import AsyncGenerator
+import re
+from typing import AsyncGenerator, Dict, Any, List
+from datetime import datetime
+
+# PHASE 2: Planning imports
+from backend.api.schemas.plan_schemas import TaskPlan, Subtask, PlanCheckpoint
+
 from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_tools_for_worker, check_permission
 from backend.services.context_builder import ContextBuilder, get_context_policy
 from backend.services.context_overflow import estimate_tokens, handle_overflow
