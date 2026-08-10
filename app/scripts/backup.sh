@@ -21,7 +21,10 @@ mkdir -p "$BACKUP_DIR"
 
 echo "Backing up ${DB_FILE} to ${BACKUP_FILE}..."
 
-# Use temp file approach instead of broken "cp - | gzip"
+# R12 FIX: Checkpoint WAL mode to prevent torn snapshots
+sqlite3 "$DB_FILE" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
+
+# Use temp file approach
 TEMP_BACKUP="${BACKUP_FILE%.gz}"
 cp "$DB_FILE" "$TEMP_BACKUP"
 

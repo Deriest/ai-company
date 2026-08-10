@@ -5,7 +5,9 @@ REST API for discovery session management and Engineering Brief access.
 
 import logging
 from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from storage.database import get_session
 from backend.api.dependencies import require_current_user

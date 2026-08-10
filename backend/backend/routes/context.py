@@ -30,92 +30,21 @@ class SearchRequest(BaseModel):
     domain: str | None = None
 
 
-@router.get("/{project_id}")
-async def get_context(
-    project_id: str,
-    domain: str | None = None,
-):
-    """Get project context."""
+
+
+@router.get("/sources")
+async def get_sources():
+    """Get available context sources."""
     async with get_session(auto_commit=True) as session:
-        from context.engine import ContextEngine
+        from context.pipeline import create_default_pipeline
 
-        engine = ContextEngine(session)
-        context = await engine.get_context(project_id, domain)
-
-        return context.to_dict()
-
-
-@router.post("/knowledge")
-async def add_knowledge(
-    req: AddKnowledgeRequest,
-    _auth: str = require_current_user,
-):
-    """Add a knowledge entry."""
-    async with get_session(auto_commit=True) as session:
-        from context.engine import ContextEngine
-
-        engine = ContextEngine(session)
-        entry = await engine.add_knowledge(
-            domain=req.domain,
-            key=req.key,
-            value=req.value,
-            source=req.source,
-        )
+        pipeline = create_default_pipeline(session)
+        sources = pipeline.get_sources()
 
         return {
-            "id": entry.id,
-            "domain": entry.domain,
-            "key": entry.key,
-            "value": entry.value,
-            "source": entry.source,
+            "sources": sources,
+            "count": len(sources),
         }
-
-
-@router.post("/decisions")
-async def record_decision(
-    req: RecordDecisionRequest,
-    _auth: str = require_current_user,
-):
-    """Record an engineering decision."""
-    async with get_session(auto_commit=True) as session:
-        from context.engine import ContextEngine
-
-        engine = ContextEngine(session)
-        record = await engine.record_decision(
-            decision=req.decision,
-            rationale=req.rationale,
-            context=req.context,
-        )
-
-        return {
-            "id": record.id,
-            "decision": record.decision,
-            "rationale": record.rationale,
-        }
-
-
-@router.post("/search")
-async def search_knowledge(
-    req: SearchRequest,
-    _auth: str = require_current_user,
-):
-    """Search knowledge entries."""
-    async with get_session(auto_commit=True) as session:
-        from context.engine import ContextEngine
-
-        engine = ContextEngine(session)
-        results = await engine.search_knowledge(req.query, req.domain)
-
-        return [
-            {
-                "id": e.id,
-                "domain": e.domain,
-                "key": e.key,
-                "value": e.value,
-            }
-            for e in results
-        ]
-
 
 @router.get("/stats")
 async def get_stats():
@@ -127,6 +56,7 @@ async def get_stats():
         stats = engine.get_stats()
 
         return stats
+
 
 
 @router.post("/assemble")
@@ -156,16 +86,93 @@ async def assemble_context(
         }
 
 
-@router.get("/sources")
-async def get_sources():
-    """Get available context sources."""
-    async with get_session(auto_commit=True) as session:
-        from context.pipeline import create_default_pipeline
 
-        pipeline = create_default_pipeline(session)
-        sources = pipeline.get_sources()
+@router.post("/decisions")
+async def record_decision(
+    req: RecordDecisionRequest,
+    _auth: str = require_current_user,
+):
+    """Record an engineering decision."""
+    async with get_session(auto_commit=True) as session:
+        from context.engine import ContextEngine
+
+        engine = ContextEngine(session)
+        record = await engine.record_decision(
+            decision=req.decision,
+            rationale=req.rationale,
+            context=req.context,
+        )
 
         return {
-            "sources": sources,
-            "count": len(sources),
+            "id": record.id,
+            "decision": record.decision,
+            "rationale": record.rationale,
         }
+
+
+
+@router.post("/knowledge")
+async def add_knowledge(
+    req: AddKnowledgeRequest,
+    _auth: str = require_current_user,
+):
+    """Add a knowledge entry."""
+    async with get_session(auto_commit=True) as session:
+        from context.engine import ContextEngine
+
+        engine = ContextEngine(session)
+        entry = await engine.add_knowledge(
+            domain=req.domain,
+            key=req.key,
+            value=req.value,
+            source=req.source,
+        )
+
+        return {
+            "id": entry.id,
+            "domain": entry.domain,
+            "key": entry.key,
+            "value": entry.value,
+            "source": entry.source,
+        }
+
+
+
+@router.post("/search")
+async def search_knowledge(
+    req: SearchRequest,
+    _auth: str = require_current_user,
+):
+    """Search knowledge entries."""
+    async with get_session(auto_commit=True) as session:
+        from context.engine import ContextEngine
+
+        engine = ContextEngine(session)
+        results = await engine.search_knowledge(req.query, req.domain)
+
+        return [
+            {
+                "id": e.id,
+                "domain": e.domain,
+                "key": e.key,
+                "value": e.value,
+            }
+            for e in results
+        ]
+
+
+
+@router.get("/{project_id}")
+async def get_context(
+    project_id: str,
+    domain: str | None = None,
+):
+    """Get project context."""
+    async with get_session(auto_commit=True) as session:
+        from context.engine import ContextEngine
+
+        engine = ContextEngine(session)
+        context = await engine.get_context(project_id, domain)
+
+        return context.to_dict()
+

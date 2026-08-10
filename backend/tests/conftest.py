@@ -22,6 +22,7 @@ os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
 # and backend/main.py. MUST be set here, before backend.config is imported,
 # so the modules observe it consistently.
 os.environ["AIC_TESTING"] = "1"
+os.environ["AIC_ALLOW_TEST_AUTH"] = "1"  # R9 FIX: Dual auth bypass flag required
 # Force the LLM provider OFF in the test suite. init_provider_from_env() reads
 # from backend.config.settings (which loads the repo .env), so without this a
 # test creating a task would call the REAL gateway and hang. Pydantic-settings
