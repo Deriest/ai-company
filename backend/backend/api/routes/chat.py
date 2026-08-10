@@ -13,8 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db, AsyncSessionLocal
 from backend.api.dependencies import require_current_user
 from backend.models.ai_runtime import Artifact
@@ -420,7 +418,7 @@ async def _apply_workspace_answer(persist_session, conversation_id: str, reply: 
 # POST /chat  (non-streaming)
 # ---------------------------------------------------------------------------
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/chat")
 async def chat_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)):
     # resolve worker defaults if provided
     prov_id = payload.provider_id
@@ -474,7 +472,7 @@ async def chat_endpoint(payload: ChatRequest, db: AsyncSession = Depends(get_db)
 # POST /chat/execute  (execute task with full tool visibility)
 # ---------------------------------------------------------------------------
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/chat/execute")
 async def chat_execute_endpoint(
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
@@ -1144,7 +1142,7 @@ async def chat_execute_endpoint(
 # POST /chat/stream  (streaming with intent detection)
 # ---------------------------------------------------------------------------
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/chat/stream")
 async def chat_stream_endpoint(
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
@@ -1392,7 +1390,7 @@ async def chat_stream_endpoint(
 # POST /chat/cancel
 # ---------------------------------------------------------------------------
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/chat/cancel")
 async def chat_cancel_endpoint(payload: ChatCancelRequest, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Message).where(Message.id == payload.message_id))
     msg = res.scalars().first()
@@ -1406,7 +1404,7 @@ async def chat_cancel_endpoint(payload: ChatCancelRequest, db: AsyncSession = De
 # POST /chat/regenerate
 # ---------------------------------------------------------------------------
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/chat/regenerate")
 async def chat_regenerate_endpoint(payload: ChatRegenerateRequest, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Message).where(Message.conversation_id == payload.conversation_id).order_by(Message.created_at))
     msgs = res.scalars().all()

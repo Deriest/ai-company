@@ -544,7 +544,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
             addActivity(workerName, `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
             break
           case 'failed':
-            addActivity(workerName, 'failed with error', 'error')
+            addActivity(workerName, 'failed with error', 'warning')
             break
           default:
             break

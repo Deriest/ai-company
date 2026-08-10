@@ -60,12 +60,27 @@ function ProviderRegistry({ onProviderSaved }: { onProviderSaved?: () => void })
       // FIX: Use the provider's own test endpoint which accesses the stored encrypted key
       // Don't send the masked "***" — let backend use its own decrypted key
       const result = await providersApi.testProvider(p.id);
-      setTestResults(prev => ({ ...prev, [p.id]: result }));
+      // Map API response ({ ok, latencyMs }) to TestConnectionResult ({ success, latency_ms })
+      setTestResults((prev) => {
+        const next = { ...prev };
+        next[p.id] = {
+          success: result.ok,
+          latency_ms: result.latencyMs ?? 0,
+          error: result.error,
+        };
+        return next;
+      });
     } catch (e: any) {
-      setTestResults(prev => ({ ...prev, [p.id]: { 
-        success: false, 
-        error: e.message || "Request failed" 
-      }}));
+      setTestResults((prev) => {
+        const next = { ...prev };
+        next[p.id] = {
+          success: false,
+          error: e.message || "Request failed",
+          latency_ms: 0,
+          modelCount: 0,
+        };
+        return next;
+      });
     } finally {
       setTestingId(null);
     }

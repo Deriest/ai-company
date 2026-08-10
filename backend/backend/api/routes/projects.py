@@ -6,8 +6,6 @@ from sqlalchemy.future import select
 from sqlalchemy import text
 from typing import Optional
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 from backend.models.local_profile import LocalProfile
@@ -86,7 +84,7 @@ async def list_projects(
 
 # ── POST /projects — Create project ─────────────────────────────
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/projects", status_code=201)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
     slug = _slugify(body.name)
 
@@ -136,7 +134,7 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── PATCH /projects/{id} — Update project ───────────────────────
 
-router.patch(patch, [require_roles(Role.USER)])
+@router.patch("/projects/{project_id}")
 async def update_project(
     project_id: str,
     body: ProjectUpdate,
@@ -164,7 +162,7 @@ async def update_project(
 
 # ── DELETE /projects/{id} — Delete project ──────────────────────
 
-router.delete(delete, [require_roles(Role.USER)])
+@router.delete("/projects/{project_id}", status_code=204)
 async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
@@ -233,7 +231,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── POST /projects/{id}/activate — Set active project ───────────
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/projects/{project_id}/activate")
 async def activate_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()

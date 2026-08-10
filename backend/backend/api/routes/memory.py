@@ -4,8 +4,6 @@ from sqlalchemy.future import select
 from typing import Optional, List
 import json
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -16,7 +14,7 @@ from backend.services.memory_service import memory_service
 
 # ── Memory Engine Endpoints ──────────────────────────────────
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/memory")
 async def store_memory(payload: dict, db: AsyncSession = Depends(get_db)):
     scope = payload.get("scope")
     key = payload.get("key")
@@ -58,12 +56,12 @@ async def retrieve_memory(
         for e in entries
     ]
 
-router.delete(delete, [require_roles(Role.USER)])
+@router.delete("/memory/{entry_id}")
 async def forget_memory(entry_id: str, db: AsyncSession = Depends(get_db)):
     await memory_service.forget(db, entry_id)
     return {"status": "ok"}
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/memory/compress")
 async def compress_memory(payload: dict, db: AsyncSession = Depends(get_db)):
     scope = payload.get("scope")
     if not scope:

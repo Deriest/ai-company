@@ -16,8 +16,6 @@ import asyncio
 import json
 import logging
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -26,7 +24,7 @@ router = APIRouter(dependencies=[Depends(require_current_user)])
 logger = logging.getLogger("aic.agent")
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/agent/run")
 async def run_agent(
     payload: dict,
     db: AsyncSession = Depends(get_db),
@@ -95,7 +93,7 @@ async def run_agent(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/agent/run-sync")
 async def run_agent_sync(
     payload: dict,
     db: AsyncSession = Depends(get_db),

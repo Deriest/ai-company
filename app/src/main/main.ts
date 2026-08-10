@@ -22,6 +22,29 @@ import { findFreePort, isAllowedNavigation, sanitizeProjectRoot, resolveSafe } f
 
 const isDev = !app.isPackaged && process.env.AIC_IDE_DEV === "1";
 
+// Async lock for backup/restore operations (prevents concurrent restores)
+let backupLockPromise: Promise<void> | null = null;
+
+/**
+ * Acquire async lock to prevent concurrent backup/restore operations.
+ * Returns unlock function that must be called when done.
+ */
+async function acquireBackupLock(): Promise<() => Promise<void>> {
+    // Wait for any existing operation
+    if (backupLockPromise) {
+        await backupLockPromise;
+    }
+    
+    const unlock: () => Promise<void> = async () => {
+        backupLockPromise = null;
+    };
+    
+    // Create new lock promise
+    backupLockPromise = Promise.resolve();
+    
+    return unlock;
+}
+
 type DirTreeNode = {
   name: string;
   path: string;
@@ -281,8 +304,16 @@ async function ensureBackendRunning(): Promise<void> {
         }
     }
     
-    // Generate fallback JWT secret if not provided via env var
-    const jwtSecret = process.env.AIC_JWT_SECRET || crypto.randomBytes(32).toString('hex');
+    // CRITICAL: AIC_JWT_SECRET must be provided in production
+    // Never auto-generate - requires explicit security configuration
+    if (!process.env.AIC_JWT_SECRET) {
+        throw new Error(
+            "AIC_JWT_SECRET environment variable is required for production security.\n" +
+            "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n" +
+            "Then set: export AIC_JWT_SECRET=<your_generated_secret>"
+        );
+    }
+    const jwtSecret = process.env.AIC_JWT_SECRET!;  // Type assertion since we validated above
     
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
@@ -291,7 +322,7 @@ async function ensureBackendRunning(): Promise<void> {
         PYTHONUNBUFFERED: "1",
         AIC_DATA_DIR: appDataDir(),
         AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
-        AIC_JWT_SECRET: jwtSecret,  // Provide secret for production use
+        AIC_JWT_SECRET: jwtSecret,  // Required for backend JWT authentication  // Provide secret for production use
         PYTHONPATH: [platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
       },
       stdio: "pipe",
@@ -686,19 +717,19 @@ function registerIpc(): void {
   );
 
   // PTY terminal — proper pseudo-terminal with colors, interactive programs
-  // Validate CWD against symlinks and allowed roots
+  // Validate CWD against symlinks and allowed roots (async/fs-promises version)
   async function validateCWD(cwdPath: string): Promise<string> {
-    const fs = require('fs');
-    const path = require('path');
+    const fs = require('node:fs/promises');
+    const path = require('node:path');
     
-    const stat = fs.statSync(cwdPath);
+    const stat = await fs.stat(cwdPath);
     if (!stat.isDirectory()) throw new Error("Path is not a directory");
     
-    // Recursively resolve symlinks
+    // Recursively resolve symlinks asynchronously
     let resolvedPath = path.resolve(cwdPath);
     while (true) {
       try {
-        const realPath = fs.realpathSync(resolvedPath);
+        const realPath = await fs.realpath(resolvedPath);
         if (realPath === resolvedPath) break;  // No more symlinks
         resolvedPath = realPath;
       } catch (e) {
@@ -885,10 +916,13 @@ function registerIpc(): void {
     error?: string;
     rollbackDone?: boolean;
   }> => {
-    if (backupRestoreInProgress) {
-      return { restored: false, error: "A restore is already in progress" };
+    let releaseBackupLock = async () => {};
+    try {
+        releaseBackupLock = await acquireBackupLock();
+    } catch (e) {
+        return { restored: false, error: "Failed to acquire lock" };
     }
-    backupRestoreInProgress = true;
+    
     let tmpRoot: string | null = null;
     let preRestoreDir: string | null = null;
     try {
@@ -957,7 +991,7 @@ function registerIpc(): void {
       }
       return { restored: false, error: e?.message || String(e), rollbackDone };
     } finally {
-      backupRestoreInProgress = false;
+      await releaseBackupLock();
       try {
         if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
       } catch {
@@ -967,6 +1001,15 @@ function registerIpc(): void {
   });
 
   // Window controls
+  // Cleanup terminal when window closes (prevent hangs)
+  mainWindow?.webContents.on('destroyed', () => {
+    termPty?.kill();
+    termProc?.kill();
+    termPty = null;
+    termProc = null;
+  });
+  
+
   ipcMain.handle("aic:minimize", () => {
     mainWindow?.minimize();
     return true;

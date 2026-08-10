@@ -9,8 +9,6 @@ from backend.models.local_profile import LocalProfile
 from sqlalchemy.future import select
 from backend.api.dependencies import require_current_user
 
-
-from backend.api.dependencies import Role.USER
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
@@ -56,7 +54,7 @@ async def get_approval_config(db: AsyncSession = Depends(get_db)):
     }
 
 
-router.put(put, [require_roles(Role.USER)])
+@router.put("/approval-config")
 async def update_approval_config(payload: ApprovalConfigUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(LocalProfile).limit(1))
     profile = result.scalar_one_or_none()

@@ -23,8 +23,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-
-from backend.api.dependencies import Role.USER
 from backend.config import settings
 from backend.api.dependencies import require_current_user
 
@@ -131,7 +129,7 @@ def _write_backup_zip(zip_path: Path, data_dir: Path, snapshot_path: Path | None
     return manifest
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/backup/create")
 async def create_backup(_auth: str = Depends(require_current_user)):
     """Create a full backup zip of the entire app data dir.
 
@@ -184,7 +182,7 @@ def _safe_backup_filename(filename: str) -> bool:
     return True
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/backup/validate")
 async def validate_backup(
     payload: BackupValidateRequest,
     _auth: str = Depends(require_current_user),

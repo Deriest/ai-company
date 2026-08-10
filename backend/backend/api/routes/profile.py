@@ -10,8 +10,6 @@ from backend.services.profile_service import (
 )
 from backend.services.crypto import encrypt
 
-
-from backend.api.dependencies import Role.USER
 def _is_valid_github_token(token: str) -> bool:
     """Validate GitHub token format."""
     # GitHub personal access tokens start with 'ghp_' followed by 36+ characters
@@ -52,7 +50,7 @@ async def read_profile(db: AsyncSession = Depends(get_db)):
     }
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/profile")
 async def create_new_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     """Create local profile on first launch."""
     existing = await get_profile(db)
@@ -81,7 +79,7 @@ async def create_new_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     }
 
 
-router.patch(patch, [require_roles(Role.USER)])
+@router.patch("/profile")
 async def update_local_profile(payload: dict, db: AsyncSession = Depends(get_db)):
     """Update the local profile."""
     profile = await get_profile(db)
@@ -110,7 +108,7 @@ async def update_local_profile(payload: dict, db: AsyncSession = Depends(get_db)
     }
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/profile/complete-onboarding")
 async def finish_onboarding(db: AsyncSession = Depends(get_db)):
     """Mark onboarding as complete."""
     profile = await complete_onboarding(db)

@@ -1,9 +1,8 @@
 """Task listing routes."""
-from fastapi import APIRouter, Depends, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.database.session import get_db
-from backend.api.auth import require_roles, Role
 from backend.api.dependencies import require_current_user
 from storage.models import Task
 

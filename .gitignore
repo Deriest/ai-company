@@ -1,1 +1,30 @@
 # Git-ignored by default (deepwork state directory)
+# Sensitive credentials - NEVER commit these files
+.env.local
+.env.development
+.secrets
+*.pem
+*.key
+*.crt
+id_rsa*
+id_ed25519*
+*.secret
+tokens.json
+credentials.json
+config.json
+
+# Temporary files that might contain secrets
+tmp_secrets.*
+debug_*.*
+
+# Sensitive credentials - NEVER commit these files!
+.secrets
+*.pem
+*.key
+*.p12
+.env.local
+*.secret
+secret_*
+
+# GitHub token backup (if created for manual testing)
+.github-token.backup

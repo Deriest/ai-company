@@ -2,8 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 
@@ -17,7 +15,7 @@ from backend.services.orchestrator_service import orchestrator_service
 
 # ── Orchestration Endpoints ──────────────────────────────────
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/orchestration/sessions")
 async def create_orchestration_session(payload: OrchestrationSessionCreate, db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     session = await orchestrator_service.create_session(db, payload.conversation_id, payload.mode)
     return {
@@ -97,7 +95,7 @@ async def get_orchestration_session(session_id: str, db: AsyncSession = Depends(
         ],
     }
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/orchestration/sessions/{session_id}/tasks")
 async def add_orchestration_task(session_id: str, payload: OrchestrationTaskCreate, db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     session = await orchestrator_service.get_session(db, session_id)
     if not session:
@@ -116,7 +114,7 @@ async def add_orchestration_task(session_id: str, payload: OrchestrationTaskCrea
         "sequenceOrder": task.sequence_order,
     }
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/orchestration/sessions/{session_id}/execute")
 async def execute_orchestration_session(session_id: str, db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     try:
         session = await orchestrator_service.execute_session(db, session_id)
@@ -124,7 +122,7 @@ async def execute_orchestration_session(session_id: str, db: AsyncSession = Depe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/orchestration/sessions/{session_id}/cancel")
 async def cancel_orchestration_session(session_id: str, db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     try:
         session = await orchestrator_service.cancel_session(db, session_id)
@@ -132,12 +130,12 @@ async def cancel_orchestration_session(session_id: str, db: AsyncSession = Depen
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/orchestration/tasks/{task_id}/approval")
 async def request_task_approval(task_id: str, reason: str = Query(""), db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     approval = await orchestrator_service.request_approval(db, task_id, reason)
     return {"id": approval.id, "status": approval.status}
 
-router.patch(patch, [require_roles(Role.USER)])
+@router.patch("/orchestration/approvals/{approval_id}")
 async def resolve_approval(approval_id: str, payload: ApprovalResolve, db: AsyncSession = Depends(get_db), _auth: str = Depends(require_current_user)):
     try:
         approval = await orchestrator_service.resolve_approval(db, approval_id, payload.approved, payload.notes)

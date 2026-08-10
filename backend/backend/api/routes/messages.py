@@ -6,8 +6,6 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from typing import List
 
-
-from backend.api.dependencies import Role.USER
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message
@@ -66,7 +64,7 @@ async def list_messages(
     return await _build_msg_responses(db, projected)
 
 
-router.post(post, [require_roles(Role.USER)])
+@router.post("/conversations/{id}/messages", response_model=MessageResponse)
 async def create_message(id: str, payload: MessageCreate, db: AsyncSession = Depends(get_db)):
     conv_res = await db.execute(select(Conversation).where(Conversation.id == id))
     if not conv_res.scalars().first():
@@ -120,7 +118,7 @@ async def create_message(id: str, payload: MessageCreate, db: AsyncSession = Dep
     return await _build_msg_response(db, msg)
 
 
-router.patch(patch, [require_roles(Role.USER)])
+@router.patch("/messages/{id}", response_model=MessageResponse)
 async def update_message(id: str, payload: MessageUpdate, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Message).where(Message.id == id))
     msg = res.scalars().first()
@@ -141,7 +139,7 @@ async def update_message(id: str, payload: MessageUpdate, db: AsyncSession = Dep
     return await _build_msg_response(db, msg)
 
 
-router.delete(delete, [require_roles(Role.USER)])
+@router.delete("/messages/{id}")
 async def delete_message(id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Message).where(Message.id == id))
     msg = res.scalars().first()
