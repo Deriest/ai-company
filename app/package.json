@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -65,120 +65,42 @@
     "vitest": "^3.2.4",
     "wait-on": "^8.0.5"
   },
-  "build": {
-    "appId": "id.aicompany.ade",
-    "productName": "AICompany ADE",
-    "executableName": "AICompany ADE",
-    "icon": "build/icon.png",
-    "publish": {
-      "provider": "generic",
-      "url": ""
-    },
-    "win": {
-      "icon": "build/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "signAndEditExecutable": true,
-      "extraResources": [
-        {
-          "from": "packaging/runtimes/python-win",
-          "to": "python-win",
-          "filter": [
-            "**/*"
-          ]
-        }
-      ],
-      "certificateUrl": "https://your-domain.com",
-      "timestampUrl": "http://timestamp.digicert.com"
-    },
-    "directories": {
-      "output": "release"
-    },
-    "artifactName": "AIC-ADE-${version}-${os}-${arch}.${ext}",
+  "engines": {
+    "node": ">=20"
+  },
+  "appImage": {
+    "target": [
+      "AppImage",
+      "deb"
+    ],
+    "category": "Development",
+    "maintainer": "TVD <tvd@local>",
+    "executableName": "aic-ade",
     "extraResources": [
       {
-        "from": "../backend",
-        "to": "backend",
+        "from": "packaging/runtimes/python-linux",
+        "to": "python-linux",
         "filter": [
-          "backend/**/*",
-          "agents/**/*",
-          "workers/**/*",
-          "workflow/**/*",
-          "conversation/**/*",
-          "llm/**/*",
-          "storage/**/*",
-          "observability/**/*",
-          "opencode/**/*",
-          "auth/**/*",
-          "runtime/**/*",
-          "dispatcher/**/*",
-          "policy/**/*",
-          "events/**/*",
-          "shared/**/*",
-          "context/**/*",
-          "autonomy/**/*",
-          "verification/**/*",
-          "discovery/**/*",
-          "planning/**/*",
-          "taskgraph/**/*",
-          "delivery/**/*",
-          "data/**/*",
-          "requirements.txt",
-          "pytest.ini"
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "deb",
+        "arch": [
+          "x64"
         ]
       }
     ],
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "build/icon.png",
-      "build/icon.ico",
-      "package.json"
-    ],
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Development",
-      "maintainer": "TVD <tvd@local>",
-      "executableName": "aic-ade",
-      "extraResources": [
-        {
-          "from": "packaging/runtimes/python-linux",
-          "to": "python-linux",
-          "filter": [
-            "**/*"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "AICompany ADE",
-      "uninstallDisplayName": "AICompany ADE",
-      "artifactName": "AIC-ADE-Setup-${version}.${ext}"
-    },
-    "mac": {
-      "target": [
-        "zip",
-        "dir"
-      ],
-      "category": "public.app-category.developer-tools",
-      "identity": null,
-      "notarize": false
-    }
-  },
-  "engines": {
-    "node": ">=20"
+    "executableName": "AIC-ADE"
   }
 }

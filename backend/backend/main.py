@@ -51,12 +51,18 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Defensive self-heal for existing DBs: seed the workers table (Lease rows
     # FK -> workers.id). Idempotent — safe to run on every startup.
+    # Critical worker seeding - fail startup if workers cannot be registered
     try:
         from backend.database.workers_seed import seed_workers
         async with AsyncSessionLocal() as db:
             await seed_workers(db)
+        logger.info("Worker registry seeded successfully")
     except Exception as e:
-        logger.warning(f"Workers seed at startup failed (non-critical): {e}")
+        # Fail closed: critical dependency failed
+        raise RuntimeError(
+            f"Critical worker registration failed at startup: {type(e).__name__}: {str(e)}. "
+            "Application cannot function without registered workers. Please check configuration."
+        )
     # FIX P8: init_fts5 is already called inside init_db() — removing redundant call.
     # No FTS5 setup needed here; it's idempotent but wastes time initializing twice.
     # if os.environ.get("AIC_TESTING") == "1":

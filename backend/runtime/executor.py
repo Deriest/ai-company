@@ -122,7 +122,25 @@ def _adaptive_worker_timeout(worker_type: str, base_timeout: int = 120) -> int:
         _wcfg = get_model_config(worker_type)
         _base = int(_wcfg.get("timeout") or base_timeout)
         _tier = str(_wcfg.get("tier") or "crafter").lower()
-        _mult = {"thinker": 2.5, "crafter": 2.5, "sprinter": 1.5}.get(_tier, 2.0)
+        
+        # Known tier multipliers - fail safe for unknown tiers
+        tier_multipliers = {
+            "thinker": 2.5,
+            "crafter": 2.5, 
+            "sprinter": 1.5
+        }
+        
+        # Fail fast if tier cannot be determined - don't guess
+        if _tier not in tier_multipliers:
+            logger.warning(
+                f"Unknown worker tier '{_tier}' for worker_type='{worker_type}'. "
+                f"Using conservative default multiplier (1.5x). "
+                f"Known tiers: {', '.join(tier_multipliers.keys())}"
+            )
+            _mult = 1.5  # Conservative safe default
+        else:
+            _mult = tier_multipliers[_tier]
+        
         return max(_base, int(_base * _mult))
     except Exception:
         return base_timeout

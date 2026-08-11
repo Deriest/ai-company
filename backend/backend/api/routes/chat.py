@@ -491,8 +491,13 @@ async def chat_execute_endpoint(
     from storage.models import Conversation
 
     user_content = payload.messages[-1].content if payload.messages else ""
-    intent = classify_intent(user_content)
-    logger.info(f"[EXECUTE] intent={intent} content={user_content[:50]}")
+    
+    # Sanitize user input to prevent XSS and ensure safe database storage
+    from backend.middleware.input_sanitizer import sanitize_input
+    sanitized_content = sanitize_input(user_content)
+    
+    intent = classify_intent(sanitized_content)
+    logger.info(f"[EXECUTE] intent={intent} content={sanitized_content[:50]}")
 
     # Only task_request goes through full pipeline
     # QA-E2E FIX: multimodal requests (attachments present) must always go

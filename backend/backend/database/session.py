@@ -97,5 +97,15 @@ async def init_db():
             if db_path.exists():
                 os.chmod(db_path, 0o600)  # Owner read/write only
                 logger.info(f"Set database permissions to 0o600 for {db_path}")
+    except OSError as e:
+        # Specific error logging with actionable message
+        logger.error(
+            f"Failed to set database file permissions to 0o600: {e}. "
+            "Database may be accessible to other users on system. "
+            "Consider manual chmod for sensitive applications."
+        )
     except Exception as e:
-        logger.warning(f"Could not set DB permissions: {e} - continuing anyway")
+        # Log any other unexpected errors specifically
+        logger.error(
+            f"Unexpected error setting database permissions: {type(e).__name__}: {str(e)}"
+        )
