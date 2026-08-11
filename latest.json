@@ -6,22 +6,22 @@
   "platforms": {
     "linux": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.3/aic-ade-2.6.3.AppImage",
-      "sha256": "000745f772b53532ed83b0cdea277935be179b44a191ac776ce8827197e637e4",
-      "size": 192667658,
+      "sha256": "612ba7548e432d0d90749cc16954a73710a8fb848696efbb33ef1034ff046a0a",
+      "size": 192667659,
       "filename": "aic-ade-2.6.3.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.3/aic-ade_2.6.3_amd64.deb",
-      "sha256": "c29bcfd7f1977ce7da9287413228095fdccacef7f6631b7aed8b76b03b2ad5bf",
-      "size": 138224230,
+      "sha256": "444895e8d1ff3b6010a50f4df858242ed1243d4728c6f4a8d4007b40ea1a9ee7",
+      "size": 138213432,
       "filename": "aic-ade_2.6.3_amd64.deb",
       "type": "deb"
     },
     "win32": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.3/aic-ade Setup 2.6.3.exe",
-      "sha256": "f1bfb2042863af5a27febf2eee2bbebcea6b9bf5e46b44fd3dac887e69d88c06",
-      "size": 153395229,
+      "sha256": "57b7a2a22c70e98cffb47598da8293f1eb9d24c8d99687320aeb03c8a4741868",
+      "size": 153395230,
       "filename": "aic-ade Setup 2.6.3.exe",
       "type": "nsis"
     }
