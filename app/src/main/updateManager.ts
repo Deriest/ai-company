@@ -568,6 +568,7 @@ export class UpdateManager {
         const hash = await this.io.sha256File(tempDest);
         const expected = (artifact.sha256 || "").toLowerCase();
         // sha256 is REQUIRED by parseManifest — never skip verification.
+        // Ensure both hashes are compared in lowercase to avoid case-sensitivity issues.
         if (!expected || hash.toLowerCase() !== expected) {
           fs.unlinkSync(tempDest);
           this.setState({

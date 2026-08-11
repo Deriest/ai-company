@@ -224,7 +224,7 @@ describe("UpdateManager.installUpdate", () => {
       downloadFile: vi.fn(async (_url: string, dest: string) => {
         fs.writeFileSync(dest, "payload");
       }),
-      sha256File: vi.fn(async () => "aa"),
+      sha256File: vi.fn(async () => "AA".toLowerCase()), // Return lowercase to match manifest SHA256
     };
     const openPath = vi.fn(async (_p: string) => "");
     const appAdapter = {

@@ -3,10 +3,8 @@ import { getApiToken } from "./client";
 // PERF-FIX: cache the backend port after the first IPC round-trip so every
 // stream call doesn't pay a getBackendStatus IPC hop. The cache is bounded
 // by a TTL so a backend restart onto a different port (8000-8099) is picked
-// up within a minute instead of being cached forever.
-// Reduced TTL for faster invalidation when backend restarts with new port
-// 10 seconds is reasonable: allows brief network glitches while catching restarts quickly
-const PORT_CACHE_TTL_MS = 10_000;
+// up quickly. Reduced to 3 seconds for faster invalidation during restarts.
+const PORT_CACHE_TTL_MS = 3_000;
 let cachedBackendPort: number | null = null;
 let cachedBackendPortAt = 0;
 
@@ -196,11 +194,15 @@ export const chatApi = {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // Cap the SSE buffer so a misbehaving stream can never grow unbounded.
-        // Keep only the tail after the last complete event boundary.
-        if (buffer.length > 1_000_000) {
+        // HARDENING: Enforce hard per-chunk and cumulative buffer limits to prevent DoS
+        // 100KB max chunk size + 500KB cumulative buffer cap with aggressive truncation
+        if (value?.length > 102_400 || buffer.length > 524_288) {
           const lastBreak = buffer.lastIndexOf('\n\n');
           buffer = lastBreak >= 0 ? buffer.slice(lastBreak + 2) : '';
+          // If still over limit after truncation, reset completely
+          if (buffer.length > 524_288) {
+            buffer = '';
+          }
         }
 
         const lines = buffer.split("\n\n");

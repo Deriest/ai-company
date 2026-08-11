@@ -32,11 +32,15 @@ export function verifyManifestSignature(
 ): boolean {
     // Validate inputs
     if (!publicKeyBytes || !signatureBase64) {
-        // In development mode without key, skip verification
-        if (process.env.NODE_ENV === "production") {
-            console.error("[updateSecurity] No public key configured for signature verification");
+        // No key configured OR no signature provided - skip verification in non-production
+        const env = process.env.NODE_ENV || "development";
+        
+        if (env === "production") {
+            console.error("[updateSecurity] Production environment requires signed manifests");
             return false;
         }
+        
+        // Development/test mode: allow unsigned manifests for testing
         return true;
     }
 
@@ -46,19 +50,19 @@ export function verifyManifestSignature(
         // Create hash of manifest content (SHA256)
         const hash = crypto.createHash("sha256").update(jsonString).digest();
         
-        // Create signature verifier
-        const verifier = crypto.createVerify("SHA256");
-        verifier.update(hash);
-        
-        // Convert public key to proper format
+        // Create signature verifier with correct Ed25519 format
+        // Ed25519 keys are raw 32-byte public keys, not PEM-encoded SPKI
         const pubKeyObj = crypto.createPublicKey({
-            key: publicKeyBytes,
-            format: "pem",
-            type: "spki",
+            key: {
+                kty: "OKP",
+                crv: "Ed25519",
+                x: Buffer.from(publicKeyBytes).toString("base64"),
+            },
+            format: "jwk",
         });
         
         // Verify signature
-        const valid = verifier.verify(pubKeyObj, signatureBase64, "base64");
+        const valid = crypto.verify(null, hash, pubKeyObj, Buffer.from(signatureBase64, "base64"));
         
         if (!valid) {
             console.error(

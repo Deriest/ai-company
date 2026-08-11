@@ -104,17 +104,17 @@ echo "  ✅ Build complete"
 echo ""
 echo "🔐 Step 3/7: Computing SHA256 hashes..."
 
-APPIMAGE="AIC-ADE-${VERSION}-linux-x86_64.AppImage"
-DEB="AIC-ADE-${VERSION}-linux-amd64.deb"
-EXE="AIC-ADE-Setup-${VERSION}.exe"
+APPIMAGE="aic-ade-${VERSION}.AppImage"
+DEB="aic-ade_${VERSION}_amd64.deb"
+EXE="aic-ade Setup ${VERSION}.exe"
 
-APPIMAGE_SHA=$(sha256sum "$RELEASE_DIR/$APPIMAGE" | cut -d' ' -f1)
-DEB_SHA=$(sha256sum "$RELEASE_DIR/$DEB" | cut -d' ' -f1)
-EXE_SHA=$(sha256sum "$RELEASE_DIR/$EXE" | cut -d' ' -f1)
+APPIMAGE_SHA=$(sha256sum "$APP_DIR/dist/$APPIMAGE" | cut -d' ' -f1)
+DEB_SHA=$(sha256sum "$APP_DIR/dist/$DEB" | cut -d' ' -f1)
+EXE_SHA=$(sha256sum "$APP_DIR/dist/$EXE" | cut -d' ' -f1)
 
-APPIMAGE_SIZE=$(stat -c '%s' "$RELEASE_DIR/$APPIMAGE")
-DEB_SIZE=$(stat -c '%s' "$RELEASE_DIR/$DEB")
-EXE_SIZE=$(stat -c '%s' "$RELEASE_DIR/$EXE")
+APPIMAGE_SIZE=$(stat -c '%s' "$APP_DIR/dist/$APPIMAGE")
+DEB_SIZE=$(stat -c '%s' "$APP_DIR/dist/$DEB")
+EXE_SIZE=$(stat -c '%s' "$APP_DIR/dist/$EXE")
 
 echo "  AppImage: ${APPIMAGE_SHA:0:16}… (${APPIMAGE_SIZE} bytes)"
 echo "  deb:      ${DEB_SHA:0:16}… (${DEB_SIZE} bytes)"

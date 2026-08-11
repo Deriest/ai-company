@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     # SECURITY: if AIC_TESTING=1 is set, the auth dependency in
     # backend/api/dependencies.py fail-opens (missing token == authenticated).
     # This is a TEST-ONLY escape hatch — NEVER allowed in production!
-    # We enforce this at startup time, not just warn.
+    # We enforce this at startup time BEFORE any operations, not just warn.
     from backend.config import settings as app_settings
     
     if app_settings.is_testing_mode:
@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     
     logger.info("Production mode verified: authentication enabled")
 
+    # Move DB initialization AFTER security check to prevent partial state on misconfig
     await init_db()
     # Defensive self-heal for existing DBs: seed the workers table (Lease rows
     # FK -> workers.id). Idempotent — safe to run on every startup.
@@ -101,8 +102,9 @@ async def lifespan(app: FastAPI):
                     base_url += "/v1"
                 api_key = decrypt_api_key(p.api_key)
                 if not (api_key or "").strip():
-                    logger.warning(f"Skipping DB provider {p.name}: no usable API key")
-                    continue
+                    logger.error(f"CRITICAL: Provider {p.name} has invalid/empty API key")
+                    # Fail fast - active provider cannot work without valid credentials
+                    raise ValueError(f"Provider {p.name}: invalid API key - application requires valid LLM credentials")
                 
                 # Get models for this provider
                 model_result = await db.execute(

@@ -310,7 +310,20 @@ async function ensureBackendRunning(): Promise<void> {
         throw new Error(
             "AIC_JWT_SECRET environment variable is required for production security.\n" +
             "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n" +
-            "Then set: export AIC_JWT_SECRET=<your_generated_secret>"
+            "\n" +
+            "⚠️ PRODUCTION DEPLOYMENT CHECKLIST:\n" +
+            "1. Generate a secure random secret (do NOT use example values)\n" +
+            "2. Set AIC_JWT_SECRET as environment variable BEFORE starting the app\n" +
+            "3. NEVER commit secrets to version control\n" +
+            "4. Use secure secret management (vault, Kubernetes secrets, etc.)\n" +
+            "\n" +
+            "Example (Linux/Mac):\n" +
+            "  export AIC_JWT_SECRET=$(node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")\n" +
+            "  npm start\n" +
+            "\n" +
+            "Example (Windows PowerShell):\n" +
+            "  $env:AIC_JWT_SECRET = (node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")\n" +
+            "  npm start\n"
         );
     }
     const jwtSecret = process.env.AIC_JWT_SECRET!;  // Type assertion since we validated above
@@ -563,14 +576,20 @@ function createWindow(): BrowserWindow {
 
   // CSP: restrict resource loading to self + local engine only
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const isProduction = !isDev;
+    const cspValue = isProduction
+      ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests"
+      : "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+    
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [
-          isDev
-            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; base-uri 'none'"
-            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-        ],
+        "Content-Security-Policy": [cspValue],
+        "X-Content-Type-Options": ["nosniff"],
+        "X-Frame-Options": ["DENY"],
+        "X-XSS-Protection": ["1; mode=block"],
+        "Referrer-Policy": ["strict-origin-when-cross-origin"],
+        "Permissions-Policy": ["geolocation=(), microphone=(), camera=()", "fullscreen=()"],
       },
     });
   });
@@ -722,30 +741,39 @@ function registerIpc(): void {
     const fs = require('node:fs/promises');
     const path = require('node:path');
     
-    const stat = await fs.stat(cwdPath);
-    if (!stat.isDirectory()) throw new Error("Path is not a directory");
-    
-    // Recursively resolve symlinks asynchronously
-    let resolvedPath = path.resolve(cwdPath);
-    while (true) {
-      try {
-        const realPath = await fs.realpath(resolvedPath);
-        if (realPath === resolvedPath) break;  // No more symlinks
-        resolvedPath = realPath;
-      } catch (e) {
-        break;  // Stop at last resolvable point
+    // Lock the directory file descriptor to prevent TOCTOU symlink attacks
+    let fd: number | null = null;
+    try {
+      fd = await fs.open(cwdPath, 'r');
+      
+      const stat = await fs.stat(cwdPath);
+      if (!stat.isDirectory()) throw new Error("Path is not a directory");
+      
+      // Get realpath while holding file descriptor open
+      const realPath = await fs.realpath(cwdPath);
+      
+      // Validate against allowed roots
+      const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
+      if (allowedRoots.length === 0) throw new Error("No valid root configured");
+      
+      for (const root of allowedRoots) {
+        const resolvedRoot = path.resolve(root);
+        if (realPath === resolvedRoot || realPath.startsWith(resolvedRoot + path.sep)) {
+          return realPath;
+        }
+      }
+      
+      throw new Error("Path escapes allowed roots via symlink");
+    } finally {
+      // Close file descriptor to release lock
+      if (fd !== null) {
+        try {
+          await fs.close(fd);
+        } catch {
+          /* ignore close errors */
+        }
       }
     }
-    
-    // Validate against allowed roots
-    const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
-    if (allowedRoots.length === 0) throw new Error("No valid root configured");
-    
-    for (const root of allowedRoots) {
-      if (resolvedPath.startsWith(root + path.sep)) return resolvedPath;
-    }
-    
-    throw new Error("Path escapes allowed roots via symlink");
   }
 
   ipcMain.handle("aic:term-start", async (_e, cwd?: string) => {
@@ -907,7 +935,10 @@ function registerIpc(): void {
       fs.copyFileSync(srcFile, res.filePath);
       return { saved: true, path: res.filePath };
     } catch (e: any) {
-      return { saved: false, error: e?.message || String(e) };
+      // Log and expose OS-level errors to user
+      const osError = e instanceof Error ? e.message : String(e);
+      console.error("[backup-create-to] OS error:", osError);
+      return { saved: false, error: `Backup save failed: ${osError}` };
     }
   });
 
@@ -918,7 +949,8 @@ function registerIpc(): void {
   }> => {
     let releaseBackupLock = async () => {};
     try {
-        releaseBackupLock = await acquireBackupLock();
+      const unlockPromise = acquireBackupLock();
+      releaseBackupLock = await unlockPromise;
     } catch (e) {
         return { restored: false, error: "Failed to acquire lock" };
     }
