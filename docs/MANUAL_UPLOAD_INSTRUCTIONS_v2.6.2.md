@@ -205,19 +205,19 @@ If you prefer automated push instead of manual upload:
    
 2. Update environment variable:
    ```bash
-   export GH_TOKEN="ghp_your_new_token_here"
+   export GH_TOKEN="<REDACTED - USE YOUR ACTUAL PERSONAL ACCESS TOKEN>"
    ```
 
 3. Verify token works:
    ```bash
-   curl -s https://api.github.com/user -H "Authorization: Bearer $GH_TOKEN" | grep login
+   curl -s https://api.github.com/user -H "Authorization: Bearer ***" | grep login
    # Should show "Deriest"
    ```
 
 4. Push with new token:
    ```bash
    cd /home/tvd/AI-Company
-   git remote set-url origin "https://${GH_TOKEN}@github.com/Deriest/ai-company.git"
+   git remote set-url origin "https://***@github.com/Deriest/ai-company.git"
    git push origin HEAD:main --tags
    ```
 

@@ -193,7 +193,7 @@ If `git push` fails with "Invalid username or token":
 
 1. **Generate new PAT** at https://github.com/settings/tokens/actions
 2. **Scopes needed**: `repo` (complete access)
-3. **Paste new token**: `export GH_TOKEN=ghp_xxxxxxx`
+3. **Paste new token**: `export GH_TOKEN="<REDACTED - PLACEHOLDER FOR YOUR ACTUAL PERSONAL ACCESS TOKEN>"`
 4. **Retry**: `git push origin main`
 
 ### GitHub Release Page Shows Empty Assets
