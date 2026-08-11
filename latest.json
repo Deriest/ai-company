@@ -19,10 +19,10 @@
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade-Setup-2.6.4.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade.Setup.2.6.4.exe",
       "sha256": "dc36065092f5a1b775825775bb0e7de5bd09577e47ad6e941bd8e251e3988fa9",
       "size": 153392944,
-      "filename": "aic-ade-Setup-2.6.4.exe",
+      "filename": "aic-ade.Setup.2.6.4.exe",
       "type": "nsis"
     }
   }
