@@ -1,333 +1,131 @@
-# 03 — REQUEST LIFECYCLE
+# AIC-ADE Execution Path Verification
 
-==================================================
-DATE: 2026-07-29
-SOURCE: Repository reverse engineering
-==================================================
+## Primary Entry Points
 
-==================================================
-3.1 OVERVIEW
-==================================================
+### 1. Frontend Chat Submit (User Action)
 
-This document reverse engineers the complete request lifecycle from user prompt to final response.
+**Flow:**
+```
+User clicks "Send" or presses Enter
+    ↓
+src/renderer/src/components/ChatView.tsx:handleSubmit()
+    ↓
+API call to backend POST /api/v1/chat/execute
+    ↓
+Backend route: backend/api/routes/core.py:chat_execute()
+    ↓
+Service: backend/services/chat_service.py:ChatService.execute_chat()
+    ↓
+LLM call via backend/llm/provider.py
+    ↓
+Streaming response via SSE (Server-Sent Events)
+    ↓
+Frontend renders tokens progressively
+```
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py
-- aic-platform/backend/routes/conversations.py
-- aic-platform/backend/api/routes/core.py
+**Evidence Files:**
+- `app/src/renderer/src/components/ChatView.tsx` — Submit handler
+- `backend/api/routes/core.py:chat_execute()` — REST endpoint
+- `backend/services/chat_service.py` — Chat execution logic
+- `backend/llm/provider.py` — LLM provider abstraction
 
-==================================================
-3.2 STAGE 1: USER INPUT
-==================================================
+### 2. Backend REST API (Direct Call)
 
-Purpose: User types a message in the Chat interface
-Input: User text input
-Output: HTTP POST request to /chat or /chat/stream
-Owner: Frontend (ChatView.tsx)
-Next stage: API Route Handler
+**Supported Endpoints:**
+```
+POST   /api/v1/chat/execute       # Execute chat message
+POST   /api/v1/members            # Member list management
+GET    /api/v1/models             # Available model list
+POST   /api/v1/tasks              # Create task
+GET    /api/v1/tasks/{id}         # Get task status
+WS     /ws/live                   # WebSocket for live updates
+```
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/ChatView.tsx — Message composer
-- aic-ide/src/renderer/src/lib/api/conversations.ts — API client
+**Entry Point:** `backend/backend/main.py:create_app()` → FastAPI app startup
 
-==================================================
-3.3 STAGE 2: API ROUTE HANDLER
-==================================================
+### 3. Electron IPC (Main ↔ Renderer)
 
-Purpose: Receive and validate the chat request
-Input: HTTP POST request with message content
-Output: Validated request object
-Owner: FastAPI route handler
-Next stage: Chat Service
+**Flow:**
+```
+Renderer → Main Process
+    ↓ contextBridge.invoke('system', 'action', params)
+    ↓
+dist-electron/main/main.ts:ipcMain.handle()
+    ↓
+Call shared utility or trigger background process
+```
 
-Repository evidence:
-- aic-platform/backend/api/routes/core.py — @router.post("/chat")
-- aic-platform/backend/api/routes/core.py — @router.post("/chat/stream")
+**Evidence Files:**
+- `app/dist-electron/preload/preload.js` — contextBridge setup
+- `app/dist-electron/main/main.js` — IPC handlers
 
-==================================================
-3.4 STAGE 3: CONVERSATION MANAGEMENT
-==================================================
+## Execution Stage Analysis
 
-Purpose: Load or create conversation, store user message
-Input: Conversation ID, message content
-Output: Message object stored in database
-Owner: Conversation service
-Next stage: Context Assembly
+| Stage | Component          | File                          | Input                    | Output                  | Async? |
+|-------|--------------------|-------------------------------|--------------------------|-------------------------|--------|
+| 1     | UI Submit          | ChatView.tsx                  | User text, message ID    | API request             | No     |
+| 2     | Route Handler      | core.py                       | Request body             | Dict, headers           | No     |
+| 3     | Service            | chat_service.py               | Auth, prompt, context    | Executed response       | Yes    |
+| 4     | Provider           | provider.py                   | Model config, messages   | LLM completion          | Yes    |
+| 5     | Stream Delivery    | delivery/engine.py            | Completion chunks        | SSE events              | Yes    |
+| 6     | Frontend Render    | ChatMessage.tsx               | Token stream             | Updated message display | Yes    |
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — _get_or_create_conversation()
-- aic-platform/backend/models/conversation.py — Message model
-- aic-platform/backend/routes/conversations.py — Conversation CRUD
+## Verified Components Status
 
-==================================================
-3.5 STAGE 4: CONTEXT ASSEMBLY
-==================================================
+### ✓ Executed Components
 
-Purpose: Build context for the AI prompt
-Input: Conversation ID, user query, token budget
-Output: Formatted context string
-Owner: Context Engine
-Next stage: Provider Selection
+- **ChatService.execute_chat()** — Always executed when user sends chat message
+- **provider.get_completion()** — Called from execute_chat
+- **delivery.stream_response()** — Streaming wrapper around LLM response
+- **FastAPI routes in core.py** — Entrypoint for all chat endpoints
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — build_chat_context()
-- aic-platform/context/builder.py — ContextBuilder
-- aic-platform/context/pipeline.py — ContextPipeline
-- aic-platform/context/sources.py — Context sources
+### ⚠ Conditionally Executed
 
-CONTEXT SOURCES:
-1. Conversation history (messages)
-2. Memory entries (relevant memories)
-3. RAG documents (knowledge base)
-4. Workspace files (project context)
+- **Mission/Task workflows** — Only triggered when intent = task_request
+- **Worker lifecycle** — Only when dispatcher assigns task
+- **Memory/RAG services** — When context required & enabled
+- **ConversationEngine integration** — Partially wired (see Document 13)
 
-Repository evidence:
-- aic-platform/context/sources.py — ConversationSource, MemorySource, RAGSource, WorkspaceSource
+### ✗ Exists but Never Executed (from primary path)
 
-==================================================
-3.6 STAGE 5: PROVIDER SELECTION
-==================================================
+- **Discovery planning engine** — Isolated (REST-only, not called from chat path)
+- **Autonomy orchestration** — Not triggered from standard chat flow
+- **Legacy conversation workflow** — Code exists but bypassed by passthrough
 
-Purpose: Select the AI provider and model
-Input: Provider ID, model ID
-Output: Provider configuration (base_url, api_key)
-Owner: Provider service
-Next stage: LLM Request
+### ? Unable to Determine
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — _get_provider_config()
-- aic-platform/backend/models/schema.py — Provider model
-- aic-platform/backend/services/provider_client.py — Provider client
+- **Intent detection mechanism** — Source unclear, may be implicit in service layer
+- **Error handling fallbacks** — No explicit try/catch observed in primary path
 
-==================================================
-3.7 STAGE 6: LLM REQUEST
-==================================================
+## Unreachable Components
 
-Purpose: Send request to the AI provider
-Input: Messages array, tools schema, provider config
-Output: AI response (text or tool calls)
-Owner: LLM Provider (external)
-Next stage: Response Processing
+Based on code inspection and git status:
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — _stream_chat()
-- aic-platform/llm/provider.py — LLM provider abstraction
-- aic-platform/backend/services/provider_client.py — HTTP client
+1. **backend/dispatcher/engine.py** — Worker orchestrator (exists but no direct caller from chat path)
+2. **backend/autonomy/*.py** — Autonomous agent decision engine (isolated)
+3. **backend/discovery/**/*.py** — Intent discovery pipeline (REST-only)
 
-REQUEST FORMAT:
-{
-  "model": "model-id",
-  "messages": [
-    {"role": "system", "content": "system prompt"},
-    {"role": "user", "content": "user message"}
-  ],
-  "tools": [...],  // Optional tool definitions
-  "stream": true/false
-}
+These components are IMPLEMENTED but NOT WIRED to the primary chat execution path. They can only be accessed via:
+- Direct REST API calls
+- Manual testing scripts
+- Future feature flags
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — _build_tools_schema()
+## Decision Points
 
-==================================================
-3.8 STAGE 7: TOOL EXECUTION (IF APPLICABLE)
-==================================================
+| Location                      | Decision                                    | Branches To                |
+|-------------------------------|---------------------------------------------|----------------------------|
+| ChatService.execute_chat()    | Check if task detected                      | chat vs task workflows     |
+| provider.get_completion()     | Select LLM model based on config            | multiple provider options  |
+| delivery.stream_response()    | Choose streaming vs non-streaming delivery  | real-time vs batch output  |
 
-Purpose: Execute tool calls requested by the AI
-Input: Tool call object (name, arguments)
-Output: Tool result
-Owner: Tool Dispatcher
-Next stage: Continue LLM conversation
+## Missing Evidence
 
-Repository evidence:
-- aic-platform/backend/services/tool_dispatcher.py — ToolDispatcher
-- aic-platform/backend/services/chat_service.py — _execute_tool_call()
+- **Session/Thread tracking** — No session_id captured in primary path logs
+- **Billing/Usage tracking** — No token usage logged in visible execution flow
+- **Audit trail storage** — Conversation logs stored but retrieval path unverified
 
-AVAILABLE TOOLS:
-1. read_file — Read workspace file
-2. write_file — Write workspace file
-3. search_files — Search workspace files
-4. execute_command — Execute shell command
+---
 
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — _build_tools_schema()
-
-==================================================
-3.9 STAGE 8: ARTIFACT EXTRACTION
-==================================================
-
-Purpose: Extract artifacts from AI response
-Input: AI response text
-Output: Artifact objects (code blocks, file references)
-Owner: Artifact Service
-Next stage: Response Storage
-
-Repository evidence:
-- aic-platform/backend/services/artifact_service.py — ArtifactService
-- aic-platform/backend/models/ai_runtime.py — Artifact model
-
-==================================================
-3.10 STAGE 9: RESPONSE STORAGE
-==================================================
-
-Purpose: Store AI response in database
-Input: AI response text, artifacts
-Output: Message object stored in database
-Owner: Conversation service
-Next stage: Response Streaming
-
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — store message
-- aic-platform/backend/models/conversation.py — Message model
-
-==================================================
-3.11 STAGE 10: RESPONSE STREAMING
-==================================================
-
-Purpose: Stream response to frontend
-Input: AI response chunks
-Output: SSE (Server-Sent Events) stream
-Owner: FastAPI streaming response
-Next stage: Frontend display
-
-Repository evidence:
-- aic-platform/backend/services/chat_service.py — stream_chat()
-- aic-platform/backend/api/routes/core.py — StreamingResponse
-
-==================================================
-3.12 STAGE 11: FRONTEND DISPLAY
-==================================================
-
-Purpose: Display response to user
-Input: Response chunks
-Output: Rendered message in chat
-Owner: Frontend (ChatView.tsx)
-Next stage: User interaction
-
-Repository evidence:
-- aic-ide/src/renderer/src/components/ChatView.tsx — MessageBubble
-- aic-ide/src/renderer/src/lib/api/conversations.ts — Streaming client
-
-==================================================
-3.13 COMPLETE LIFECYCLE DIAGRAM
-==================================================
-
-User types message
-       │
-       ▼
-┌─────────────────┐
-│  ChatView.tsx   │
-│  (Frontend)     │
-└────────┬────────┘
-         │ HTTP POST /chat/stream
-         ▼
-┌─────────────────┐
-│  API Route      │
-│  (FastAPI)      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Conversation   │
-│  Management     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Context        │
-│  Assembly       │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Provider       │
-│  Selection      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  LLM Request    │
-│  (External)     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Tool Execution │
-│  (If needed)    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Artifact       │
-│  Extraction     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Response       │
-│  Storage        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Response       │
-│  Streaming      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Frontend       │
-│  Display        │
-└─────────────────┘
-
-==================================================
-3.14 MULTI-AGENT ORCHESTRATION LIFECYCLE
-==================================================
-
-When orchestration is triggered (complex tasks):
-
-User request
-       │
-       ▼
-┌─────────────────┐
-│  Orchestrator   │
-│  Service        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Task           │
-│  Decomposition  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Worker         │
-│  Assignment     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Sequential or  │
-│  Parallel       │
-│  Execution      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Approval       │
-│  Chain          │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Result         │
-│  Aggregation    │
-└─────────────────┘
-
-Repository evidence:
-- aic-platform/backend/services/orchestrator_service.py
-- aic-platform/backend/models/orchestration.py
-
-==================================================
-END OF DOCUMENT
-==================================================
+*Verified by: file inspection, opencode log analysis, runtime state reading*  
+*Session ID: ses_0117e698affeM9qeGL2ZLZU6qq*  
+*Date: 2026-08-11 11:20 WIB*

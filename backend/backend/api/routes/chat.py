@@ -7,11 +7,12 @@ import re
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
+from pydantic import BaseModel, Field, EmailStr, validator
 
 from backend.database.session import get_db, AsyncSessionLocal
 from backend.api.dependencies import require_current_user

@@ -12,7 +12,16 @@ DATABASE_URL = settings.DATABASE_URL
 
 # All application routes use this engine. Keep SQLite writes cooperative while
 # streaming chat and dashboard requests run concurrently.
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args={"timeout": 30})
+# Configure connection pool for SQLite (single-writer optimization)
+engine = create_async_engine(
+    DATABASE_URL, 
+    echo=False, 
+    connect_args={"timeout": 30},
+    pool_size=5,          # Keep small for SQLite WAL mode
+    max_overflow=10,      # Allow temporary scaling during spikes
+    pool_pre_ping=True,   # Detect stale connections
+    pool_recycle=3600,    # Recycle connections hourly
+)
 
 
 @event.listens_for(engine.sync_engine, "connect")

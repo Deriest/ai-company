@@ -326,7 +326,15 @@ class ChatService:
                         else:
                             logger.debug("Taste rewrite returned empty — using original")
                     except Exception as rewrite_err:
-                        logger.debug(f"Taste rewrite failed (non-critical): {rewrite_err}")
+                        # Log full error context so user knows WHY rewrite failed
+                        import traceback
+                        logger.warning(
+                            f"Taste rewrite failed with full context:\n"
+                            f"Exception type: {type(rewrite_err).__name__}\n"
+                            f"Exception message: {str(rewrite_err)}\n"
+                            f"Traceback:\n{traceback.format_exc()}",
+                            exc_info=True  # Include stack trace in logs
+                        )
         except Exception as taste_err:
             logger.debug(f"Taste checker exception (non-critical): {taste_err}")
         return content

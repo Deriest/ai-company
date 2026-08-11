@@ -1,200 +1,78 @@
-# 01 — PRODUCT OVERVIEW
+# AIC-ADE Product Overview
 
-==================================================
-DATE: 2026-07-29
-SOURCE: Repository reverse engineering
-==================================================
+## Product Identity
 
-==================================================
-1.1 WHAT PRODUCT HAS BEEN BUILT
-==================================================
+**Name:** AIC-ADE  
+**Type:** Electron Desktop Application  
+**Backend:** FastAPI + Python services  
+**Target User:** Internal developers & ops team untuk AI company workflow management  
 
-AIC-ADE (AI Company — AI Development Environment)
+## Purpose
 
-A desktop application that provides an AI-powered engineering workspace where users interact with AI assistants through conversation to perform software engineering tasks.
+AIC-ADE adalah desktop app untuk mengelola workflow perusahaan AI secara end-to-end: dari onboarding provider, chat/mission, project tracking, live company monitoring, hingga observability dan settings.
 
-Repository evidence:
-- /home/tvd/AI-Company/aic-ide/ — Electron + React frontend
-- /home/tvd/AI-Company/aic-platform/ — FastAPI + Python backend
+## Users & Access
 
-==================================================
-1.2 PRIMARY PURPOSE
-==================================================
+- **Self-registration enabled** → multi-user capability dengan user API keys
+- **JWT authentication** → token-based auth di backend routes
+- **Local-first** → localhost-only (127.0.0.1), no cloud sync required
 
-Provide a local-first desktop environment where software engineers can:
-1. Converse with AI assistants
-2. Execute engineering tasks through AI workers
-3. Manage projects and conversations
-4. Track worker execution and observability
+## Core Capabilities
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/ChatView.tsx — Conversation interface
-- aic-platform/backend/services/chat_service.py — Chat service
-- aic-platform/backend/services/orchestrator_service.py — Multi-agent orchestration
+1. **Chat Engine** - Multi-turn conversation dengan streaming response
+2. **Mission Management** - Project/task definition & execution
+3. **Live Company Monitoring** - Real-time dashboard worker metrics, logs, timeline
+4. **Provider Configuration** - AI model providers (OpenAI, Anthropic, custom)
+5. **Observability** - RAG docs, memory, audit logs, system health
+6. **Settings** - System configuration, backup/restore, advanced options
 
-==================================================
-1.3 INTENDED USERS
-==================================================
+## Architecture Summary
 
-Software engineers and developers who want to:
-- Use AI assistants for coding tasks
-- Manage multiple AI workers
-- Track project progress
-- Monitor AI usage and costs
+```
+┌─────────────────┐     ┌──────────────────┐
+│   Electron UI   │◄─►│   FastAPI Backend│
+│   (React/Tsx)   │ IPC │   (Python/ASG)  │
+└─────────────────┘     └──────────────────┘
+                                 │
+                   ┌─────────────┴─────────────┐
+                   ▼                           ▼
+           ┌──────────────┐           ┌─────────────┐
+           │ Worker Pool  │           │ Event Bus   │
+           └──────────────┘           └─────────────┘
+```
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/LiveCompanyView.tsx — Worker dashboard
-- aic-ide/src/renderer/src/components/ObservabilityView.tsx — Usage tracking
-- aic-ide/src/renderer/src/components/ProjectsView.tsx — Project management
+## Entry Points
 
-==================================================
-1.4 MAIN CAPABILITIES
-==================================================
+- **Frontend:** http://localhost:5174 (Vite dev server)
+- **Backend:** http://localhost:8000 (FastAPI REST + SSE streaming)
+- **IPC:** Electron main process ↔ renderer via `contextBridge`
 
-1. CONVERSATION ENGINE
-   - Chat with AI assistants
-   - Multi-turn conversations
-   - Message history
-   - FTS5 search
+## Build & Deploy
 
-   Repository evidence:
-   - aic-platform/backend/services/chat_service.py
-   - aic-platform/backend/routes/conversations.py
+- **Linux:** `electron-builder --linux AppImage deb`
+- **Windows:** `electron-builder --win nsis --x64`
+- **Backend tests:** `pytest backend/tests/`
 
-2. WORKER SYSTEM
-   - Multiple AI worker roles (Crafter, Manager, Planner, Reviewer, Thinker)
-   - Worker lifecycle management
-   - Worker execution tracking
-   - Worker metrics (CPU, Memory, Tasks)
+## Repository Root
 
-   Repository evidence:
-   - aic-platform/backend/services/worker_runtime_service.py
-   aic-platform/backend/models/ai_runtime.py
+```
+/home/tvd/AI-Company/
+├── app/             # Electron desktop app source
+├── backend/         # Python backend service
+├── dispatcher/      # Task orchestration engine
+├── services/        # Shared utilities & migrations
+└── docs/            # Documentation
+```
 
-3. ORCHESTRATION ENGINE
-   - Multi-agent task coordination
-   - Sequential/parallel execution
-   - Task routing
-   - Approval chains
+## Current Status (as of 2026-08-11)
 
-   Repository evidence:
-   - aic-platform/backend/services/orchestrator_service.py
-   - aic-platform/backend/models/orchestration.py
+- **Branch:** main
+- **Commits since 2026-08-01:** 141
+- **Active session:** opencode `ses_0117e698affeM9qeGL2ZLZU6qq` (audit ongoing)
+- **Recent work:** Phase 1 security fixes, migration 024 (lease heartbeat), phase validation tests
 
-4. PROJECT MANAGEMENT
-   - Project creation and organization
-   - Mission tracking
-   - Project filtering (All, Active, Archived)
+---
 
-   Repository evidence:
-   - aic-ide/src/renderer/src/components/ProjectsView.tsx
-
-5. OBSERVABILITY
-   - Token usage tracking
-   - Cost calculation
-   - Provider statistics
-   - Model statistics
-
-   Repository evidence:
-   - aic-ide/src/renderer/src/components/ObservabilityView.tsx
-   - aic-platform/backend/routes/usage.py
-   - aic-platform/backend/services/pricing_service.py
-
-6. KNOWLEDGE MANAGEMENT
-   - Memory system (multi-scope)
-   - RAG document management
-   - Context assembly
-
-   Repository evidence:
-   - aic-platform/backend/services/memory_service.py
-   - aic-platform/backend/services/rag_service.py
-   - aic-platform/context/
-
-7. AUTOMATION
-   - Event hooks
-   - Triggers
-   - Notifications
-   - Job scheduling
-
-   Repository evidence:
-   - aic-platform/backend/services/automation_service.py
-   - aic-platform/backend/services/job_scheduler.py
-
-8. EXTERNAL INTEGRATIONS
-   - MCP (Model Context Protocol) servers
-   - Tool discovery and execution
-   - External tool registry
-
-   Repository evidence:
-   - aic-platform/backend/services/mcp_service.py
-   - aic-platform/backend/api/routes/mcp.py
-
-==================================================
-1.5 HIGH-LEVEL ARCHITECTURE
-==================================================
-
-┌─────────────────────────────────────────────────────────────┐
-│                    ELECTRON DESKTOP APP                      │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │                   REACT FRONTEND                      │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
-│  │  │ ChatView │  │ Workspace│  │ Settings│              │   │
-│  │  └─────────┘  └─────────┘  └─────────┘              │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FASTAPI BACKEND                           │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │                  API ROUTES                           │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
-│  │  │ /chat   │  │/conversa│  │/provider│              │   │
-│  │  └─────────┘  └─────────┘  └─────────┘              │   │
-│  └──────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │                  SERVICES                             │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
-│  │  │ Chat    │  │Orchestra│  │ Worker  │              │   │
-│  │  └─────────┘  └─────────┘  └─────────┘              │   │
-│  └──────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │                  STORAGE                              │   │
-│  │  ┌─────────────────────────────────────────────┐     │   │
-│  │  │            SQLite Database                   │     │   │
-│  │  └─────────────────────────────────────────────┘     │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-
-Repository evidence:
-- aic-ide/src/main/main.ts — Electron main process
-- aic-ide/src/renderer/src/App.tsx — React application
-- aic-platform/backend/main.py — FastAPI application
-- aic-platform/backend/database/session.py — SQLite database
-
-==================================================
-1.6 ENTRY POINTS
-==================================================
-
-1. ELECTRON ENTRY
-   - aic-ide/src/main/main.ts — Main process
-   - aic-ide/src/preload/preload.ts — Preload script
-   - aic-ide/src/renderer/src/main.tsx — Renderer entry
-
-2. BACKEND ENTRY
-   - aic-platform/backend/main.py — FastAPI application
-   - aic-platform/backend/api/routes/ — API routes
-
-3. USER ENTRY
-   - Onboarding flow (first launch)
-   - Workspace dashboard (main view)
-   - Chat interface (primary workflow)
-
-Repository evidence:
-- aic-ide/src/main/main.ts
-- aic-ide/src/renderer/src/App.tsx
-- aic-platform/backend/main.py
-
-==================================================
-END OF DOCUMENT
-==================================================
+*Document generated by agent-ops-review workflow.*  
+*Evidence source: file inspection, git log, opencode runtime state*  
+*Date: 2026-08-11 11:18 WIB*

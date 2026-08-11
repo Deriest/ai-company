@@ -35,11 +35,18 @@ async def lifespan(app: FastAPI):
 
     # SECURITY: if AIC_TESTING=1 is set, the auth dependency in
     # backend/api/dependencies.py fail-opens (missing token == authenticated).
-    # This is a TEST-ONLY escape hatch — never set it in production.
-    if os.environ.get("AIC_TESTING") == "1":
-        logger.warning(
-            "AIC_TESTING=1 detected — auth fail-open is ACTIVE; never set this in production"
+    # This is a TEST-ONLY escape hatch — NEVER allowed in production!
+    # We enforce this at startup time, not just warn.
+    from backend.config import settings as app_settings
+    
+    if app_settings.is_testing_mode:
+        raise RuntimeError(
+            "FATAL ERROR: AIC_TESTING=1 detected in production environment. "
+            "Authentication bypass is ACTIVE - this should never happen outside "
+            "of CI/CD test environments. Please unset AIC_TESTING and restart."
         )
+    
+    logger.info("Production mode verified: authentication enabled")
 
     await init_db()
     # Defensive self-heal for existing DBs: seed the workers table (Lease rows
@@ -240,6 +247,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Startup self-heal failed: {e}")
 
+    # PHASE 3: Start lease scanner for automatic lease expiration and recovery
+    try:
+        from backend.services.lease_scanner import start_lease_scanner
+        lease_scanner = start_lease_scanner(AsyncSessionLocal)
+        logger.info("Lease scanner started successfully")
+    except Exception as e:
+        logger.warning(f"Failed to start lease scanner: {e}")
+
     # H5: wire the event recorder to the bus (persists events to DB).
     try:
         from events.recorder import subscribe_recorder
@@ -252,6 +267,14 @@ async def lifespan(app: FastAPI):
     # ── Shutdown ───────────────────────────────────────────────
     from backend.services.heartbeat import stop_heartbeat
     stop_heartbeat()
+    # PHASE 3: Stop lease scanner for graceful shutdown
+    try:
+        from backend.services.lease_scanner import _scanner_instance
+        if _scanner_instance:
+            await _scanner_instance.stop()
+            logger.info("Lease scanner stopped")
+    except Exception as e:
+        logger.warning(f"Failed to stop lease scanner: {e}")
     # H7: stop the background job worker.
     try:
         from backend.services.job_scheduler import job_scheduler

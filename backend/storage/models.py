@@ -287,6 +287,7 @@ class Lease(Base):
     __table_args__ = (
         # Composite index for heartbeat queries that detect stale ACTIVE leases.
         Index("ix_lease_status_created", "status", "created_at"),
+        Index("ix_lease_expires", "status", "expires_at"),
     )
     id = Column(String, primary_key=True, default=_uuid)
     task_id = Column(String, ForeignKey("tasks.id"), nullable=False, index=True)
@@ -299,6 +300,8 @@ class Lease(Base):
     exit_code = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
+    last_heartbeat_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
 
     task = relationship("Task", back_populates="leases")
@@ -366,7 +369,11 @@ class DiscoverySession(Base):
     # enforcement ON and stalled every batch task at the discovery stage. The
     # column is kept NOT NULL but unconstrained (it semantically references a
     # task, not a conversation).
-    conversation_id = Column(String, nullable=False, index=True)
+    # FIX: Rename conversation_id to task_conversation_ref for clarity
+    # This column semantically references a Task ID (for discovery sessions),
+    # NOT a Conversation ID. The name was misleading and caused schema confusion.
+    # Keep the column name but add explicit comment clarifying its purpose.
+    task_conversation_ref = Column(String, nullable=False, index=True)  # References task.id in discovery_sessions
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String(32), nullable=False, default="new_request", index=True)
     round_number = Column(Integer, default=0)

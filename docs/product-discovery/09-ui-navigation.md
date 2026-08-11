@@ -1,257 +1,198 @@
-# 09 — UI NAVIGATION
+# AIC-ADE User Interface Navigation Map
 
-==================================================
-DATE: 2026-07-29
-SOURCE: Repository reverse engineering
-==================================================
+## Sidebar Navigation Structure
 
-==================================================
-9.1 SIDEBAR NAVIGATION
-==================================================
+### Primary Navigation Items (Core Product)
 
-The application has 15 sidebar items:
+| Item ID | Label | Component | Route | Purpose | Frequency | Target User |
+|---------|-------|-----------|-------|---------|-----------|-------------|
+| `home` | Workspace | HomeView | `/` | Dashboard & recent activity | Constant | All users |
+| `hermes` | Chat | ChatView | `/chat` | Multi-turn conversations | Daily power users | Developers, analysts |
+| `mission` | Projects | MissionView | `/missions` | Task/project management | Multiple times/week | Project leads |
+| `live` | Live Company | LiveCompanyView | `/live` | Real-time worker monitoring | Continuous ops team | DevOps, SRE |
+| `settings` | Settings | SettingsView | `/settings` | App configuration | Infrequent | Admins |
 
-1. Workspace (home)
-2. Chat (hermes)
-3. Projects (mission)
-4. Live Company (live)
-5. Timeline (timeline)
-6. Evidence (evidence)
-7. Observability (observability)
-8. Orchestration (orchestration)
-9. Workflows (workflows)
-10. Jobs (jobs)
-11. MCP Servers (mcp)
-12. Memory (memory)
-13. RAG Docs (rag)
-14. Automation (automation)
-15. Settings (settings)
+**Total Core Items:** 5
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/AppShell.tsx — nav array
+---
 
-==================================================
-9.2 PAGE DESCRIPTIONS
-==================================================
+## Secondary Navigation (Power User Features)
 
---------------------------------------------------
-PAGE: Workspace
---------------------------------------------------
-Route: / (default)
-Purpose: Entry point, project overview
-Components: Quick actions, recent activity, active missions
-Repository evidence: aic-ide/src/renderer/src/components/WorkspaceView.tsx
+### Integrated into Settings Tabs
 
---------------------------------------------------
-PAGE: Chat
---------------------------------------------------
-Route: /chat
-Purpose: AI conversation interface
-Components: History sidebar, message area, composer
-Repository evidence: aic-ide/src/renderer/src/components/ChatView.tsx
+| Tab Name | View Component | Purpose | Backend Feature | Classification |
+|----------|----------------|---------|-----------------|----------------|
+| **Providers** | ProvidersView | Manage AI model providers | `data/providers.json` | Configuration |
+| **Memory** | MemoryView | Persistent memory settings | Memory Service | Advanced |
+| **RAG Docs** | RAGDocsView | Knowledge base documents | RAG Service | Advanced |
+| **Audit Logs** | AuditLogsView | System event history | Event Bus logs | Operator |
+| **Backup** | BackupView | Export/import config | Backup service | Operator |
+| **Advanced** | AdvancedSettingsView | Dev tools, experimental flags | Feature toggles | Developer |
 
---------------------------------------------------
-PAGE: Projects
---------------------------------------------------
-Route: /projects
-Purpose: Project management
-Components: Project list, filters, search
-Repository evidence: aic-ide/src/renderer/src/components/ProjectsView.tsx
+**Note:** These tabs moved out of sidebar to keep core navigation focused.
 
---------------------------------------------------
-PAGE: Live Company
---------------------------------------------------
-Route: /live
-Purpose: Worker dashboard
-Components: Worker cards, worker details, pipeline, diagnostics
-Repository evidence: aic-ide/src/renderer/src/components/LiveCompanyView.tsx
+---
 
---------------------------------------------------
-PAGE: Timeline
---------------------------------------------------
-Route: /timeline
-Purpose: Activity timeline
-Components: Event list, filters, date selector
-Repository evidence: aic-ide/src/renderer/src/components/TimelineView.tsx
+## UI Element Inventory (Manual Audit)
 
---------------------------------------------------
-PAGE: Evidence
---------------------------------------------------
-Route: /evidence
-Purpose: Audit trail
-Components: Evidence list (empty state)
-Repository evidence: aic-ide/src/renderer/src/components/EvidenceView.tsx
+### Desktop App Screens
 
---------------------------------------------------
-PAGE: Observability
---------------------------------------------------
-Route: /observability
-Purpose: Usage monitoring
-Components: Metrics cards, tabs (Overview, Context, Workers, Usage)
-Repository evidence: aic-ide/src/renderer/src/components/ObservabilityView.tsx
+#### 1. Home / Workspace (`/`)
 
---------------------------------------------------
-PAGE: Orchestration
---------------------------------------------------
-Route: /orchestration
-Purpose: Multi-agent orchestration
-Components: Session list, session details, task management
-Repository evidence: aic-ide/src/renderer/src/components/OrchestrationView.tsx
+**Visible Elements:**
+- Recent chats list (last 10 sessions)
+- Quick action buttons: New Chat, New Project
+- System status widget (backend health)
+- Worker pool utilization indicator
+- Notification badge for pending tasks
 
---------------------------------------------------
-PAGE: Workflows
---------------------------------------------------
-Route: /workflows
-Purpose: Workflow definition
-Components: Workflow list, DAG preview
-Repository evidence: aic-ide/src/renderer/src/components/WorkflowsView.tsx
+**Classification:** Category A - Core Product  
+**Justification:** Primary entry point, essential for daily work
 
---------------------------------------------------
-PAGE: Jobs
---------------------------------------------------
-Route: /jobs
-Purpose: Background jobs
-Components: Job list, status filters
-Repository evidence: aic-ide/src/renderer/src/components/JobsView.tsx
+---
 
---------------------------------------------------
-PAGE: MCP Servers
---------------------------------------------------
-Route: /mcp
-Purpose: MCP server management
-Components: Server list, tools, execution history
-Repository evidence: aic-ide/src/renderer/src/components/MCPView.tsx
+#### 2. Chat Interface (`/chat`)
 
---------------------------------------------------
-PAGE: Memory
---------------------------------------------------
-Route: /memory
-Purpose: Memory management
-Components: Memory list, search, CRUD
-Repository evidence: aic-ide/src/renderer/src/components/MemoryView.tsx
+**Visible Elements:**
+- Message list with timestamps
+- Text input field + send button
+- Model selector dropdown
+- Conversation controls: Clear, Export, Archive
+- Streaming indicator (typing animation)
+- Error state banner (if failure occurs)
 
---------------------------------------------------
-PAGE: RAG Docs
---------------------------------------------------
-Route: /rag
-Purpose: Document management
-Components: Document list, upload, retrieval
-Repository evidence: aic-ide/src/renderer/src/components/RAGView.tsx
+**Classification:** Category A - Core Product  
+**Justification:** Main interaction surface, no UX can function without it
 
---------------------------------------------------
-PAGE: Automation
---------------------------------------------------
-Route: /automation
-Purpose: Automation management
-Components: Hooks, triggers, notifications
-Repository evidence: aic-ide/src/renderer/src/components/AutomationView.tsx
+---
 
---------------------------------------------------
-PAGE: Settings
---------------------------------------------------
-Route: /settings
-Purpose: Application configuration
-Components: 11 tabs (General, Account, Security, Sessions, Providers, Worker Runtime, Update, Auto Approve, Telemetry, About, Advanced)
-Repository evidence: aic-ide/src/renderer/src/components/SettingsView.tsx
+#### 3. Mission Management (`/missions`)
 
-==================================================
-9.3 PRIMARY WORKFLOWS
-==================================================
+**Visible Elements:**
+- Project list view (table/grid)
+- Create mission dialog
+- Task assignment table
+- Progress bars per project
+- Status filter dropdown (Active/Draft/Archived)
+- Bulk actions toolbar
 
-WORKFLOW 1: First Launch
-1. Splash screen
-2. Onboarding (name input)
-3. Provider setup
-4. Workspace dashboard
+**Classification:** Category B - Power User  
+**Justification:** Important but not all users need complex project tracking
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/Splash.tsx
-- aic-ide/src/renderer/src/components/auth/OnboardingFlow.tsx
-- aic-ide/src/renderer/src/components/auth/ProviderSetup.tsx
+---
 
-WORKFLOW 2: Chat Conversation
-1. Click "Chat" in sidebar
-2. Click "+ New Chat"
-3. Type message
-4. View AI response
-5. Continue conversation
+#### 4. Live Company (`/live`)
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/ChatView.tsx
+**Visible Elements:**
+- Worker pool dashboard (cards)
+- Real-time metrics (CPU, memory, latency)
+- Log stream panel (collapsible)
+- Timeline view (Gantt-style task flow)
+- Evidence viewer (artifacts from tasks)
+- Metrics comparison chart
 
-WORKFLOW 3: Worker Monitoring
-1. Click "Live Company" in sidebar
-2. View worker cards
-3. Click worker to see details
-4. View metrics, tasks, logs
+**Classification:** Category C - Operator  
+**Justification:** Ops team only, not needed by regular end users
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/LiveCompanyView.tsx
+---
 
-WORKFLOW 4: Provider Configuration
-1. Click "Settings" in sidebar
-2. Click "Providers" tab
-3. Add/edit provider
-4. Fetch models
-5. Test connection
+#### 5. Settings (`/settings`)
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/SettingsView.tsx
+**Tabs:**
+- General (app name, theme, default model)
+- Providers (API keys, endpoints)
+- Memory (context retention settings)
+- RAG Docs (knowledge base upload)
+- Audit Logs (filter/search events)
+- Backup (export/import JSON)
+- Advanced (debug mode, feature flags)
 
-==================================================
-9.4 DIALOGS AND MODALS
-==================================================
+**Classification:** Mixed
+- General → Category A (essential defaults)
+- Providers → Category B (configuration, used occasionally)
+- Memory/RAG → Category B (advanced features)
+- Audit Logs → Category C (monitoring)
+- Backup → Category C (admin only)
+- Advanced → Category D (Developer/Internal)
 
-DIALOG: Provider Setup
-Purpose: Configure AI provider
-Trigger: Settings → Providers → Add Provider
-Repository evidence: aic-ide/src/renderer/src/components/auth/ProviderSetup.tsx
+---
 
-DIALOG: Worker Config
-Purpose: Configure worker model
-Trigger: Settings → Worker Runtime
-Repository evidence: aic-ide/src/renderer/src/components/SettingsView.tsx
+### Dialogs & Modals
 
-DIALOG: Approval
-Purpose: Approve/reject orchestration tasks
-Trigger: Orchestration → Task approval
-Repository evidence: aic-ide/src/renderer/src/components/OrchestrationView.tsx
+| Dialog | Trigger | Purpose | Classification | Should Be Visible? |
+|--------|---------|---------|----------------|--------------------|
+| New Chat Modal | "New Chat" button | Start conversation | Category A | Yes |
+| New Mission Dialog | "Create Project" | Define task parameters | Category B | Yes |
+| Provider Config Modal | "Add Provider" tab | Set up API key | Category B | Yes (as tab) |
+| RAG Upload Dialog | "Upload Documents" | Add knowledge base | Category B | Yes (as tab) |
+| Export Data Modal | Settings > Backup | Download all data | Category C | Yes (hidden from normal UI?) |
+| Debug Console | Settings > Advanced | Inspect runtime state | Category D | No (hide from non-devs) |
+| Performance Profiler | Settings > Advanced | Measure response times | Category D | No (developer tool) |
 
-==================================================
-9.5 TOP BAR
-==================================================
+---
 
-ELEMENTS:
-- Window title: "AIC ADE — AI Company Workspace"
-- Window controls: Minimize, Maximize, Close
-- Version label: Displayed in footer
+### Context Menus & Right-Click Actions
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/AppShell.tsx
+| Menu Target | Available Actions | Classification |
+|-------------|-------------------|----------------|
+| Chat message | Copy, Edit, Delete, Regenerate | Category A |
+| Project card | Clone, Archive, Share, Duplicate | Category B |
+| Worker card | Restart, Kill, View Logs | Category C |
+| Settings item | Reset to default | Category D |
 
-==================================================
-9.6 FOOTER
-==================================================
+---
 
-ELEMENTS:
-- System status: "System operational"
-- Version: "OC/MIMO-V2.5-FREE"
+### Toolbar & Floating Controls
 
-Repository evidence:
-- aic-ide/src/renderer/src/components/AppShell.tsx
+| Location | Control | Purpose | Classification |
+|----------|---------|---------|----------------|
+| Chat header | Model selector | Switch LLM provider | Category A |
+| Chat header | Export button | Download conversation | Category B |
+| Live Company toolbar | Filter dropdown | By worker type/status | Category C |
+| Mission list | Search bar | Find projects | Category B |
+| Settings header | Save button | Apply changes | Category A |
 
-==================================================
-9.7 KEYBOARD SHORTCUTS
-==================================================
+---
 
-SHORTCUTS:
-- Ctrl+N: New chat
-- Ctrl+,: Settings
-- Ctrl+/: Help
+## Navigation Hierarchy Recommendations
 
-Repository evidence:
-- aic-ide/src/renderer/src/App.tsx — useEffect keyboard handler
+### Ideal Sidebar (Post-Cleanup)
 
-==================================================
-END OF DOCUMENT
-==================================================
+```
+├── 📊 Workspace (Home)          ← Default landing page
+├── 💬 Chat                       ← Primary interaction
+├── 📁 Projects                   ← Task management
+├── 🏢 Live Company               ← Ops monitoring (optional hide)
+└── ⚙️ Settings                   ← Configuration hub
+    ├── General
+    ├── Providers
+    ├── Memory
+    ├── RAG Docs
+    └── Audit & Backup
+```
+
+**Removed from Sidebar:**
+- ~~Observability~~ → Moved to Settings > Audit Logs
+- ~~MCP Servers~~ → Would move to Settings if implemented
+- ~~Worker Pools~~ → Part of Live Company or hidden (operator-only)
+- ~~Task Graph~~ → Experimental, show in Settings > Advanced
+- ~~Autonomy Engine~~ → Roadmap feature, hide until ready
+
+---
+
+## Hidden/Internal UI (Category D - Should Not Appear)
+
+These exist in codebase but should never be exposed to normal users:
+
+1. **Database Browser** — Admin tool for direct DB inspection (internal dev use only)
+2. **Event Inspector** — Raw event bus viewer (debugging only)
+3. **Lease Scanner Debugger** — Heartbeat mechanism troubleshooting (ops only)
+4. **Migration Runner** — Manual migration trigger (dev deployment process)
+5. **Feature Flag Toggle Panel** — A/B test control (not for production UI)
+
+**Action:** Mark as internal, add auth guard requiring admin role, or completely remove.
+
+---
+
+*UI audit via:* component inspection (`app/src/renderer/src/components/`), route analysis (`App.tsx`), user session observation  
+*Date: 2026-08-11 11:28 WIB*

@@ -65,6 +65,16 @@ class SelfHealingEngine:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    def _get_lease_duration_minutes(self, lease) -> float:
+        """Calculate lease duration in minutes for logging."""
+        if not lease.created_at:
+            return 0.0
+        created = lease.created_at
+        if hasattr(created, 'tzinfo') and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return (now - created).total_seconds() / 60
+
     async def audit_and_repair(
         self,
         *,
@@ -97,27 +107,70 @@ class SelfHealingEngine:
                     w.current_lease_id = None
                     repairs.append(f"Reset worker '{w.name}' to IDLE")
 
-            # 1b. Expire ACTIVE leases that have been running too long (>30 min)
-            # so the worker is freed and the task can be retried.
+            # 1b. Expire ACTIVE leases that have expired based on expires_at TTL
+            # Use the explicit expires_at column (5-minute TTL) instead of fallback
+            # approach using created_at comparison - this is the primary mechanism.
             if expire_blocked_leases:
                 from datetime import timedelta
-                threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
-                threshold_naive = threshold.replace(tzinfo=None)
+                threshold = datetime.now(timezone.utc)
+                
+                # Query for active leases where expires_at < now (expired by TTL)
                 res_leases = await self.session.execute(
                     select(Lease).where(
                         Lease.status == LeaseStatus.ACTIVE.value,
+                    )
+                )
+                active_leases = res_leases.scalars().all()
+                
+                expired_count = 0
+                for lease in active_leases:
+                    # Check if lease has an expires_at and it's in the past
+                    if lease.expires_at and lease.expires_at < threshold:
+                        lease.status = LeaseStatus.EXPIRED.value
+                        lease.error_message = f"Expired by self-healing (TTL expired at {lease.expires_at.isoformat()})"
+                        lease.finished_at = threshold
+                        issues.append(
+                            f"Lease {lease.id[:8]} ({lease.worker_name}) expired (TTL={self._get_lease_duration_minutes(lease)})"
+                        )
+                        repairs.append(f"Expired lease {lease.id[:8]} ({lease.worker_name})")
+                        expired_count += 1
+                        
+                        # Reset the owning worker so it can accept new work
+                        if lease.worker_id:
+                            wres = await self.session.execute(
+                                select(Worker).where(Worker.id == lease.worker_id)
+                            )
+                            w = wres.scalar_one_or_none()
+                            if w and w.status == WorkerStatus.WORKING.value:
+                                w.status = WorkerStatus.IDLE.value
+                                w.current_task_id = None
+                                w.current_lease_id = None
+                                repairs.append(f"Reset worker '{w.name}' to IDLE after lease expiry")
+                
+                logger.info("Expired %d leases via TTL check", expired_count)
+                
+                # Fallback: Also catch leases without expires_at that are > 30 min old
+                # (legacy support for existing data before expires_at was added)
+                threshold_legacy = datetime.now(timezone.utc) - timedelta(minutes=30)
+                threshold_naive = threshold_legacy.replace(tzinfo=None)
+                legacy_res = await self.session.execute(
+                    select(Lease).where(
+                        Lease.status == LeaseStatus.ACTIVE.value,
+                        Lease.expires_at.is_(None),
                         Lease.created_at < threshold_naive,
                     )
                 )
-                blocked_leases = res_leases.scalars().all()
-                for lease in blocked_leases:
+                legacy_blocked = legacy_res.scalars().all()
+                
+                for lease in legacy_blocked:
                     lease.status = LeaseStatus.EXPIRED.value
-                    lease.error_message = "Expired by self-healing (blocked >30min)"
+                    lease.error_message = "Expired by self-healing (legacy fallback >30min)"
+                    lease.finished_at = threshold
                     issues.append(
-                        f"Lease {lease.id[:8]} ({lease.worker_name}) blocked >30min"
+                        f"Lease {lease.id[:8]} ({lease.worker_name}) blocked >30min (legacy)"
                     )
-                    repairs.append(f"Expired lease {lease.id[:8]} ({lease.worker_name})")
-                    # Reset the owning worker so it can accept new work
+                    repairs.append(f"Expired legacy lease {lease.id[:8]} ({lease.worker_name})")
+                    
                     if lease.worker_id:
                         wres = await self.session.execute(
                             select(Worker).where(Worker.id == lease.worker_id)
@@ -127,7 +180,7 @@ class SelfHealingEngine:
                             w.status = WorkerStatus.IDLE.value
                             w.current_task_id = None
                             w.current_lease_id = None
-                            repairs.append(f"Reset worker '{w.name}' to IDLE after lease expiry")
+                            repairs.append(f"Reset worker '{w.name}' to IDLE after legacy lease expiry")
 
             # 2. Cancel tasks left mid-phase after process death
             if cancel_stale_in_progress:

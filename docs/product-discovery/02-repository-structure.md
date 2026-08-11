@@ -1,260 +1,113 @@
-# 02 — REPOSITORY STRUCTURE
+# AIC-ADE Repository Structure
 
-==================================================
-DATE: 2026-07-29
-SOURCE: Repository reverse engineering
-==================================================
+## Top-Level Directories
 
-==================================================
-2.1 TOP-LEVEL STRUCTURE
-==================================================
+| Directory     | Purpose                              | Key Contents                          |
+|---------------|--------------------------------------|---------------------------------------|
+| `app/`        | Electron desktop app source          | src/, dist-electron/, docs/, tests/   |
+| `backend/`    | FastAPI backend service              | services/, storage/, runtime/, etc.   |
+| `dispatcher/` | Task orchestration engine            | engine.py, worker lifecycle           |
+| `services/`   | Shared utilities & migrations        | lease_scanner.py, migrations/         |
+| `docs/`       | Documentation                        | product-discovery/, sot/, etc.        |
 
-/home/tvd/AI-Company/
-├── aic-ide/                    # Electron + React frontend
-├── aic-platform/               # FastAPI + Python backend
-├── aic-skill/                  # Skills library (not part of main app)
-├── docs/                       # Documentation
-├── releases/                   # Release packages
-├── scripts/                    # Build/deployment scripts
-└── README.md                   # Project overview
+## Detailed Breakdown
 
-Repository evidence:
-- ls -la /home/tvd/AI-Company/
+### `app/` — Electron Desktop App
 
-==================================================
-2.2 AIC-IDE STRUCTURE (Frontend)
-==================================================
+```
+app/
+├── src/                    # React/TypeScript UI source
+│   ├── components/         # Reusable UI components
+│   ├── views/              # Page views (Home, Chat, Live, Settings)
+│   ├── hooks/              # Custom React hooks
+│   └── App.tsx             # Root app component
+├── dist-electron/          # Electron main process + preload
+│   ├── main/               # Main process logic
+│   └── shared/             # IPC shared modules
+├── data/                   # Runtime data & config
+├── packaging/              # Build scripts & assets
+├── release/                # Final builds output
+├── docs/                   # App-specific docs
+├── e2e/                    # End-to-end test suites
+├── tests/                  # Unit/component tests
+├── build/                  # Vite build output
+└── test-results/           # Playwright/Cypress test results
+```
 
-aic-ide/
-├── src/
-│   ├── main/                   # Electron main process
-│   │   └── main.ts             # Main process entry
-│   ├── preload/                # Electron preload scripts
-│   │   └── preload.ts          # IPC bridge
-│   ├── renderer/               # React frontend
-│   │   ├── src/
-│   │   │   ├── App.tsx         # Root component
-│   │   │   ├── components/     # UI components
-│   │   │   ├── hooks/          # React hooks
-│   │   │   ├── lib/            # API clients
-│   │   │   ├── stores/         # State management
-│   │   │   ├── styles/         # CSS/Tailwind
-│   │   │   └── types.ts        # TypeScript types
-│   │   └── index.html          # HTML entry
-│   └── shared/                 # Shared types
-├── package.json                # Node.js config
-├── vite.config.ts              # Vite config
-├── tsconfig.json               # TypeScript config
-└── dist-electron/              # Built Electron files
+**Entry Points:**
+- Frontend: `http://localhost:5174` (Vite dev server)
+- Main process: `dist-electron/main/main.js`
+- Preload: `dist-electron/preload/preload.js`
 
-Repository evidence:
-- ls -la aic-ide/src/
-- ls -la aic-ide/src/renderer/src/
+### `backend/` — FastAPI Backend Service
 
-==================================================
-2.3 AIC-PLATFORM STRUCTURE (Backend)
-==================================================
+```
+backend/
+├── backend/                # Core backend package
+│   ├── api/                # REST API routes
+│   │   └── routes/         # Router definitions
+│   ├── services/           # Business logic services
+│   ├── storage/            # Database & model definitions
+│   └── main.py             # FastAPI application entry point
+├── agents/                 # AI agent implementations
+├── autonomy/               # Autonomous decision engine
+├── context/                # Context building pipeline
+├── conversation/           # Conversation state management
+├── data/                   # Data files & fixtures
+├── delivery/               # Response delivery & streaming
+├── deployment/             # Deployment configurations
+├── discovery/              # Intent & capability discovery
+├── dispatcher/             # Task routing & worker scheduling
+├── docs/                   # Backend documentation
+├── events/                 # Event bus & pub/sub
+├── llm/                    # LLM integration layer
+├── observability/          # Logging & monitoring
+├── opencode/               # OpenCode wrapper integration
+├── planning/               # Planning & strategy generation
+├── plugins/                # Plugin system
+├── policy/                 # Policy enforcement
+├── runtime/                # Execution environment
+├── scripts/                # Utility scripts
+├── shared/                 # Shared utilities
+└── tests/                  # Backend test suites
+```
 
-aic-platform/
-├── backend/                    # FastAPI application
-│   ├── main.py                 # FastAPI entry point
-│   ├── config.py               # Configuration
-│   ├── api/
-│   │   └── routes/             # API route handlers
-│   │       ├── core.py         # Core routes (chat, conversations, providers)
-│   │       ├── automation.py   # Automation routes
-│   │       ├── jobs.py         # Job routes
-│   │       ├── mcp.py          # MCP routes
-│   │       ├── memory.py       # Memory routes
-│   │       ├── orchestration.py# Orchestration routes
-│   │       ├── profile.py      # Profile routes
-│   │       ├── rag.py          # RAG routes
-│   │       └── workflows.py    # Workflow routes
-│   ├── services/               # Business logic
-│   │   ├── chat_service.py     # Chat service
-│   │   ├── orchestrator_service.py # Multi-agent orchestration
-│   │   ├── worker_runtime_service.py # Worker management
-│   │   ├── memory_service.py   # Memory service
-│   │   ├── rag_service.py      # RAG service
-│   │   ├── mcp_service.py      # MCP service
-│   │   ├── automation_service.py # Automation service
-│   │   ├── job_scheduler.py    # Job scheduler
-│   │   ├── pricing_service.py  # Pricing service
-│   │   └── ...                 # Other services
-│   ├── models/                 # Database models
-│   │   ├── schema.py           # Core schema (Provider, WorkerRuntime)
-│   │   ├── conversation.py     # Conversation models
-│   │   ├── ai_runtime.py       # AI runtime models
-│   │   ├── orchestration.py    # Orchestration models
-│   │   ├── jobs.py             # Job models
-│   │   └── mcp.py              # MCP models
-│   ├── schemas/                # Pydantic schemas
-│   ├── database/               # Database connection
-│   ├── middleware/              # Request middleware
-│   └── routes/                 # Legacy routes
-├── auth/                       # Authentication module
-├── autonomy/                   # Autonomy engine
-├── context/                    # Context engine
-│   ├── engine.py               # Context engine
-│   ├── builder.py              # Context builder
-│   ├── pipeline.py             # Context pipeline
-│   ├── sources.py              # Context sources
-│   ├── tokens.py               # Token counting
-│   ├── cache.py                # Context cache
-│   ├── compressor.py           # Context compression
-│   └── events.py               # Context events
-├── conversation/               # Conversation engine
-├── delivery/                   # Delivery engine
-├── discovery/                  # Discovery engine
-├── dispatcher/                 # Dispatcher engine
-├── events/                     # Event bus
-├── llm/                        # LLM provider abstraction
-├── observability/              # Observability module
-├── planning/                   # Planning engine
-├── policy/                     # Policy engine
-├── runtime/                    # Runtime executor
-├── storage/                    # Storage models
-├── taskgraph/                  # Task graph engine
-├── verification/               # Verification engine
-├── workers/                    # Worker definitions
-├── workflow/                   # Workflow engine
-├── tests/                      # Test suite
-└── requirements.txt            # Python dependencies
+**Key Entry Points:**
+- `/api/v1/chat` - Chat completion endpoint
+- `/api/v1/members` - Member list & user management
+- `/health` - Health check
+- SSE streaming at `/api/v1/stream/*`
 
-Repository evidence:
-- ls -la aic-platform/
-- ls -la aic-platform/backend/
-- ls -la aic-platform/backend/services/
+### `dispatcher/` — Task Orchestration Engine
 
-==================================================
-2.4 ENGINE MODULES
-==================================================
+```
+dispatcher/
+└── engine.py               # Main orchestration logic
+```
 
-The backend contains multiple engine modules that implement the engineering pipeline:
+**Responsibility:**
+- Receive task definition from backend
+- Schedule workers based on priority/type
+- Handle worker lifecycle (start, stop, pause, resume)
+- Report status back to backend
 
-1. DISCOVERY ENGINE
-   - discovery/engine.py
-   - discovery/brief.py
-   - discovery/models.py
+### `services/` — Shared Utilities
 
-2. PLANNING ENGINE
-   - planning/engine.py
-   - planning/models.py
+```
+services/
+├── lease_scanner.py        # Lease heartbeat scanner
+├── migrations/             # DB migration scripts
+│   └── 024_add_lease_heartbeat.py  # Latest migration
+└── test_migration_024.py   # Migration test suite
+```
 
-3. TASK GRAPH ENGINE
-   - taskgraph/engine.py
-   - taskgraph/models.py
+### `docs/product-discovery/` — Product Knowledge Base
 
-4. DISPATCHER ENGINE
-   - dispatcher/engine.py
-   - dispatcher/queue.py
-   - dispatcher/progress.py
-   - dispatcher/events.py
+Generated documents during product discovery audit:
+- Phase 0: Product Knowledge Base (multiple .md files)
+- Phase 1-32: Execution path, wiring, UI cleanup, implementation
 
-5. VERIFICATION ENGINE
-   - verification/engine.py
-   - verification/models.py
+---
 
-6. CONTEXT ENGINE
-   - context/engine.py
-   - context/builder.py
-   - context/pipeline.py
-   - context/sources.py
-
-7. DELIVERY ENGINE
-   - delivery/engine.py
-   - delivery/models.py
-
-8. AUTONOMY ENGINE
-   - autonomy/engine.py
-   - autonomy/models.py
-
-Repository evidence:
-- ls -la aic-platform/discovery/
-- ls -la aic-platform/planning/
-- ls -la aic-platform/taskgraph/
-- ls -la aic-platform/dispatcher/
-- ls -la aic-platform/verification/
-- ls -la aic-platform/context/
-- ls -la aic-platform/delivery/
-- ls -la aic-platform/autonomy/
-
-==================================================
-2.5 BUILD SYSTEM
-==================================================
-
-FRONTEND BUILD:
-- Vite (bundler)
-- TypeScript (type checking)
-- Tailwind CSS (styling)
-- Vitest (testing)
-
-Repository evidence:
-- aic-ide/vite.config.ts
-- aic-ide/tsconfig.json
-- aic-ide/package.json (scripts)
-
-BACKEND BUILD:
-- Python 3.12
-- pip (package manager)
-- pytest (testing)
-- uvicorn (ASGI server)
-
-Repository evidence:
-- aic-platform/requirements.txt
-- aic-platform/pytest.ini
-
-ELECTRON BUILD:
-- electron-builder (packaging)
-- dist-electron/ (built files)
-
-Repository evidence:
-- aic-ide/package.json (build scripts)
-- aic-ide/dist-electron/
-
-==================================================
-2.6 CONFIGURATION
-==================================================
-
-FRONTEND:
-- aic-ide/vite.config.ts — Vite configuration
-- aic-ide/tsconfig.json — TypeScript configuration
-- aic-ide/package.json — Node.js configuration
-
-BACKEND:
-- aic-platform/backend/config.py — Application configuration
-- aic-platform/.env — Environment variables
-- aic-platform/pytest.ini — Test configuration
-
-DATABASE:
-- SQLite database at /tmp/aic-data/aic.db
-- aic-platform/backend/database/session.py — Database connection
-
-Repository evidence:
-- aic-platform/backend/config.py
-- aic-platform/backend/database/session.py
-
-==================================================
-2.7 IMPORTANT DIRECTORIES
-==================================================
-
-aic-ide/src/renderer/src/components/ — All UI components
-aic-platform/backend/api/routes/ — All API endpoints
-aic-platform/backend/services/ — All business logic
-aic-platform/backend/models/ — All database models
-aic-platform/tests/ — All tests
-aic-platform/context/ — Context engine
-aic-platform/discovery/ — Discovery engine
-aic-platform/planning/ — Planning engine
-aic-platform/taskgraph/ — Task graph engine
-aic-platform/dispatcher/ — Dispatcher engine
-aic-platform/verification/ — Verification engine
-aic-platform/delivery/ — Delivery engine
-aic-platform/autonomy/ — Autonomy engine
-
-Repository evidence:
-- ls -la for each directory
-
-==================================================
-END OF DOCUMENT
-==================================================
+*Evidence: file tree inspection, git repo structure analysis*  
+*Date: 2026-08-11 11:19 WIB*

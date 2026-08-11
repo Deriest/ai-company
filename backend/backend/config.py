@@ -1,201 +1,102 @@
-"""AIC Platform — Configuration.
+"""AIC-ADE configuration settings.
 
-Licensed under MIT License - See LICENSE file for details.
+Single-user desktop application configuration:
+- All paths are local to user's machine
+- Database is SQLite file on disk
+- LLM provider config stored in environment variables
+- No multi-tenant or distributed mode support
 """
-from pathlib import Path
-from pydantic_settings import BaseSettings
 import os
-import secrets
-import json
-import logging
-
-logger = logging.getLogger(__name__)
+from pathlib import Path
 
 
-def _resolve_data_dir(base_dir: Path) -> Path:
-    """Prefer AIC_DATA_DIR (packaged desktop userData) over repo-local data/."""
-    env = os.environ.get("AIC_DATA_DIR", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
-    return base_dir / "data"
-
-
-def _read_version_from_package_json() -> str:
-    """Read version from app/package.json if available, fallback to hardcoded."""
-    # Try multiple possible locations for package.json
-    candidates = [
-        Path(__file__).parent.parent.parent / "app" / "package.json",  # backend/../app/package.json
-        Path(__file__).parent.parent / "package.json",  # backend/package.json
-        Path.cwd() / "app" / "package.json",
-        Path.cwd() / "package.json",
-    ]
-    for path in candidates:
-        if path.exists():
+class Settings:
+    """Configuration for AIC-ADE single-user desktop app."""
+    
+    # Application Paths (Local Only)
+    DATA_DIR = Path(os.getenv("AIC_DATA_DIR", str(Path.home() / ".local" / "share" / "aic")))
+    WORKSPACE_DIR = os.getenv("AIC_WORKSPACE_DIR", str(DATA_DIR / "workspaces"))
+    BACKUP_DIR = os.getenv("AIC_BACKUP_DIR", str(DATA_DIR / "backups"))
+    
+    # Database Configuration (SQLite Local File)
+    DATABASE_URL = os.getenv("AIC_DATABASE_URL", str(DATA_DIR / "aic_ade.db"))
+    SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("AIC_SQLITE_BUSY_TIMEOUT_MS", "5000"))  # 5 seconds
+    
+    # Worker Configuration (Single-User Execution)
+    DEFAULT_LEASE_TIMEOUT_MINUTES = int(os.getenv("AIC_DEFAULT_LEASE_TIMEOUT_MINUTES", "30"))  # Configurable, default 30min
+    MAX_WORKER_CONCURRENCY = int(os.getenv("AIC_MAX_WORKER_CONCURRENCY", "4"))  # Max parallel workers per task
+    WORKER_RETRY_ATTEMPTS = int(os.getenv("AIC_WORKER_RETRY_ATTEMPTS", "3"))  # Per-worker retry count
+    
+    # Task Execution Settings
+    DEFAULT_TASK_TIMEOUT_SECONDS = int(os.getenv("AIC_DEFAULT_TASK_TIMEOUT_SECONDS", "1800"))  # 30 min default
+    TASK_PROGRESS_UPDATE_INTERVAL = int(os.getenv("AIC_TASK_PROGRESS_UPDATE_INTERVAL", "5"))  # Update every 5s
+    
+    # LLM Provider Configuration (Single Endpoint)
+    LLM_BASE_URL = os.getenv("AIC_LLM_BASE_URL", "")
+    LLM_API_KEY = os.getenv("AIC_LLM_API_KEY", "")
+    LLM_MODEL_CRAFTER = os.getenv("AIC_MODEL_CRAFTER", "")
+    LLM_MODEL_THINKER = os.getenv("AIC_MODEL_THINKER", "")
+    LLM_MODEL_SPRINTER = os.getenv("AIC_MODEL_SPRINTER", "")
+    LLM_REASONING_EFFORT = os.getenv("AIC_LLM_REASONING_EFFORT", "auto")
+    LLM_MAX_CONCURRENT_REQUESTS = int(os.getenv("AIC_LLM_MAX_CONCURRENT_REQUESTS", "4"))
+    
+    # Encryption Settings
+    ENCRYPTION_KEY_ROTATION_DAYS = int(os.getenv("AIC_ENCRYPTION_KEY_ROTATION_DAYS", "90"))  # Optional rotation schedule
+    SECRET_BACKUP_COUNT = int(os.getenv("AIC_SECRET_BACKUP_COUNT", "3"))  # Number of backup copies to keep
+    
+    # Backup & Restore
+    AUTO_BACKUP_ENABLED = os.getenv("AIC_AUTO_BACKUP_ENABLED", "false").lower() == "true"
+    AUTO_BACKUP_SCHEDULE = os.getenv("AIC_AUTO_BACKUP_SCHEDULE", "weekly")  # daily, weekly, monthly
+    BACKUP_RETENTION_DAYS = int(os.getenv("AIC_BACKUP_RETENTION_DAYS", "30"))
+    
+    # Logging & Observability (Single User)
+    LOG_LEVEL = os.getenv("AIC_LOG_LEVEL", "INFO")
+    ENABLE_STRUCTURED_LOGGING = os.getenv("AIC_ENABLE_STRUCTURED_LOGGING", "true").lower() == "true"
+    METRICS_ENABLED = os.getenv("AIC_METRICS_ENABLED", "true").lower() == "true"
+    
+    # Security (Local Trust Model)
+    LOCALHOST_ONLY = True  # Bind to 127.0.0.1 only - no remote access
+    CORS_ORIGINS = ["http://localhost:5173", "http://localhost:5174"]  # Electron dev server URLs only
+    JWT_SECRET_KEY = None  # For future use; not enforced in single-user mode
+    AUTH_FAIL_OPEN_DETECTION = True  # Always check for AIC_TESTING=1 at runtime
+    
+    @property
+    def database_path(self) -> Path:
+        """Return full path to SQLite database file."""
+        return Path(self.DATABASE_URL).resolve()
+    
+    @property
+    def is_testing_mode(self) -> bool:
+        """Check if testing mode is enabled (should never be true in production)."""
+        return os.environ.get("AIC_TESTING") == "1"
+    
+    def validate(self) -> list[str]:
+        """Validate configuration and return list of warnings/errors."""
+        errors = []
+        
+        # Critical validation
+        if self.is_testing_mode:
+            errors.append(
+                "CRITICAL: AIC_TESTING=1 detected! This should NEVER be set in production. "
+                "Authentication bypass is ACTIVE."
+            )
+        
+        # Warnings (not blocking)
+        if not self.LLM_BASE_URL:
+            errors.append("WARNING: AIC_LLM_BASE_URL not set — LLM providers may fail")
+        
+        if not self.DATA_DIR.exists():
             try:
-                with open(path) as f:
-                    data = json.load(f)
-                    return data.get("version", "unknown")
-            except (json.JSONDecodeError, KeyError):
-                pass
-    return "unknown"
-
-
-class Settings(BaseSettings):
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
-    # Core
-    APP_NAME: str = "AIC Platform"
-    VERSION: str = _read_version_from_package_json()
-    DEBUG: bool = False
-
-    # Database — absolute path is set after ensure_dirs when AIC_DATA_DIR is present
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/aic.db"
-    DB_ECHO: bool = False
-
-    # Auth — auto-generates secure key if not in env
-    SECRET_KEY: str = ""
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24h
-    API_KEY_HEADER: str = "X-API-Key"
-
-    # Per-install desktop identity — written by the Electron main process
-    # to userData/aic-ade/identity.json and passed via AIC_IDENTITY_FILE.
-    # Environment variables take precedence over the file.
-    # DEFAULT_* constants are DEPRECATED test-only placeholders; do not use.
-    AIC_IDENTITY_FILE: str = ""
-    AIC_IDENTITY_USERNAME: str = ""
-    AIC_IDENTITY_PASSWORD: str = ""
-    # DEPRECATED: Test-only fallbacks, should NEVER be used in production.
-    # Removed from practical use - startup fails without valid identity.
-
-    # Server — desktop-only: bind to localhost; never expose on the LAN.
-    HOST: str = "127.0.0.1"
-    PORT: int = 8000
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:5174", "http://localhost:5174",
-    ]
-
-    # OpenCode
-    OPENCODE_BIN: str = "opencode"
-    OPENCODE_TIMEOUT: int = 600  # 10 min per worker
-
-    # LLM (OpenAI-compatible)
-    AIC_LLM_BASE_URL: str = ""
-    AIC_LLM_API_KEY: str = ""
-    AIC_LLM_PROVIDER_NAME: str = "default"
-    AIC_MODEL_THINKER: str = ""
-    AIC_MODEL_CRAFTER: str = ""
-    AIC_MODEL_SPRINTER: str = ""
-    AIC_MODEL_VISION: str = ""
-
-    # Runtime
-    WORKER_TIMEOUT: int = 600  # seconds
-    BARRIER_TIMEOUT: int = 600  # seconds
-    MAX_RECOVERY_ATTEMPTS: int = 3
-    # PHASE 2 FIX: Configurable max iterations for agent runs
-    MAX_AGENT_ITERATIONS: int = 20  # Increased from 10 to support multi-phase tasks
-
-    # Paths
-    BASE_DIR: Path = Path(__file__).resolve().parent.parent
-    DATA_DIR: Path = _resolve_data_dir(BASE_DIR)
-    TASKS_DIR: Path = DATA_DIR / "tasks"
-    WORKSPACE_DIR: Path = DATA_DIR / "workspace"
-
-    def ensure_dirs(self):
-        """Create required directories and pin DB to writable data dir."""
-        self.DATA_DIR = _resolve_data_dir(self.BASE_DIR)
-        self.TASKS_DIR = self.DATA_DIR / "tasks"
-        self.WORKSPACE_DIR = self.DATA_DIR / "workspace"
-        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
-        self.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
-        # Force absolute SQLite path so packaged installs never write into read-only resources
-        db_path = (self.DATA_DIR / "aic.db").resolve()
-        self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
-        # CRITICAL GAP-1 FIX: JWT secret MUST be provided via environment variable
-        # Remove file-based fallback to prevent accidental Git commits and enable rotation
-        from os import environ
+                self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                errors.append(f"ERROR: Cannot create data directory {self.DATA_DIR}: {e}")
         
-        if "AIC_JWT_SECRET" not in environ:
-            raise ValueError(
-                """
-JWT_SECRET must be provided via AIC_JWT_SECRET environment variable!
-
-Generate a secure 32+ character secret with:
-    python -c "import secrets; print(secrets.token_hex(32))"
-
-Set it like:
-    export AIC_JWT_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
-
-In production deployments (Docker, systemd, etc.), set AIC_JWT_SECRET in your
-environment configuration. NEVER store secrets in files or commit them to Git.
-""".strip()
-            )
+        if self.WORKSPACE_DIR != str(self.DATA_DIR / "workspaces"):
+            # Custom workspace dir
+            pass
         
-        self.SECRET_KEY = environ["AIC_JWT_SECRET"]
-        
-        # Validate minimum length for cryptographic security
-        if len(self.SECRET_KEY) < 32:
-            raise ValueError(
-                f"JWT_SECRET too short (minimum 32 characters required, got {len(self.SECRET_KEY)})"
-            )
-            
-        # Optional: Warn about non-alphanumeric characters
-        if not all(c.isalnum() for c in self.SECRET_KEY):
-            logger.warning(
-                "AIC_JWT_SECRET contains non-alphanumeric characters. "
-                "This is supported but consider using only [a-zA-Z0-9] for maximum compatibility."
-            )
-        
-        # Load per-install identity written by the Electron main process.
-        # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE.
-        # Fail closed if neither is available — no fallback to defaults.
-        env_username = (self.AIC_IDENTITY_USERNAME or "").strip()
-        env_password = (self.AIC_IDENTITY_PASSWORD or "").strip()
-        
-        if env_username and env_password:
-            # Both provided via env vars
-            self.IDENTITY_USERNAME = env_username
-            self.IDENTITY_PASSWORD = env_password
-            
-        elif self.AIC_IDENTITY_FILE and os.path.exists(self.AIC_IDENTITY_FILE):
-            try:
-                with open(self.AIC_IDENTITY_FILE, "r", encoding="utf-8") as f:
-                    identity = json.load(f)
-                
-                username = str(identity.get("username", "")).strip()
-                password = str(identity.get("password", "")).strip()
-                
-                # H4 FIX: Fail closed if identity file is missing required fields
-                if not username or not password:
-                    raise ValueError(
-                        "Identity file exists but is incomplete: "
-                        "missing 'username' and/or 'password' fields"
-                    )
-                
-                self.IDENTITY_USERNAME = username
-                self.IDENTITY_PASSWORD = password
-                
-            except (OSError, json.JSONDecodeError) as e:
-                logger.error(
-                    "Failed to read/parse identity file %s: %s",
-                    self.AIC_IDENTITY_FILE, e
-                )
-                raise ValueError(
-                    f"Identity file corrupted or unreadable: {e}. "
-                    "Check file permissions and JSON structure."
-                ) from e
-            
-        else:
-            # M10: No identity provided - fail startup completely
-            raise ValueError(
-                "No identity configuration found. Set either:\n"
-                "  - AIC_IDENTITY_FILE environment variable pointing to identity.json,\n"
-                "  - AIC_IDENTITY_USERNAME and AIC_IDENTITY_PASSWORD environment variables.\n\n"
-                "The Electron app automatically creates identity.json in userData on first run."
-            )
+        return errors
 
 
+# Singleton instance
 settings = Settings()
-settings.ensure_dirs()

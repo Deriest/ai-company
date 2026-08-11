@@ -15,7 +15,7 @@ Integrity rules:
 - Smart Triage guardrails enforce minimum safety levels (security, DB schema, architecture).
 - Events form causal chain via parent_event_id and metadata.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import asyncio
 import os
 import logging
@@ -29,6 +29,7 @@ from storage.models import (
 )
 from workers.base import WORKER_REGISTRY
 from workflow.triage import perform_smart_triage, ExecutionLevel
+from backend.config.constants import DB_LOCK_RETRY_ATTEMPTS, ADAPTIVE_TIMEOUT_MULTIPLIERS, DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES
 
 logger = logging.getLogger("aic.runtime")
 
@@ -47,8 +48,15 @@ def _utcnow():
 # The retry logic lives in the shared storage.lock_retry module so other
 # subsystems (llm/provider, observability/audit) reuse the same backoff policy.
 async def _commit_with_lock_retry(
-    session: AsyncSession, reapply=None, attempts: int = 12
+    session: AsyncSession, reapply=None, attempts: int = None
 ) -> None:
+    """Commit with lock retry using configurable parameters.
+    
+    Uses constants from backend.config.constants to allow runtime overrides.
+    Default values match the centralized constants for consistency.
+    """
+    if attempts is None:
+        attempts = DB_LOCK_RETRY_ATTEMPTS
     """Commit *session*, retrying on the transient SQLite "database is locked"
     OperationalError. Only the locked condition is retried and re-raised by
     type; any other error propagates immediately. Backoff is 0.05s * attempt.
@@ -210,6 +218,10 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
     verification_failed = False
     fallback_used = False
     prev_event_target = f"task:{task.id}"
+    
+    # PHASE 9: Per-phase lock for handoff merging to prevent race conditions
+    # when concurrent workers merge their handoff data into shared state.
+    phase_handoff_lock = asyncio.Lock()
 
     while not is_terminal(phase):
         # 2. Check Adaptive Phase Skipping
@@ -297,6 +309,9 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "event_target": f"worker:{wtype}:{phase}:{task.id}"
                     }
 
+                # Use configurable timeout from constants (default 30 minutes)
+                lease_timeout_minutes = int(os.getenv("AIC_WORKER_LEASE_TIMEOUT_MINUTES", str(DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES)))
+                
                 lease = Lease(
                     task_id=task.id,
                     worker_id=f"worker-{wtype}",
@@ -305,6 +320,8 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     phase=phase,
                     status=LeaseStatus.ACTIVE.value,
                     created_at=_utcnow(),
+                    last_heartbeat_at=_utcnow(),  # PHASE 3: Track initial heartbeat timestamp when lease issued
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=lease_timeout_minutes),  # Configurable TTL (default {lease_timeout_minutes} min)
                 )
                 worker_session.add(lease)
 
@@ -777,10 +794,16 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 # task.context. Last-writer-wins per phase key is accepted.
                 handoff = meta.get("handoff")
                 if handoff is not None:
-                    handoffs_dict[phase] = handoff
-                    ctx["handoffs"] = handoffs_dict
-                    task.context = ctx
-                    flag_modified(task, 'context')
+                    # PHASE 9: Lock-protected handoff merge to prevent race conditions
+                    # Serialize updates to ctx["handoffs"] dict using per-phase lock
+                    async with phase_handoff_lock:
+                        # Defensive copy: create a fresh dict before mutation to avoid
+                        # partial state during concurrent merges (rare but possible)
+                        merged_handoff = {phase: handoff}
+                        handoffs_dict.update(merged_handoff)
+                        ctx["handoffs"] = handoffs_dict
+                        task.context = ctx
+                        flag_modified(task, 'context')
             except Exception as merge_err:
                 logger.error(f"Failed to merge worker {wtype} result: {merge_err}")
                 phase_results[wtype] = {"success": False, "error": f"Merge error: {merge_err}"}

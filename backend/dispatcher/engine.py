@@ -106,8 +106,14 @@ class DispatcherEngine:
                 status="pending",
             )
 
-        # Select workers for each task
+        # Select workers for each task (PHASE 4 - Wiring available_workers)
         assignments: list[WorkerAssignment] = []
+        
+        # Resolve available_workers from config or context
+        available_workers = getattr(self, '_available_workers', None)
+        if not available_workers and hasattr(dispatcher_config, 'available_workers'):
+            available_workers = dispatcher_config.available_workers
+        
         for node_data in nodes:
             node_id = node_data.get("node_id", "")
             worker_type = node_data.get("worker_type", "backend")
@@ -117,6 +123,7 @@ class DispatcherEngine:
                 node_id=node_id,
                 worker_type=worker_type,
                 task_type=task_type,
+                available_workers=available_workers,  # PHASE 4: Pass available workers
             )
             assignments.append(assignment)
 
@@ -271,17 +278,14 @@ class DispatcherEngine:
 
             failed_node_ids = [nid for nid, status in results if status == "failed"]
             if failed_node_ids:
-                # FIX P13: Partial cascade instead of fail-stop. Previously one failed
-                # node caused ALL later dependency groups to be skipped without running.
-                # Now we record the failure but continue processing remaining independent
-                # groups so partial progress is preserved and visible.
+                # Record failures but CONTINUE processing remaining independent groups.
+                # Each group has its own dependencies that may still be satisfiable
+                # independently despite failures in this group.
                 for failed_id in failed_node_ids:
                     logger.warning(f"Dispatcher node {failed_id} failed; continuing with other groups")
                 
-                # Only skip this specific group's remaining nodes; don't cascade
-                # to later groups. Each group has its own dependencies that may still
-                # be satisfiable independently.
-                break
+                # Skip only this specific group's remaining nodes; proceed to next groups.
+                continue
 
         # Build dispatch result
         dispatch_result = DispatchResult(
@@ -372,6 +376,12 @@ class DispatcherEngine:
         ``session`` defaults to the dispatcher's own session; pass a dedicated
         session when executing a dependency group concurrently so independent
         nodes never share an AsyncSession.
+
+        PHASE 9 HANDOFF SAFETY: Each executor instance creates its own
+        asyncio.Lock() per phase (_run_group in executor.py). This serializes
+        concurrent worker handoff merges into ctx["handoffs"], preventing lost
+        updates when multiple workers write simultaneously. The lock scope is
+        minimal—only covering the critical handoff_dict mutation section.
         """
         from runtime.executor import execute_task
 
@@ -417,8 +427,10 @@ class DispatcherEngine:
         if child_task is None:
             child_task = Task(
                 project_id=project_id,
-                # parent_task_id intentionally left unset — the graph node is the
-                # source of truth, not a single parent task.
+                # ROOT-CAUSE FIX: Set parent_task_id to execution_id_prefix for lineage
+                # The graph node remains source of truth for dependencies, but we also
+                # maintain parent/child relationship in Task table for audit trails.
+                parent_task_id=execution_id_prefix,
                 title=title,
                 description=description,
                 type=task_type,

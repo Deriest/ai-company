@@ -1,293 +1,227 @@
-# 05 — COMPANY WORKFLOW
+# AIC-ADE Company Workflow Patterns
 
-==================================================
-DATE: 2026-07-29
-SOURCE: Repository reverse engineering
-==================================================
+## Primary Workflow: Chat vs Task
 
-==================================================
-5.1 OVERVIEW
-==================================================
+### Workflow A: Chat Request
 
-This document determines whether the repository implements a company workflow pattern.
+```
+User Types Message
+    ↓
+ChatView.tsx handleSubmit()
+    ↓
+POST /api/v1/chat/execute
+    ↓
+ChatService.execute_chat()
+    ↓
+Provider.get_completion(model=selected)
+    ↓
+DeliveryEngine.stream_response()
+    ↓
+SSE chunks → Frontend renders progressively
+    ↓
+Conversation saved to session storage
+```
 
-Repository evidence:
-- aic-platform/backend/services/orchestrator_service.py
-- aic-platform/discovery/
-- aic-platform/planning/
-- aic-platform/taskgraph/
-- aic-platform/dispatcher/
-- aic-platform/verification/
-- aic-platform/delivery/
-- aic-platform/autonomy/
+**Characteristics:**
+- Real-time streaming (50-100ms chunks)
+- Stateless (no long-running execution)
+- Single-turn or multi-turn conversation
+- Immediate response expected
 
-==================================================
-5.2 COMPANY WORKFLOW CONCEPTS
-==================================================
+### Workflow B: Task/Mission Request
 
---------------------------------------------------
-CONCEPT: Discovery
---------------------------------------------------
-EXISTS: YES
-Purpose: Analyze user requirements and generate engineering brief
-Implementation: discovery/engine.py
-Repository evidence: aic-platform/discovery/engine.py, discovery/brief.py, discovery/models.py
+```
+User Defines Mission Parameters
+    ↓
+MissionView.tsx createMission()
+    ↓
+POST /api/v1/missions/create
+    ↓
+Dispatcher.engine.schedule_task()
+    ↓
+Worker Pool selection + assignment
+    ↓
+RuntimeExecutor.spawn_worker()
+    ↓
+Worker executes steps asynchronously
+    ↓
+Event Bus broadcasts progress updates
+    ↓
+WebSocket client receives live metrics
+    ↓
+Final result stored in database
+```
 
---------------------------------------------------
-CONCEPT: Planning
---------------------------------------------------
-EXISTS: YES
-Purpose: Generate engineering plan from brief
-Implementation: planning/engine.py
-Repository evidence: aic-platform/planning/engine.py, planning/models.py
+**Characteristics:**
+- Async execution (minutes to hours)
+- Stateful with checkpoints
+- Multiple worker processes
+- Progress tracking & resume capability
 
---------------------------------------------------
-CONCEPT: Task Decomposition
---------------------------------------------------
-EXISTS: YES
-Purpose: Break plan into task graph
-Implementation: taskgraph/engine.py
-Repository evidence: aic-platform/taskgraph/engine.py, taskgraph/models.py
+---
 
---------------------------------------------------
-CONCEPT: Dispatcher
---------------------------------------------------
-EXISTS: YES
-Purpose: Route tasks to workers
-Implementation: dispatcher/engine.py
-Repository evidence: aic-platform/dispatcher/engine.py, dispatcher/queue.py
+## Discovery → Planning → Execution Flow (Unwired)
 
---------------------------------------------------
-CONCEPT: Workers/Agents
---------------------------------------------------
-EXISTS: YES
-Purpose: Execute tasks
-Implementation: workers/, backend/services/worker_runtime_service.py
-Repository evidence: aic-platform/workers/, backend/services/worker_runtime_service.py
+### Intended Design (Not Implemented)
 
-WORKER ROLES:
-- Crafter: Code implementation specialist
-- Manager: Workflow orchestration specialist
-- Planner: Task planning and strategy
-- Reviewer: Code review and quality assurance
-- Thinker: Reasoning and planning specialist
+```
+User Input
+    ↓
+Intent Classification (Is it chat? question? task_request?)
+    ↓
+┌─────────────┬─────────────┬──────────────┐
+│   Chat      │ Question    │  Task        │
+│ Handler     │ Handler     │ Handler      │
+└─────────────┴─────────────┴──────────────┘
+```
 
-Repository evidence: aic-platform/backend/services/worker_runtime_service.py
+### Current Reality (Passthrough Only)
 
---------------------------------------------------
-CONCEPT: Execution
---------------------------------------------------
-EXISTS: YES
-Purpose: Execute tasks through workers
-Implementation: runtime/executor.py
-Repository evidence: aic-platform/runtime/executor.py
+All requests go straight to `ChatService.execute_chat()` regardless of intent. No classification happens. No routing to specialized handlers.
 
---------------------------------------------------
-CONCEPT: Verification
---------------------------------------------------
-EXISTS: YES
-Purpose: Verify worker output
-Implementation: verification/engine.py
-Repository evidence: aic-platform/verification/engine.py, verification/models.py
+---
 
---------------------------------------------------
-CONCEPT: Review
---------------------------------------------------
-EXISTS: YES
-Purpose: Review and approve work
-Implementation: backend/models/orchestration.py (OrchestrationApproval)
-Repository evidence: aic-platform/backend/models/orchestration.py
+## Worker Lifecycle Pattern
 
---------------------------------------------------
-CONCEPT: Delivery
---------------------------------------------------
-EXISTS: YES
-Purpose: Package and deliver results
-Implementation: delivery/engine.py
-Repository evidence: aic-platform/delivery/engine.py, delivery/models.py
+### Stages
 
---------------------------------------------------
-CONCEPT: Confidence
---------------------------------------------------
-EXISTS: NOT SUPPORTED BY REPOSITORY EVIDENCE
-Note: No confidence scoring system found
+| Stage | Description | Duration |
+|-------|-------------|----------|
+| `created` | Worker spawned, context initialized | < 1s |
+| `running` | Executing tasks, emitting events | Variable |
+| `paused` | Temporarily halted (user action or system) | Until resumed |
+| `completed` | All tasks finished successfully | End |
+| `failed` | Error occurred, error captured | End |
+| `cancelled` | User manually stopped worker | End |
 
---------------------------------------------------
-CONCEPT: Clarification
---------------------------------------------------
-EXISTS: PARTIALLY
-Purpose: Ask user for clarification
-Implementation: discovery/engine.py (clarification questions)
-Repository evidence: aic-platform/discovery/engine.py
+### State Transitions
 
---------------------------------------------------
-CONCEPT: Approval
---------------------------------------------------
-EXISTS: YES
-Purpose: User approval for tasks
-Implementation: backend/models/orchestration.py (OrchestrationApproval)
-Repository evidence: aic-platform/backend/models/orchestration.py
+```mermaid
+stateDiagram-v2
+    [*] --> created
+    created --> running : start_task
+    running --> paused : pause_request
+    paused --> running : resume_request
+    running --> completed : all_tasks_done
+    running --> failed : error_occurred
+    running --> cancelled : stop_request
+    failed --> [*]
+    completed --> [*]
+    cancelled --> [*]
+```
 
-==================================================
-5.3 WORKFLOW SEQUENCE
-==================================================
+### Verification Integration (Missing)
 
-The repository implements the following workflow sequence:
+Before state transitions should trigger:
+- Pre-condition checks (policy validation)
+- Resource availability verification
+- Permission authorization
+- Audit log entry creation
 
-1. DISCOVERY
-   - User provides requirements
-   - Discovery engine analyzes conversation
-   - Generates engineering brief
+**Current Status:** These gates exist in code but NOT wired into primary workflow.
 
-2. PLANNING
-   - Planning engine receives brief
-   - Generates engineering plan
-   - Breaks down into tasks
+---
 
-3. TASK GRAPH
-   - Task graph engine receives plan
-   - Creates task dependency graph
-   - Determines execution order
+## Event Bus Pattern
 
-4. DISPATCH
-   - Dispatcher receives task graph
-   - Routes tasks to appropriate workers
-   - Manages task queue
+### Core Events
 
-5. EXECUTION
-   - Workers execute assigned tasks
-   - Runtime manages worker lifecycle
-   - Progress tracked
+| Event Type | Producer | Consumers | Purpose |
+|------------|----------|-----------|---------|
+| `task_created` | Dispatcher | Observability, UI | Notify new task |
+| `task_progress` | Worker | Live Dashboard | Real-time metrics |
+| `worker_heartbeat` | RuntimeExecutor | Lease Scanner | Health monitoring |
+| `conversation_updated` | ChatService | Memory Cache | Context refresh |
+| `model_loaded` | Provider Manager | Frontend | Update available models |
 
-6. VERIFICATION
-   - Verification engine checks output
-   - Quality validation
-   - Generates verification report
+### Event Channels
 
-7. DELIVERY
-   - Delivery engine packages results
-   - Generates delivery report
-   - Presents to user
+```
+dispatcher.events → [channel: tasks] → LiveCompanyView
+chat.events → [channel: messages] → ChatMessageList
+runtime.events → [channel: health] → SystemStatusPanel
+```
 
-8. APPROVAL (OPTIONAL)
-   - User approves/rejects work
-   - Feedback loop to workers
+---
 
-Repository evidence:
-- aic-platform/discovery/engine.py
-- aic-platform/planning/engine.py
-- aic-platform/taskgraph/engine.py
-- aic-platform/dispatcher/engine.py
-- aic-platform/runtime/executor.py
-- aic-platform/verification/engine.py
-- aic-platform/delivery/engine.py
-- aic-platform/backend/models/orchestration.py
+## Error Recovery Patterns
 
-==================================================
-5.4 WORKFLOW DIAGRAM
-==================================================
+### Pattern 1: Retry with Backoff
 
-User Requirements
-       │
-       ▼
-┌─────────────────┐
-│   Discovery     │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Planning      │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Task Graph    │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Dispatcher    │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Workers       │
-│   (5 roles)     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Verification  │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Delivery      │
-│   Engine        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   User          │
-│   Approval      │
-└─────────────────┘
+```python
+@retry(exceptions=(ConnectionError, TimeoutError), 
+       attempts=3, 
+       backoff_factor=2)
+def execute_llm_call(messages):
+    return provider.get_completion(messages)
+```
 
-==================================================
-5.5 ORCHESTRATION MODES
-==================================================
+### Pattern 2: Fallback Handler
 
-The orchestrator supports two execution modes:
+```python
+try:
+    response = ChatService.execute_chat(prompt)
+except ModelUnavailableError:
+    fallback_model = switch_to_backup_provider()
+    response = ChatService.execute_chat(prompt, model=fallback_model)
+```
 
-1. SEQUENTIAL
-   - Tasks execute one after another
-   - Each task completes before next starts
-   - Repository evidence: aic-platform/backend/services/orchestrator_service.py
+### Pattern 3: Graceful Degradation
 
-2. PARALLEL
-   - Tasks execute simultaneously
-   - Independent tasks run in parallel
-   - Repository evidence: aic-platform/backend/services/orchestrator_service.py
+When ConversationEngine fails (LLM unavailable):
+1. Log failure to audit trail
+2. Return error message to user
+3. Disable advanced features temporarily
+4. Continue serving basic chat requests
 
-==================================================
-5.6 SHARED CONTEXT
-==================================================
+---
 
-The orchestration system maintains shared context across workers:
+## Maintenance Workflows
 
-- Session context: Shared across all tasks in a session
-- Task context: Specific to each task
-- Worker context: Worker-specific state
+### Lease Heartbeat Mechanism (New - Migration 024)
 
-Repository evidence:
-- aic-platform/backend/models/orchestration.py — OrchestrationSession.shared_context
-- aic-platform/backend/models/orchestration.py — OrchestrationTask.input_context
+**Purpose:** Prevent worker starvation detection during long-running tasks  
+**Scanner:** `backend/services/lease_scanner.py`  
+**Migration:** `backend/backend/migrations/024_add_lease_heartbeat.py`
 
-==================================================
-5.7 SUMMARY
-==================================================
+```
+Worker Start
+    ↓
+Create lease record in DB with TTL
+    ↓
+Every 30s: Update lease timestamp
+    ↓
+Scanner runs every minute
+    ↓
+If lease expired → Mark worker as idle
+    ↓
+Idle workers can be terminated
+```
 
-The repository DOES implement a company workflow pattern with:
+---
 
-✓ Discovery (requirement analysis)
-✓ Planning (task decomposition)
-✓ Task Graph (dependency management)
-✓ Dispatcher (task routing)
-✓ Workers (5 specialized roles)
-✓ Execution (runtime management)
-✓ Verification (quality checks)
-✓ Delivery (result packaging)
-✓ Approval (user feedback)
-✗ Confidence scoring (not implemented)
+## Testing Workflow
 
-The workflow is implemented as a pipeline of engine modules
-that process user requirements through multiple stages to
-produce verified, approved engineering work.
+### Phase Validation Tests (New)
 
-==================================================
-END OF DOCUMENT
-==================================================
+Location: `backend/tests/phase_validation/`
+
+```bash
+pytest backend/tests/phase_validation/run_phase_validation.py \
+  --phase=1 \
+  --verbose \
+  --capture=no
+```
+
+**Phases:**
+- Phase 0: Critical fixes baseline
+- Phase 1: High-priority quality improvements
+- Phase 2: Feature parity check
+- Phase 3: Security hardening
+- Phase 4: Performance optimization
+- Phase 5: UX polish
+
+---
+
+*Workflow patterns extracted from: source code inspection, runtime logs, opencode session analysis*  
+*Date: 2026-08-11 11:25 WIB*
