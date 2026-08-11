@@ -1,28 +1,29 @@
 {
   "version": "2.6.4",
-  "notes": "AIC-ADE v2.6.4 - Security Hardening Release",
-  "pub_date": "2026-08-11T21:30:00Z",
+  "channel": "stable",
+  "releaseDate": "2026-08-11",
+  "releaseNotes": "v2.6.4 — See https://github.com/Deriest/ai-company/releases/tag/v2.6.4 for release notes.",
   "platforms": {
     "linux": {
-      "version": "2.6.4",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade-2.6.4.AppImage",
+      "sha256": "5c9d7ab712e4fe6738a66f215b977b002c25df4e93466ac79c717caf543e24a8",
+      "size": 192671358,
       "filename": "aic-ade-2.6.4.AppImage",
-      "url": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade-2.6.4.AppImage",
-      "sha256": "8f9e7721eec9883e48d073606e84abb433178d33612b66c3310be311a0ad7667",
-      "size": 192667658
+      "type": "AppImage"
     },
     "linux-deb": {
-      "version": "2.6.4",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade_2.6.4_amd64.deb",
+      "sha256": "bbebca7133fb0c6cd2f34461c49baebf1c1e045245b6dd7df437830c165c0ad8",
+      "size": 138213086,
       "filename": "aic-ade_2.6.4_amd64.deb",
-      "url": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade_2.6.4_amd64.deb",
-      "sha256": "59feccde616c12b519ac747644f486455b84bd7d54cde20e37b7f7ad7f603e8f",
-      "size": 138224230
+      "type": "deb"
     },
     "win32": {
-      "version": "2.6.4",
-      "filename": "aic-ade.Setup.2.6.4.exe",
-      "url": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade.Setup.2.6.4.exe",
-      "sha256": "e718dc9ff6df53fb5ae3d58fd570f8f6d0fea59a01a321d4553e3552a2581b1c",
-      "size": 153395230
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.4/aic-ade Setup 2.6.4.exe",
+      "sha256": "dc36065092f5a1b775825775bb0e7de5bd09577e47ad6e941bd8e251e3988fa9",
+      "size": 153392944,
+      "filename": "aic-ade Setup 2.6.4.exe",
+      "type": "nsis"
     }
   }
 }
