@@ -1,0 +1,12 @@
+version: 2.6.5
+files:
+  - url: AIC-ADE Setup 2.6.5.exe
+    sha512: 23cdca89bff6325b2c32fc23df2b18145ff359f43ac4cbee73436dda27d77670
+    size: 180224819
+path: ""
+provider: github
+owner: Deriest
+repo: ai-company
+releaseInfo:
+  releaseDate: "2026-08-11"
+  releaseNotes: "AIC-ADE v2.6.5 — Fixed update configuration and blackscreen issues"
