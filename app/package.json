@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.4",
+  "version": "2.6.5",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -106,5 +106,47 @@
       }
     ],
     "executableName": "AIC-ADE"
+  },
+  "build": {
+    "appId": "com.aicompany.ade",
+    "productName": "AIC-ADE",
+    "copyright": "Copyright \u00a9 2024 AI Company",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*.js"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/main/main.js",
+      "version": "2.6.5"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Deriest",
+      "repo": "ai-company",
+      "protocol": "https"
+    }
   }
 }
