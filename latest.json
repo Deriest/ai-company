@@ -2,7 +2,7 @@
   "version": "2.6.6",
   "channel": "stable",
   "releaseDate": "2026-08-12T13:00:00Z",
-  "releaseNotes": "v2.6.6 — Full install includes all dependencies (Electron + Python). Size: ~765 MB.",
+  "releaseNotes": "v2.6.6 — Full install includes all dependencies (Electron + Python). Size: ~765 MB. [Updated checksum]",
   "platforms": {
     "linux": {
       "filename": "AIC-ADE-2.6.6.AppImage",
