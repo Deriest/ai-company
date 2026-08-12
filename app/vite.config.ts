@@ -20,19 +20,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          codemirror: [
-            "@codemirror/state",
-            "@codemirror/view",
-            "@codemirror/commands",
-            "@codemirror/language",
-            "@codemirror/autocomplete",
-            "@codemirror/search",
-            "@codemirror/lang-javascript",
-            "@codemirror/lang-python",
-            "@codemirror/lang-json",
-            "@codemirror/lang-markdown",
-            "@codemirror/lang-css",
-          ],
           react: ["react", "react-dom"],
         },
       },
