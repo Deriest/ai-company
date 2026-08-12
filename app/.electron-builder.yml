@@ -1,0 +1,60 @@
+{
+  "build": {
+    "appId": "com.aicompany.ade",
+    "productName": "AIC-ADE",
+    "copyright": "Copyright © 2024 AI Company",
+    "files": [
+      "**/*.{html,json,js,css}",
+      "src/**/*",
+      "public/**/*",
+      "package.json",
+      "tsconfig*.json",
+      "!/.cache/**",
+      "!/node_modules/.cache/**",
+      "/__tests__/**",
+      "/*.test.ts",
+      "/*.spec.ts",
+      "/*.map",
+      "/dist/**"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/main/main.js",
+      "version": "2.6.10"
+    },
+    "extraResources": [
+      {
+        "from": "packaging/runtimes/python-linux",
+        "to": "python-linux"
+      },
+      {
+        "from": "packaging/runtimes/python-win",
+        "to": "python-win"
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Deriest",
+      "repo": "ai-company",
+      "protocol": "https"
+    },
+    "afterPack": "./scripts/fix-appimage-symlinks.js"
+  }
+}

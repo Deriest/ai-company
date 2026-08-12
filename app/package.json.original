@@ -72,58 +72,23 @@
   "engines": {
     "node": ">=20"
   },
-  "appImage": {
-    "target": [
-      "AppImage",
-      "deb"
-    ],
-    "category": "Development",
-    "maintainer": "TVD <tvd@local>",
-    "executableName": "aic-ade",
-    "extraResources": [
-      {
-        "from": "packaging/runtimes/python-linux",
-        "to": "python-linux",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ]
-  },
-  "linux": {
-    "target": [
-      {
-        "target": "AppImage",
-        "arch": [
-          "x64"
-        ]
-      },
-      {
-        "target": "deb",
-        "arch": [
-          "x64"
-        ]
-      }
-    ],
-    "executableName": "AIC-ADE"
-  },
   "build": {
     "appId": "com.aicompany.ade",
     "productName": "AIC-ADE",
-    "copyright": "Copyright \u00a9 2024 AI Company",
+    "copyright": "Copyright © 2024 AI Company",
     "files": [
       "**/*.{html,json,js,css}",
       "src/**/*",
       "public/**/*",
       "package.json",
       "tsconfig*.json",
-      "!**/.cache/**",
-      "!**/node_modules/.cache/**",
-      "!**/__tests__/**",
-      "!**/*.test.ts",
-      "!**/*.spec.ts",
-      "!**/*.map",
-      "!**/dist/**"
+      "!/.cache/**",
+      "!/node_modules/.cache/**",
+      "/__tests__/**",
+      "/*.test.ts",
+      "/*.spec.ts",
+      "/*.map",
+      "/dist/**"
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
@@ -133,16 +98,7 @@
       {
         "from": "packaging/runtimes/python-linux",
         "to": "python-linux",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packaging/runtimes/python-win",
-        "to": "python-win",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       }
     ],
     "linux": {
@@ -156,9 +112,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "public/icon.ico"

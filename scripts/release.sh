@@ -95,6 +95,10 @@ cd "$APP_DIR"
 npm run build
 npx electron-builder --linux AppImage deb
 npx electron-builder --win nsis --x64
+
+# Fix chrome-sandbox permissions (SUID bit required for Electron sandbox)
+chmod 4755 linux-unpacked/chrome-sandbox 2>/dev/null || echo "⚠️  SUID fix requires root, continuing..."
+
 cd "$ROOT_DIR"
 
 echo "  ✅ Build complete"

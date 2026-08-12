@@ -1,0 +1,6 @@
+# Ignore python runtimes by default (they're too large for git)
+packaging/runtimes/python-linux/**/*
+packaging/runtimes/python-win/**/*
+
+# BUT include them for builds via extraResources override
+!packaging/runtimes/

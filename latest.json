@@ -1,28 +1,21 @@
 {
-  "version": "2.6.9",
+  "version": "2.6.10",
   "channel": "stable",
-  "releaseDate": "2026-08-12",
-  "releaseNotes": "v2.6.9 \u2014 See https://github.com/Deriest/ai-company/releases/tag/v2.6.9 for release notes.",
+  "releaseDate": "2026-08-13",
+  "releaseNotes": "v2.6.10 \u2014 Blank screen fix with proper chrome-sandbox permissions",
   "platforms": {
-    "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/AIC-ADE Setup 2.6.9.exe",
-      "sha256": "463d3c51cc459e0c95b9f1461c897c9af709448c48c4f9dc780b91856836edea",
-      "size": 132852419,
-      "filename": "AIC-ADE Setup 2.6.9.exe",
-      "type": "nsis"
-    },
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/AIC-ADE-2.6.9.AppImage",
-      "sha256": "064d2fd634d7aec23b6c1b81cef835231ef079ce96bb6f15553e4c48f10a1d2e",
-      "size": 164860546,
-      "filename": "AIC-ADE-2.6.9.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.10/AIC-ADE-2.6.10.AppImage",
+      "sha256": "d6cc22034894764619708d2ca133f429263525bb9229ba8eec3deacaefd26373",
+      "size": 185172351,
+      "filename": "AIC-ADE-2.6.10.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/aic-ade_2.6.9_amd64.deb",
-      "sha256": "1ffbc532e44e43344531834b66c648d2066ac9a9d052482a74a5b88f528dc448",
-      "size": 119767966,
-      "filename": "aic-ade_2.6.9_amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.10/aic-ade_2.6.10_amd64.deb",
+      "sha256": "1790e24170644fc242681491268927ce428cc4ba243aa2adac1e775dc72093c1",
+      "size": 135552780,
+      "filename": "aic-ade_2.6.10_amd64.deb",
       "type": "deb"
     }
   }
