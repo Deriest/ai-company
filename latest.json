@@ -1,28 +1,28 @@
 {
-  "version": "2.6.6",
+  "version": "2.6.7",
   "channel": "stable",
-  "releaseDate": "2026-08-12T13:00:00Z",
-  "releaseNotes": "v2.6.6 — Full install includes all dependencies (Electron + Python). Size: ~765 MB. [Updated checksum]",
+  "releaseDate": "2026-08-12T15:30:00Z",
+  "releaseNotes": "v2.6.7 — Fixed blank screen issue (corrupted build). Proper Electron binaries with Python runtime bundled.",
   "platforms": {
     "linux": {
-      "filename": "AIC-ADE-2.6.6.AppImage",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE-2.6.6.AppImage",
-"sha256": "1905fa02e4b8469a391d34df815809a64b82226f43acb593fc4645c6138bc8e9",
-       "size": 165717248,
+      "filename": "AIC-ADE-2.6.7.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE-2.6.7.AppImage",
+      "sha256": "9e176d27429b47de2138a85066c9548c11aa90103573762567648adfe30f2dac",
+      "size": 164860611,
       "type": "AppImage"
     },
     "linux-deb": {
-      "filename": "aic-ade_2.6.6_amd64.deb",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/aic-ade_2.6.6_amd64.deb",
-"sha256": "32b1c8a07748c9c58c0817e989c0088aa2be96767e5bd43e9ead80f1abee17bf",
-       "size": 1205946368,
+      "filename": "aic-ade_2.6.7_amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/aic-ade_2.6.7_amd64.deb",
+      "sha256": "c6993e1efc0d06e60dd8c96744b5975a2d3419d75bcd615b07fc2733796cb305",
+      "size": 119821638,
       "type": "deb"
     },
-"win32": {
-      "filename": "AIC-ADE.Setup.2.6.6.exe",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE.Setup.2.6.6.exe",
-      "sha256": "4e1947704ae5dc65f840c2ae7bb3009185ddc8c64d8a26b1e22adc4874fc60e8",
-      "size": 132852559,
+    "win32": {
+      "filename": "AIC-ADE.Setup.2.6.7.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE%20Setup%202.6.7.exe",
+      "sha256": "NOT_YET_BUILT",
+      "size": 0,
       "type": "nsis"
     }
   }
