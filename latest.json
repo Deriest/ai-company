@@ -1,26 +1,26 @@
 {
   "version": "2.6.7",
   "channel": "stable",
-  "releaseDate": "2026-08-12T15:30:00Z",
+  "releaseDate": "2026-08-12T16:00:00Z",
   "releaseNotes": "v2.6.7 — Fixed blank screen issue (corrupted build). Proper Electron binaries with Python runtime bundled.",
   "platforms": {
     "linux": {
       "filename": "AIC-ADE-2.6.7.AppImage",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE-2.6.7.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.7/AIC-ADE-2.6.7.AppImage",
       "sha256": "9e176d27429b47de2138a85066c9548c11aa90103573762567648adfe30f2dac",
       "size": 164860611,
       "type": "AppImage"
     },
     "linux-deb": {
       "filename": "aic-ade_2.6.7_amd64.deb",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/aic-ade_2.6.7_amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.7/aic-ade_2.6.7_amd64.deb",
       "sha256": "c6993e1efc0d06e60dd8c96744b5975a2d3419d75bcd615b07fc2733796cb305",
       "size": 119821638,
       "type": "deb"
     },
     "win32": {
       "filename": "AIC-ADE.Setup.2.6.7.exe",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE.Setup.2.6.7.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.7/AIC-ADE.Setup.2.6.7.exe",
       "sha256": "fae4c02704239c1c1dfdbfc1d11775184c533fad6807f22755224adc5c9ae61c",
       "size": 132852411,
       "type": "nsis"
