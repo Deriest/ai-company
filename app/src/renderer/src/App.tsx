@@ -179,10 +179,7 @@ const boot = useBoot({
       case "overview":
       case "live":  // unified with office
         return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
-      case "hermes":
-      case "chat":
-        return null;
-      // live route unified with workspace/office above
+      // Note: hermes/chat cases removed - ChatView mounted conditionally below (line 243)
 
       case "skills":
         return <SkillsView />;

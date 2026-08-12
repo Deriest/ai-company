@@ -1,29 +1,29 @@
 {
-  "version": "2.6.8",
+  "version": "2.6.9",
   "channel": "stable",
-  "releaseDate": "2026-08-12T17:00:00Z",
-  "releaseNotes": "v2.6.8 — Fixed blank screen issue (corrupted codemirror.js chunk). Proper Electron binaries with Python runtime bundled.",
+  "releaseDate": "2026-08-12",
+  "releaseNotes": "v2.6.9 \u2014 See https://github.com/Deriest/ai-company/releases/tag/v2.6.9 for release notes.",
   "platforms": {
+    "win32": {
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/AIC-ADE Setup 2.6.9.exe",
+      "sha256": "463d3c51cc459e0c95b9f1461c897c9af709448c48c4f9dc780b91856836edea",
+      "size": 132852419,
+      "filename": "AIC-ADE Setup 2.6.9.exe",
+      "type": "nsis"
+    },
     "linux": {
-      "filename": "AIC-ADE-2.6.8.AppImage",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.8/AIC-ADE-2.6.8.AppImage",
-      "sha256": "8eff7465a44f92ab0422ad2a9dc5b1773bb76e6af336c183c2dbc71654fa12a3",
-      "size": 164860579,
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/AIC-ADE-2.6.9.AppImage",
+      "sha256": "064d2fd634d7aec23b6c1b81cef835231ef079ce96bb6f15553e4c48f10a1d2e",
+      "size": 164860546,
+      "filename": "AIC-ADE-2.6.9.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "filename": "aic-ade_2.6.8_amd64.deb",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.8/aic-ade_2.6.8_amd64.deb",
-      "sha256": "a59c198320580a8522e5bf7301fb42a6da232021119be92c089f217fe7c8fba7",
-      "size": 119796820,
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.9/aic-ade_2.6.9_amd64.deb",
+      "sha256": "1ffbc532e44e43344531834b66c648d2066ac9a9d052482a74a5b88f528dc448",
+      "size": 119767966,
+      "filename": "aic-ade_2.6.9_amd64.deb",
       "type": "deb"
-    },
-    "win32": {
-      "filename": "AIC-ADE.Setup.2.6.8.exe",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.8/AIC-ADE.Setup.2.6.8.exe",
-      "sha256": "a56877cd62bc097b54394f95e4a7589d4d4a091a9e5a998c530b2d67e09c606d",
-      "size": 132852574,
-      "type": "nsis"
     }
   }
 }
