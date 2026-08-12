@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.5",
+  "version": "2.6.6",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -112,13 +112,32 @@
     "productName": "AIC-ADE",
     "copyright": "Copyright \u00a9 2024 AI Company",
     "files": [
-      "dist/**/*",
-      "dist-electron/**/*.js"
+      "**/*.{html,json,js,css}",
+      "src/**/*",
+      "public/**/*",
+      "package.json",
+      "tsconfig*.json",
+      "!**/.cache/**",
+      "!**/node_modules/.cache/**",
+      "!**/__tests__/**",
+      "!**/*.test.ts",
+      "!**/*.spec.ts",
+      "!**/*.map",
+      "!**/dist/**"
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
-      "version": "2.6.5"
+      "version": "2.6.6"
     },
+    "extraResources": [
+      {
+        "from": "packaging/runtimes/python-linux",
+        "to": "python-linux",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "linux": {
       "target": [
         "AppImage",

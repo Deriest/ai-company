@@ -1,4 +1,5 @@
 """Checkpoint service for saving/resuming agent execution state."""
+import logging
 import os
 import json
 import uuid
@@ -7,6 +8,9 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 from backend.api.schemas.plan_schemas import TaskPlan, PlanCheckpoint
+
+
+logger = logging.getLogger("aic.checkpoint_service")
 
 
 class CheckpointService:
@@ -60,9 +64,10 @@ class CheckpointService:
             try:
                 with open(ckpt_file, "r") as f:
                     data = json.load(f)
-                    if data.get("task_id") == task_id or task_id in ckpt_file.name:
-                        checkpoints.append((ckpt_file, PlanCheckpoint.from_dict(data)))
-            except:
+                if data.get("task_id") == task_id or task_id in ckpt_file.name:
+                    checkpoints.append((ckpt_file, PlanCheckpoint.from_dict(data)))
+            except (OSError, IOError, json.JSONDecodeError) as e:
+                logger.warning(f"Failed to load checkpoint {ckpt_file.name}: {e}")
                 continue
         
         if not checkpoints:
@@ -80,7 +85,8 @@ class CheckpointService:
                 with open(ckpt_file, "r") as f:
                     data = json.load(f)
                     checkpoints.append(PlanCheckpoint.from_dict(data))
-            except:
+            except (OSError, IOError, json.JSONDecodeError) as e:
+                logger.warning(f"Failed to load checkpoint {ckpt_file.name}: {e}")
                 continue
         return sorted(checkpoints, key=lambda c: c.saved_at, reverse=True)
     

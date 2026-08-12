@@ -500,7 +500,8 @@ class WorkerToolExecutor:
                                         "line": line_no,
                                         "content": line.strip()[:200],
                                     })
-                    except:
+                    except (PermissionError, UnicodeDecodeError) as e:
+                        logger.debug(f"Skipping unreadable file {fp}: {e}")
                         continue
                     
                     if len(matches) >= 100:

@@ -29,7 +29,7 @@ def check_code_contains(filepath, text, description):
         content = filepath.read_text()
         found = text.lower() in content.lower()
         return f"✅ {description}" if found else f"⚠️ {description} (not found)", found
-    except:
+    except Exception:
         return f"⚠️ {description} (error reading)", False
 
 # ============================================================
@@ -185,7 +185,7 @@ if runner_exists:
     has_pytest = "pytest" in content
     has_npm = "npm" in content
 
-if runner_exists[9:] and has_test_result and has_pytest and has_npm:
+if runner_exists and has_test_result and has_pytest and has_npm:
     print(f"   Status: PASS ✅")
     print(f"   • TestRunnerService implemented (457 lines)")
     print(f"   • Pytest + npm/yarn/pnpm support")

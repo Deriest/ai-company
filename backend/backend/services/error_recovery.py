@@ -1,6 +1,7 @@
 """Error recovery service with retry logic for transient failures."""
 import asyncio
 import logging
+import os
 from typing import Optional, Callable, Any, TypeVar
 from functools import wraps
 
@@ -185,7 +186,12 @@ def get_process_memory_usage() -> dict | None:
         p = psutil.Process(os.getpid())
         m = p.memory_info()
         return {"rss_mb": m.rss/1024/1024, "vms_mb": m.vms/1024/1024}
-    except:
+    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+        logger.warning(f"Failed to get process memory usage: {e}")
+        return None
+    except Exception as e:
+        # Log unexpected errors but don't swallow shutdown signals (KeyboardInterrupt, SystemExit)
+        logger.warning(f"Unexpected error getting process memory: {e}", exc_info=True)
         return None
 
 

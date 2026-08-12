@@ -51,7 +51,7 @@ class PhaseValidator:
             with open(filepath, 'r') as f:
                 content = f.read()
                 return text.lower() in content.lower()
-        except:
+        except Exception:
             return False
     
     def run_import_test(self, module_path, description):
@@ -68,7 +68,7 @@ class PhaseValidator:
                 timeout=10
             )
             return result.returncode == 0
-        except:
+        except Exception:
             return False
 
 

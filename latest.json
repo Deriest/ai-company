@@ -1,28 +1,28 @@
 {
-  "version": "2.6.5",
+  "version": "2.6.6",
   "channel": "stable",
-  "releaseDate": "2026-08-12T09:00:00Z",
-  "releaseNotes": "v2.6.5 \u2014 Fixed blackscreen, update configuration, and auto-upload issues\n\n### Download Links:\n- [Linux AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.5/AIC-ADE-2.6.5.AppImage)\n- [Linux DEB](https://github.com/Deriest/ai-company/releases/download/v2.6.5/aic-ade_2.6.5_amd64.deb)\n- [Windows Installer](https://github.com/Deriest/ai-company/releases/download/v2.6.5/AIC-ADE%20Setup%202.6.5.exe)",
+  "releaseDate": "2026-08-12T13:00:00Z",
+  "releaseNotes": "v2.6.6 — Full install includes all dependencies (Electron + Python). Size: ~765 MB.",
   "platforms": {
     "linux": {
-      "filename": "AIC-ADE-2.6.5.AppImage",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.5/AIC-ADE-2.6.5.AppImage",
-      "sha256": "48fb3720943ca4b674ad9354ba66927ebfcf1a33e0a3c2691675690d5c4462a",
-      "size": 245454336,
+      "filename": "AIC-ADE-2.6.6.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE-2.6.6.AppImage",
+"sha256": "1905fa02e4b8469a391d34df815809a64b82226f43acb593fc4645c6138bc8e9",
+       "size": 165717248,
       "type": "AppImage"
     },
     "linux-deb": {
-      "filename": "aic-ade_2.6.5_amd64.deb",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.5/aic-ade_2.6.5_amd64.deb",
-      "sha256": "dbe0be1b0f0d502af9470cdcf4b707ef1dc3f90e8f1db5e1a4a2d5c1a8c7e9b2",
-      "size": 174287872,
+      "filename": "aic-ade_2.6.6_amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/aic-ade_2.6.6_amd64.deb",
+"sha256": "32b1c8a07748c9c58c0817e989c0088aa2be96767e5bd43e9ead80f1abee17bf",
+       "size": 1205946368,
       "type": "deb"
     },
     "win32": {
-      "filename": "AIC-ADE Setup 2.6.5.exe",
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.5/AIC-ADE%20Setup%202.6.5.exe",
-      "sha256": "7232514cee39c20f0520c6839291d936e7c5c8b3f4a2d1e0f9g8h7i6j5k4l3m2",
-      "size": 802654208,
+      "filename": "AIC-ADE Setup 2.6.6.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE%20Setup%202.6.6.exe",
+"sha256": "a16573776d4364d025fd67e10b9c1f136b62c65d31057aaec69adccabb2e4194",
+       "size": 133282739,
       "type": "nsis"
     }
   }
