@@ -41,11 +41,13 @@ npm run build:electron
 
 ### Release Artifacts
 
-| Platform | Download | Status |
-|----------|----------|--------|
-| Linux AppImage | [v2.6.6](https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE-2.6.6.AppImage) | ✅ |
-| Linux DEB | [v2.6.6](https://github.com/Deriest/ai-company/releases/download/v2.6.6/aic-ade_2.6.6_amd64.deb) | ✅ |
-| Windows NSIS | [v2.6.6](https://github.com/Deriest/ai-company/releases/download/v2.6.6/AIC-ADE.Setup.2.6.6.exe) | ✅ |
+| Platform | Download | Size |
+|----------|----------|------|
+| Linux AppImage | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/AIC-ADE-2.6.13.AppImage) | 221 MB |
+| Linux DEB | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/aic-ade_2.6.13_amd64.deb) | 151 MB |
+| Windows NSIS | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/AIC-ADE.SETUP.V2.6.13.exe) | 183 MB |
+
+> **Auto-update:** installed apps poll `latest.json` on `raw.githubusercontent.com` and prompt when newer than the running build.
 
 ### Documentation Links
 
@@ -57,9 +59,9 @@ npm run build:electron
 
 ### Current Status
 
-✅ **v2.6.6 Released** - Security hardening + Python runtime bundle  
-🟡 **In Progress** - Agent performance optimization  
-⚪ **Backlog** - Multi-user support investigation
+✅ **v2.6.13 Released** — renderer packaging + backend boot chain fixed, healthy engine verified (`GET /health 200`), first fully-bootable packaged app  
+🟡 **Next** — engine cold-start polish (10s boot timeout vs ~2s actual) + installer icon/site assets  
+⚪ **Backlog** — multi-user scope TBD (local-first single-user is product stance)
 
 ---
 
