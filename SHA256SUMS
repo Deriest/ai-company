@@ -7,4 +7,7 @@ bb1652c8fd562776e5b64c9d00c7df96dcbdd36b4d131b44383ea8a72f75204c  app/release/AI
 2eb2c17f3a0d5c7eb03c518b240d51e8b0522bbad4bb2ee031047f556134887d  app/release/AIC-ADE-2.6.15.AppImage
 6af9e27adab6743d47cae6f4c46b60409cac245ca940921914060b3780f97a28  app/release/aic-ade_2.6.15_amd64.deb
 b6e8eb2a08e64a5da94e74524b9b5beb57f7d02266c6609b6a29c780dd5baec5  app/release/AIC-ADE.SETUP.V2.6.15.exe
-4ca8a3bdbe35270e05684779e40fa2932d9ecba005e5b55f50ded592ccc9b793  latest.json
+c0a18c99759d799aba4e165b6c17d793f2b00dc3c05874e0a6fad64c3daabf42  app/release/AIC-ADE-2.6.16.AppImage
+173af38c260abc763b4670ebc0d267c49b7b7362e853294372632045388d6027  app/release/aic-ade_2.6.16_amd64.deb
+924d1fcb4b50190ca64f55643f58226bfebe4de12d2af709c75235f6e6e7167f  app/release/AIC-ADE.SETUP.V2.6.16.exe
+2364b59f13da488d79e305caea4b1ffd792e7113bda2954e397f60a414446fb7  latest.json
