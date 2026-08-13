@@ -73,3 +73,14 @@ class AuthValidationError(Exception):
         self.message = message
         self.code = code
         super().__init__(self.message)
+
+
+async def validate_ownership(db, resource_id: str, kind: str, user: Optional[str]) -> None:
+    """Verify the current user owns the resource before a destructive op.
+
+    Single-user local desktop app: the user is always local (require_current_user
+    returns None / no multi-tenant boundary), so ownership is trivially satisfied.
+    Kept as an explicit seam so delete routes can be made stricter later without
+    touching the route handlers.
+    """
+    return None

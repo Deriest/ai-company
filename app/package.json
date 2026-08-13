@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.11",
+  "version": "2.6.13",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -109,9 +109,15 @@
   },
   "build": {
     "appId": "com.aicompany.ade",
+    "disableDefaultIgnoredFiles": true,
+    "directories": {
+      "output": "release"
+    },
+    "afterPack": "scripts/after-pack-chmod-sandbox.js",
     "productName": "AIC-ADE",
     "copyright": "Copyright \u00a9 2024 AI Company",
     "files": [
+      "dist/**/*",
       "**/*.{html,json,js,css}",
       "src/**/*",
       "public/**/*",
@@ -122,14 +128,26 @@
       "!**/__tests__/**",
       "!**/*.test.ts",
       "!**/*.spec.ts",
-      "!**/*.map",
-      "!**/dist/**"
+      "!**/*.map"
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
-      "version": "2.6.11"
+      "version": "2.6.13"
     },
     "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/.venv/**",
+          "!**/venv/**",
+          "!**/node_modules/**",
+          "!**/.git/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
       {
         "from": "packaging/runtimes/python-linux",
         "to": "python-linux",
@@ -153,6 +171,7 @@
       "category": "Utility"
     },
     "win": {
+      "artifactName": "AIC-ADE.SETUP.V${version}.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -166,7 +185,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "warningsAsErrors": false
     },
     "publish": {
       "provider": "github",

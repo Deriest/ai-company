@@ -63,11 +63,13 @@ fi
 
 # ── 1. Bump version ─────────────────────────────────────────────────────────
 
+if [ -n "${SKIP_BUILD:-}" ]; then
+  CUR_VER=$(python3 -c "import json; print(json.load(open('app/package.json')).get('version','?'))" 2>/dev/null || echo "?")
+  echo "📋 Step 1/7: Version bump SKIPPED (SKIP_BUILD=1) — reusing ${CUR_VER}..."
+else
 echo "📋 Step 1/7: Bumping version to ${VERSION}..."
-
 # package.json
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package.json"
-
 # package-lock.json — use Python json for safe update (BUG-11 fix)
 python3 -c "
 import json
@@ -80,15 +82,19 @@ with open('$APP_DIR/package-lock.json', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
-
 echo "  ✅ Version bumped"
+fi
 
 # ── 2. Build ────────────────────────────────────────────────────────────────
 
+if [ -n "${SKIP_BUILD:-}" ]; then
+echo ""
+echo "🔨 Step 2/7: Build SKIPPED (SKIP_BUILD=1) — reusing existing artifacts:"
+ls -lh "$RELEASE_DIR/AIC-ADE-${VERSION}.AppImage" "$RELEASE_DIR/aic-ade_${VERSION}_amd64.deb" "$RELEASE_DIR/AIC-ADE.SETUP.V${VERSION}.exe" 2>&1 | sed 's/^/     /'
+else
 echo ""
 echo "🔨 Step 2/7: Building Linux + Windows..."
-
-# Clean build dirs
+# Clean build dirs (dist/ is Vite renderer output; release/ is electron-builder output)
 rm -rf "$APP_DIR/dist" "$APP_DIR/dist-electron" "$RELEASE_DIR/linux-unpacked" "$RELEASE_DIR/win-unpacked"
 
 cd "$APP_DIR"
@@ -96,29 +102,29 @@ npm run build
 npx electron-builder --linux AppImage deb
 npx electron-builder --win nsis --x64
 
-# Fix chrome-sandbox permissions (SUID bit required for Electron sandbox)
-chmod 4755 linux-unpacked/chrome-sandbox 2>/dev/null || echo "⚠️  SUID fix requires root, continuing..."
-
 cd "$ROOT_DIR"
 
 echo "  ✅ Build complete"
+fi
 
 # ── 3. Compute hashes + sizes ───────────────────────────────────────────────
 
 echo ""
 echo "🔐 Step 3/7: Computing SHA256 hashes..."
 
-APPIMAGE="aic-ade-${VERSION}.AppImage"
+APPIMAGE="AIC-ADE-${VERSION}.AppImage"
 DEB="aic-ade_${VERSION}_amd64.deb"
-EXE="aic-ade Setup ${VERSION}.exe"
+EXE="AIC-ADE.SETUP.V${VERSION}.exe"
 
-APPIMAGE_SHA=$(sha256sum "$APP_DIR/dist/$APPIMAGE" | cut -d' ' -f1)
-DEB_SHA=$(sha256sum "$APP_DIR/dist/$DEB" | cut -d' ' -f1)
-EXE_SHA=$(sha256sum "$APP_DIR/dist/$EXE" | cut -d' ' -f1)
+# electron-builder output is app/release; app/dist is reserved for Vite's
+# renderer bundle and is packaged into app.asar.
+APPIMAGE_SHA=$(sha256sum "$RELEASE_DIR/$APPIMAGE" | cut -d' ' -f1)
+DEB_SHA=$(sha256sum "$RELEASE_DIR/$DEB" | cut -d' ' -f1)
+EXE_SHA=$(sha256sum "$RELEASE_DIR/$EXE" | cut -d' ' -f1)
 
-APPIMAGE_SIZE=$(stat -c '%s' "$APP_DIR/dist/$APPIMAGE")
-DEB_SIZE=$(stat -c '%s' "$APP_DIR/dist/$DEB")
-EXE_SIZE=$(stat -c '%s' "$APP_DIR/dist/$EXE")
+APPIMAGE_SIZE=$(stat -c '%s' "$RELEASE_DIR/$APPIMAGE")
+DEB_SIZE=$(stat -c '%s' "$RELEASE_DIR/$DEB")
+EXE_SIZE=$(stat -c '%s' "$RELEASE_DIR/$EXE")
 
 echo "  AppImage: ${APPIMAGE_SHA:0:16}… (${APPIMAGE_SIZE} bytes)"
 echo "  deb:      ${DEB_SHA:0:16}… (${DEB_SIZE} bytes)"
@@ -129,6 +135,10 @@ echo "  exe:      ${EXE_SHA:0:16}… (${EXE_SIZE} bytes)"
 echo ""
 echo "📤 Step 4/7: Creating GitHub Release ${TAG}..."
 
+# If a resume helper already created the release, skip recreation (and never delete it).
+if [[ -n "${RELEASE_ID:-}" ]]; then
+  echo "  (reusing existing Release ID $RELEASE_ID — skipping create/delete)"
+else
 # Delete existing release+tag if present (idempotent re-runs)
 EXISTING_ID=$(curl -sf "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${TAG}" \
   -H "Authorization: token $GH_TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
@@ -156,18 +166,26 @@ RELEASE_RESP=$(curl -sf -X POST "https://api.github.com/repos/${GITHUB_REPO}/rel
 RELEASE_ID=$(echo "$RELEASE_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "  ✅ Release created (ID: $RELEASE_ID)"
 
-# Upload artifacts
+# Upload artifacts (URL-encode filenames for API)
+# NOTE: all 3 filenames are now hyphen/dot-safe (AIC-ADE-..., aic-ade_..., AIC-ADE.SETUP.V...)
+#       so the loop is uniform; encoding kept for forward-compat.
 for f in "$APPIMAGE" "$DEB" "$EXE"; do
+  if [ ! -f "$RELEASE_DIR/$f" ]; then
+    echo "  ⚠️  $f not found — skipping"
+    continue
+  fi
   echo "  Uploading $f..."
-  curl -sf -X POST \
-    "https://uploads.github.com/repos/${GITHUB_REPO}/releases/${RELEASE_ID}/assets?name=${f}" \
-    -H "Authorization: token $GH_TOKEN" \
+  fname=$(echo "$f" | sed 's/ /%20/g')
+  resp=$(curl -sS -X POST \
+    "https://uploads.github.com/repos/${GITHUB_REPO}/releases/${RELEASE_ID}/assets?name=${fname}" \
+    -H "Authorization: token ${GH_TOKEN}" \
     -H "Content-Type: application/octet-stream" \
-    --data-binary "@$RELEASE_DIR/$f" \
-    | python3 -c "import sys,json; r=json.load(sys.stdin); print(f'    ✅ {r[\"name\"]}')" 2>/dev/null || echo "    ⚠️ upload may have failed"
+    --data-binary "@${RELEASE_DIR}/${f}" 2>&1) || true
+  echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); print(f\"    ✅ {r['name']}  ({r.get('size', '?')} bytes)\")" 2>/dev/null \
+    || { echo "    ❌ upload failed for $f:"; echo "$resp" | head -5; exit 1; }
 done
-
 echo "  ✅ All artifacts uploaded"
+fi
 
 # ── 5. Update latest.json ───────────────────────────────────────────────────
 

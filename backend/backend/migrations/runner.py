@@ -203,7 +203,7 @@ MIGRATIONS = [
         "up": """
             CREATE TABLE IF NOT EXISTS discovery_sessions_new (
                 id VARCHAR PRIMARY KEY,
-                conversation_id VARCHAR NOT NULL,
+                task_conversation_ref VARCHAR NOT NULL,
                 user_id VARCHAR,
                 status VARCHAR NOT NULL DEFAULT 'new_request',
                 round_number INTEGER DEFAULT 0,
@@ -213,13 +213,13 @@ MIGRATIONS = [
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            INSERT INTO discovery_sessions_new (id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
-                SELECT id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions
+            INSERT INTO discovery_sessions_new (id, task_conversation_ref, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
+                SELECT id, task_conversation_ref, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions
                 WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='discovery_sessions')
                   AND NOT EXISTS (SELECT 1 FROM discovery_sessions_new);
             DROP TABLE IF EXISTS discovery_sessions;
             ALTER TABLE discovery_sessions_new RENAME TO discovery_sessions;
-            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(conversation_id);
+            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(task_conversation_ref);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_user ON discovery_sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_status ON discovery_sessions(status);
         """,

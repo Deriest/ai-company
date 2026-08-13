@@ -29,7 +29,7 @@ from storage.models import (
 )
 from workers.base import WORKER_REGISTRY
 from workflow.triage import perform_smart_triage, ExecutionLevel
-from backend.config.constants import DB_LOCK_RETRY_ATTEMPTS, ADAPTIVE_TIMEOUT_MULTIPLIERS, DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES
+from backend.config import DB_LOCK_RETRY_ATTEMPTS, ADAPTIVE_TIMEOUT_MULTIPLIERS, DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES
 
 logger = logging.getLogger("aic.runtime")
 

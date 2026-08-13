@@ -24,7 +24,7 @@ import asyncio
 import httpx
 
 from runtime.adaptive import AdaptiveRuntimeProfile, adaptive_runtime, capabilities_from_metadata
-from backend.config.constants import HTTP_TIMEOUT_MS
+from backend.config import HTTP_TIMEOUT_MS
 
 logger = logging.getLogger("aic.llm")
 

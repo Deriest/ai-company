@@ -19,7 +19,11 @@ class Settings:
     BACKUP_DIR = os.getenv("AIC_BACKUP_DIR", str(DATA_DIR / "backups"))
     
     # Database Configuration (SQLite Local File)
-    DATABASE_URL = os.getenv("AIC_DATABASE_URL", str(DATA_DIR / "aic_ade.db"))
+    _raw_db = os.getenv("AIC_DATABASE_URL") or str(DATA_DIR / "aic_ade.db")
+    # Normalize into a valid async SQLAlchemy URL. session.py strips the
+    # "sqlite+aiosqlite:///" scheme to chmod the db file, so a bare-path
+    # fallback must be given the driver prefix here.
+    DATABASE_URL = _raw_db if "://" in _raw_db else "sqlite+aiosqlite:///" + _raw_db
     SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("AIC_SQLITE_BUSY_TIMEOUT_MS", "5000"))  # 5 seconds
     
     # Worker Configuration (Single-User Execution)
@@ -32,13 +36,15 @@ class Settings:
     TASK_PROGRESS_UPDATE_INTERVAL = int(os.getenv("AIC_TASK_PROGRESS_UPDATE_INTERVAL", "5"))  # Update every 5s
     
     # LLM Provider Configuration (Single Endpoint)
-    LLM_BASE_URL = os.getenv("AIC_LLM_BASE_URL", "")
-    LLM_API_KEY = os.getenv("AIC_LLM_API_KEY", "")
-    LLM_MODEL_CRAFTER = os.getenv("AIC_MODEL_CRAFTER", "")
-    LLM_MODEL_THINKER = os.getenv("AIC_MODEL_THINKER", "")
-    LLM_MODEL_SPRINTER = os.getenv("AIC_MODEL_SPRINTER", "")
-    LLM_REASONING_EFFORT = os.getenv("AIC_LLM_REASONING_EFFORT", "auto")
-    LLM_MAX_CONCURRENT_REQUESTS = int(os.getenv("AIC_LLM_MAX_CONCURRENT_REQUESTS", "4"))
+    AIC_LLM_BASE_URL = os.getenv("AIC_LLM_BASE_URL", "")
+    AIC_LLM_API_KEY = os.getenv("AIC_LLM_API_KEY", "")
+    AIC_LLM_PROVIDER_NAME = os.getenv("AIC_LLM_PROVIDER_NAME", "")
+    AIC_MODEL_CRAFTER = os.getenv("AIC_MODEL_CRAFTER", "")
+    AIC_MODEL_THINKER = os.getenv("AIC_MODEL_THINKER", "")
+    AIC_MODEL_SPRINTER = os.getenv("AIC_MODEL_SPRINTER", "")
+    AIC_MODEL_VISION = os.getenv("AIC_MODEL_VISION", "")
+    AIC_LLM_REASONING_EFFORT = os.getenv("AIC_LLM_REASONING_EFFORT", "auto")
+    AIC_LLM_MAX_CONCURRENT_REQUESTS = int(os.getenv("AIC_LLM_MAX_CONCURRENT_REQUESTS", "4"))
     
     # Encryption Settings
     ENCRYPTION_KEY_ROTATION_DAYS = int(os.getenv("AIC_ENCRYPTION_KEY_ROTATION_DAYS", "90"))  # Optional rotation schedule
@@ -60,10 +66,15 @@ class Settings:
     JWT_SECRET_KEY = None  # For future use; not enforced in single-user mode
     AUTH_FAIL_OPEN_DETECTION = True  # Always check for AIC_TESTING=1 at runtime
     
+    # App version (main.py exposes it in the FastAPI banner / /health).
+    # Injected by the Electron main process via AIC_APP_VERSION when packaged.
+    VERSION = os.getenv("AIC_APP_VERSION", "2.6.13")
+    
     @property
     def database_path(self) -> Path:
         """Return full path to SQLite database file."""
-        return Path(self.DATABASE_URL).resolve()
+        url = self.DATABASE_URL.replace("sqlite+aiosqlite:///", "").split("?")[0]
+        return Path(url).resolve()
     
     @property
     def is_testing_mode(self) -> bool:
@@ -82,7 +93,7 @@ class Settings:
             )
         
         # Warnings (not blocking)
-        if not self.LLM_BASE_URL:
+        if not self.AIC_LLM_BASE_URL:
             errors.append("WARNING: AIC_LLM_BASE_URL not set — LLM providers may fail")
         
         if not self.DATA_DIR.exists():
@@ -100,3 +111,24 @@ class Settings:
 
 # Singleton instance
 settings = Settings()
+
+
+# ── Module-level constants ─────────────────────────────────────────────
+# These previously lived in backend/config/constants.py (a package dir that
+# collided with this config.py module for the import name "backend.config").
+# The module wins that name at runtime, so the constants are hosted here.
+HTTP_TIMEOUT_MS = 120000                # 120s for LLM requests
+DB_LOCK_RETRY_ATTEMPTS = 6
+DB_LOCK_BASE_DELAY = 0.05
+ADAPTIVE_TIMEOUT_MULTIPLIERS = {
+    "thinker": 2.5,
+    "crafter": 2.5,
+    "sprinter": 1.5,
+}
+DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES = 30
+LLM_MAX_CONCURRENT_REQUESTS = 4
+AGENT_RUN_SEMAPHORE_LIMIT = 2
+API_REQUEST_TIMEOUT = 30
+USAGE_TRACKER_MAX_RECORDS = 10000
+CLARIFY_QUESTION_LIMIT = 10
+MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024

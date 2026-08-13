@@ -336,6 +336,7 @@ async function ensureBackendRunning(): Promise<void> {
         AIC_DATA_DIR: appDataDir(),
         AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
         AIC_JWT_SECRET: jwtSecret,  // Required for backend JWT authentication  // Provide secret for production use
+        AIC_APP_VERSION: app.getVersion(),
         PYTHONPATH: [platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
       },
       stdio: "pipe",
