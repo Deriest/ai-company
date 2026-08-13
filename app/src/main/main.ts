@@ -304,29 +304,29 @@ async function ensureBackendRunning(): Promise<void> {
         }
     }
     
-    // CRITICAL: AIC_JWT_SECRET must be provided in production
-    // Never auto-generate - requires explicit security configuration
-    if (!process.env.AIC_JWT_SECRET) {
-        throw new Error(
-            "AIC_JWT_SECRET environment variable is required for production security.\n" +
-            "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n" +
-            "\n" +
-            "⚠️ PRODUCTION DEPLOYMENT CHECKLIST:\n" +
-            "1. Generate a secure random secret (do NOT use example values)\n" +
-            "2. Set AIC_JWT_SECRET as environment variable BEFORE starting the app\n" +
-            "3. NEVER commit secrets to version control\n" +
-            "4. Use secure secret management (vault, Kubernetes secrets, etc.)\n" +
-            "\n" +
-            "Example (Linux/Mac):\n" +
-            "  export AIC_JWT_SECRET=$(node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")\n" +
-            "  npm start\n" +
-            "\n" +
-            "Example (Windows PowerShell):\n" +
-            "  $env:AIC_JWT_SECRET = (node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")\n" +
-            "  npm start\n"
-        );
+    /* local-first desktop (Electron single-user, localhost-only): no remote
+     * JWT surface, so don't block install on a missing env. Prefer explicit
+     * AIC_JWT_SECRET; otherwise persist a per-install secret so the backend
+     * signing key survives restarts. */
+    function loadOrCreateJwtSecret(): string {
+      if (process.env.AIC_JWT_SECRET && process.env.AIC_JWT_SECRET.trim()) {
+        return process.env.AIC_JWT_SECRET;
+      }
+      const p = path.join(appDataDir(), "jwt-secret");
+      if (fs.existsSync(p)) {
+        try {
+          const v = fs.readFileSync(p, "utf8").trim();
+          if (v) return v;
+        } catch { /* regenerate */ }
+      }
+      const secret = crypto.randomBytes(32).toString("hex");
+      fs.writeFileSync(p, secret, { mode: 0o600 });
+      try { fs.chmodSync(p, 0o600); } catch { /* Windows */ }
+      return secret;
     }
-    const jwtSecret = process.env.AIC_JWT_SECRET!;  // Type assertion since we validated above
+    const jwtSecret = loadOrCreateJwtSecret();
+    // keep the env bridge so code that reads process.env.AIC_JWT_SECRET works
+    if (!process.env.AIC_JWT_SECRET) process.env.AIC_JWT_SECRET = jwtSecret;
     
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
