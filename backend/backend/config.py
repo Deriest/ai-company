@@ -65,10 +65,58 @@ class Settings:
     CORS_ORIGINS = ["http://localhost:5173", "http://localhost:5174"]  # Electron dev server URLs only
     JWT_SECRET_KEY = None  # For future use; not enforced in single-user mode
     AUTH_FAIL_OPEN_DETECTION = True  # Always check for AIC_TESTING=1 at runtime
+
+    # JWT — consumed by auth/security.py (create_access_token / decode).
+    # Kept compatible: read both new AIC_JWT_SECRET and legacy SECRET_KEY names.
+    @property
+    def SECRET_KEY(self) -> str:
+        return os.getenv("AIC_JWT_SECRET") or os.getenv("SECRET_KEY") or "dev-local-only-aic-ade-please-set-AIC_JWT_SECRET-in-prod-0000"
+
+    @property
+    def ALGORITHM(self) -> str:
+        return os.getenv("AIC_JWT_ALGORITHM", "HS256")
+
+    @property
+    def ACCESS_TOKEN_EXPIRE_MINUTES(self) -> int:
+        return int(os.getenv("AIC_JWT_EXPIRE_MINUTES", "1440"))  # 24h default
+
+
+    # Desktop identity — per-install random credential in AIC_IDENTITY_FILE.
+    # Electron writes identity.json; tests may override via env.
+    @property
+    def IDENTITY_USERNAME(self) -> str:
+        if os.getenv("AIC_IDENTITY_USERNAME"):
+            return os.environ["AIC_IDENTITY_USERNAME"]
+        pp = os.getenv("AIC_IDENTITY_FILE")
+        if pp:
+            try:
+                import json as _json
+                d = _json.loads(Path(pp).read_text(encoding="utf-8"))
+                if isinstance(d.get("username"), str) and d["username"]:
+                    return d["username"]
+            except Exception:
+                pass
+        return "admin"
+
+    @property
+    def IDENTITY_PASSWORD(self) -> str:
+        if os.getenv("AIC_IDENTITY_PASSWORD"):
+            return os.environ["AIC_IDENTITY_PASSWORD"]
+        pp = os.getenv("AIC_IDENTITY_FILE")
+        if pp:
+            try:
+                import json as _json
+                d = _json.loads(Path(pp).read_text(encoding="utf-8"))
+                if isinstance(d.get("password"), str) and d["password"]:
+                    return d["password"]
+            except Exception:
+                pass
+        return "admin123"
+
     
     # App version (main.py exposes it in the FastAPI banner / /health).
     # Injected by the Electron main process via AIC_APP_VERSION when packaged.
-    VERSION = os.getenv("AIC_APP_VERSION", "2.6.14")
+    VERSION = os.getenv("AIC_APP_VERSION", "2.6.15")
     
     @property
     def database_path(self) -> Path:
