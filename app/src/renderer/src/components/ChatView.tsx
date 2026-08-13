@@ -59,11 +59,10 @@ interface AssistantMessageState {
   workflow?: WorkflowType
 }
 
-type AgentMode = 'build' | 'plan'
+type AgentMode = 'build'
 
 const AGENT_WORKER_MAP: Record<AgentMode, string> = {
   build: 'backend',
-  plan: 'research',
 }
 
 // ── Engine tiers (THINKER / CRAFTER / SPRINTER / VISION) ──
@@ -71,7 +70,7 @@ const AGENT_WORKER_MAP: Record<AgentMode, string> = {
 type EngineTier = 'thinker' | 'crafter' | 'sprinter' | 'vision'
 type TierSelection = { provider: string; model: string }
 
-const ENGINE_TIERS: EngineTier[] = ['thinker', 'crafter', 'sprinter', 'vision']
+const ENGINE_TIERS: EngineTier[] = [] as EngineTier[]
 const TIER_LABEL_COLORS: Record<EngineTier, string> = {
   thinker: 'text-primary',
   crafter: 'text-success',
@@ -810,7 +809,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [dragActive, setDragActive] = useState(false)
   const [visionWarning, setVisionWarning] = useState('')
   const [sending, setSending] = useState(false)
-  const [agentMode, setAgentMode] = useState<AgentMode>('build')
+  const agentMode: AgentMode = 'build'
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(false)
@@ -1654,7 +1653,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     <Terminal className="size-5 text-muted-foreground/40" />
                   </div>
                   <p className="text-xs text-muted-foreground/60">
-                    {active ? `${agentMode} mode · describe what to do` : 'select or create a session'}
+                    {active ? `direct · describe what to do` : 'select or create a session'}
                   </p>
                 </div>
               </div>
@@ -1680,7 +1679,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                 <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
                 {health === 'ok' ? 'connected' : health === 'bad' ? 'offline' : 'checking…'}
               </span>
-              <span className="font-mono">{agentMode} agent</span>
+              <span className="font-mono">Hermes</span>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={() => setExplorerOpen(!explorerOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={explorerOpen ? "Hide explorer" : "Show explorer"}>
@@ -1696,64 +1695,16 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             <div className="w-full max-w-none">
               {/* Keep the complete toolbar on one horizontal row. On narrow
                   windows the row scrolls left/right instead of dropping tiers. */}
-              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden pb-1">
-                {/* BUILD | PLAN */}
-                <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/50 p-0.5">
-                  {(['build', 'plan'] as AgentMode[]).map(mode => (
-                    <button key={mode} onClick={() => setAgentMode(mode)}
-                      className={cn("rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide transition-colors",
-                        agentMode === mode ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
-                      )}>
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-[8px] font-semibold text-primary">Context</span>
-                  <span className="font-mono text-[8px] tabular-nums text-muted-foreground whitespace-nowrap">
-                    {totalTokens > 0 ? totalTokens.toLocaleString() : '?'}{contextWindow > 0 ? ` / ${contextWindow.toLocaleString()}` : ''}
+              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden pb-1">
+                <span className="shrink-0 text-[10px] font-semibold tracking-wide text-primary">Hermes · direct</span>
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
+                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {contextWindow > 0 && totalTokens > 0 ? `${(totalTokens / 1000).toFixed(1)}k / ${(contextWindow / 1000).toFixed(0)}k` : contextWindow > 0 ? `0 / ${(contextWindow / 1000).toFixed(0)}k` : '—'}
                   </span>
+                  <div className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-muted/40">
+                    <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
+                  </div>
                 </div>
-
-                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
-                <div className="h-1 min-w-3 flex-1 overflow-hidden rounded-full bg-muted/40">
-                  <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
-                </div>
-
-                {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors */}
-                {ENGINE_TIERS.map(tier => {
-                  const sel = tiers[tier]
-                  const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
-                  return (
-                    <div key={tier} className="flex min-w-0 shrink items-center gap-0.5">
-                      <span className={cn("text-[7px] font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
-                      <select value={sel.provider} onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
-                        aria-label={`${tier} provider`}
-                        className="w-12 min-w-0 cursor-pointer rounded border border-border/50 bg-card/60 px-0.5 py-0.5 text-[8px] outline-none focus:border-primary/40">
-                        <option value="">—</option>
-                        {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      </select>
-                      <select value={sel.model} onChange={e => handleTierChange(tier, { model: e.target.value })}
-                        aria-label={`${tier} model`}
-                        className="w-16 min-w-0 cursor-pointer rounded border border-border/50 bg-card/60 px-0.5 py-0.5 font-mono text-[8px] outline-none focus:border-primary/40">
-                        <option value="">—</option>
-                        {providerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-                      </select>
-                    </div>
-                  )
-                })}
-
-                {/* Fetch / Compact */}
-                <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
-                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
-                  {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
-                </button>
-                <button onClick={() => void handleCompact()} disabled={compacting || sending}
-                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
-                  {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
-                </button>
               </div>
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
@@ -1790,7 +1741,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     }
                   }}
                   disabled={false} rows={1}
-                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'} or drop files…` : 'Type a message to start…'}
+                  placeholder={activeId ? `describe what to build or drop files…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
                 <input id="chat-file-input" type="file" multiple className="hidden" onChange={e => { if (e.target.files) addAttachments(e.target.files); e.currentTarget.value = '' }} />
                 <button onClick={() => document.getElementById('chat-file-input')?.click()} className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground" aria-label="Attach files" title="Attach files">
