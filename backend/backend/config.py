@@ -68,7 +68,7 @@ class Settings:
     
     # App version (main.py exposes it in the FastAPI banner / /health).
     # Injected by the Electron main process via AIC_APP_VERSION when packaged.
-    VERSION = os.getenv("AIC_APP_VERSION", "2.6.13")
+    VERSION = os.getenv("AIC_APP_VERSION", "2.6.14")
     
     @property
     def database_path(self) -> Path:
