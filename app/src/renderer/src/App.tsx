@@ -143,8 +143,23 @@ const boot = useBoot({
     }
   }, [boot.bootPhase, profile]);
 
-  // Loading
-  if (loading) {
+  // Unified gate — no flash: show one splash until BOTH boot is ready
+  // and the profile has settled. boot gate wins; then profile; then app.
+  const bootNotReady = boot.bootPhase !== "ready";
+  if (loading || bootNotReady) {
+    // Boot is still warming → BootSplash (not onboarding) even if profile is null.
+    if (bootNotReady) {
+      return (
+        <BootSplash
+          phase={boot.bootPhase}
+          detail={boot.bootDetail}
+          backendStatus={boot.backendStatus}
+          onRetry={boot.retryBoot}
+        />
+      );
+    }
+    // Boot ready but profile fetch still pending — keep a single Loading gate,
+    // never flash OnboardingFlow for an already-onboarded user.
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading…</div>
@@ -152,21 +167,7 @@ const boot = useBoot({
     );
   }
 
-  // Boot gate — block every screen until the local engine is healthy. On a
-  // hard engine error the splash becomes an error panel with Retry/Open log
-  // instead of a dead-end spinner.
-  if (boot.bootPhase !== "ready") {
-    return (
-      <BootSplash
-        phase={boot.bootPhase}
-        detail={boot.bootDetail}
-        backendStatus={boot.backendStatus}
-        onRetry={boot.retryBoot}
-      />
-    );
-  }
-
-  // First launch — onboarding
+  // First launch — onboarding (only after boot ready + profile settled)
   if (!profile || !profile.onboardingCompleted) {
     return <OnboardingFlow onComplete={handleOnboardingComplete} />;
   }
