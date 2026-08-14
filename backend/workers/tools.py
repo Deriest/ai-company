@@ -558,22 +558,11 @@ class ToolExecutor:
             await self._emit("tool_result", {"tool_call": tc.to_dict()})
             return tc
 
-        # QA-S2.1: Shell command safety - block dangerous patterns at word boundaries
-        try:
-            check_dangerous_patterns(command)
-        except PermissionError as e:
-            tc.status = "error"
-            tc.error = f"Command rejected: {e}"
-            tc.output = tc.error
-            tc.duration_ms = 0
-            self.tool_calls.append(tc)
-            await self._emit("tool_result", {"tool_call": tc.to_dict()})
-            return tc
-
         # Docs-scoped shell hardening: roles with write_scope="docs" cannot
         # run file-mutating shell commands that would bypass the doc-only
-        # policy (e.g. `echo x > src/app.py`). Block destructive operations
-        # by checking command tokens (word boundaries) rather than substrings.
+        # policy (e.g. `echo x > src/app.py`). Runs BEFORE the global denylist
+        # so docs roles get the specific, actionable reason ("pipe to shell")
+        # instead of the generic "dangerous pattern" message.
         if self._write_scope == "docs":
             blocked = []
             # Extract all word tokens from the command
@@ -597,6 +586,18 @@ class ToolExecutor:
                 self.tool_calls.append(tc)
                 await self._emit("tool_result", {"tool_call": tc.to_dict()})
                 return tc
+
+        # QA-S2.1: Shell command safety - block dangerous patterns at word boundaries
+        try:
+            check_dangerous_patterns(command)
+        except PermissionError as e:
+            tc.status = "error"
+            tc.error = f"Command rejected: {e}"
+            tc.output = tc.error
+            tc.duration_ms = 0
+            self.tool_calls.append(tc)
+            await self._emit("tool_result", {"tool_call": tc.to_dict()})
+            return tc
 
         start = time.monotonic()
 

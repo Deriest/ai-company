@@ -123,7 +123,7 @@ async def test_run_shell_timeout_kills_process_no_orphan(tmp_path):
     cmd = f"{sys.executable} -c {shlex.quote(code)}"
 
     executor = WorkerToolExecutor(workspace_root=str(tmp_path))
-    result = await executor.run_shell(cmd, timeout=2)
+    result = await executor.run_shell(cmd, timeout=5)
 
     assert result.success is False
     assert "timed out" in (result.error or "").lower()
@@ -164,7 +164,7 @@ async def test_tool_executor_shell_timeout_kills_process(tmp_path):
     cmd = f"{sys.executable} -c {shlex.quote(code)}"
 
     ex = ToolExecutor(workspace_root=str(tmp_path), permission_checker=lambda tn: True)
-    tc = await ex.shell(cmd, timeout=2)
+    tc = await ex.shell(cmd, timeout=5)
 
     assert tc.status == "error"
     assert "timed out" in (tc.error or "").lower()

@@ -6,7 +6,10 @@ This is NOT a substitute for sandboxing — only blocks clearly catastrophic pat
 CRITICAL: This module consolidates previously duplicated denylists from tool_executor.py
 and workers/tools.py into a single source of truth.
 """
+import asyncio
+import os
 import re
+import signal
 import unicodedata
 from urllib.parse import unquote
 
@@ -44,8 +47,6 @@ _DANGEROUS_COMMANDS = [
     r'\bcurl\s+.*\|\s*(?:ba)?sh\b',         # curl ... | sh/bash
     r'\bwget\s+.*\|\s*(?:ba)?sh\b',         # wget ... | sh/bash
     r'\bpip\s+(?:install|uninstall).*--trusted-host',  # bypass SSL verification
-    r'\bpython\s+-[cC]\s+',                 # python -c "..."
-    r'\bbash\s+-c\s+',                      # bash -c "..."
 ]
 
 _DANGEROUS_PATTERNS_COMPILED = [re.compile(p, re.IGNORECASE) for p in _DANGEROUS_COMMANDS]
@@ -103,3 +104,49 @@ def _close_proc_pipes(proc) -> None:
             close()
         except Exception:
             pass
+
+
+# ── Background-detection / process-group kill / port-in-use ──────────────
+
+_BG_TOKEN_RE = re.compile(r"\s&(?:\s|$)|\bnohup(?:\s|$)|\bsetsid(?:\s|$)")
+
+
+async def _kill_process_group(proc) -> None:
+    """Kill the whole process group (shell + backgrounded children) and reap.
+
+    The shell is spawned with ``start_new_session=True`` so every descendant
+    lands in one process group. SIGKILL to the group reaps children that
+    ``proc.kill()`` alone would orphan.
+    """
+    if proc is None:
+        return
+    try:
+        if proc.returncode is None:
+            pgid = os.getpgid(proc.pid)
+            if pgid > 1:
+                os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        await proc.wait()
+    except Exception:
+        pass
+
+
+def _surface_port_in_use(command: str, error: str) -> str:
+    """Surface a port-in-use failure explicitly so the LLM does not loop on a
+    poisoned port."""
+    if not error:
+        return error
+    err_lower = error.lower()
+    if "address already in use" in err_lower or (
+        "oserror" in err_lower and "bind" in err_lower and "address" in err_lower
+    ):
+        return (
+            f"Port already in use (Address already in use). Choose a different "
+            f"port or stop the existing server. Raw: {error}"
+        )
+    return error

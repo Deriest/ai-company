@@ -976,6 +976,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 await session.commit()
                 return {
                     "success": False,
+                    "status": "in_progress",
                     "phases": phases_done,
                     "results": results,
                     "waiting_for_approval": True,

@@ -32,6 +32,9 @@ from backend.security.shell_security import (
     check_dangerous_patterns,
     _denylisted_shell_command,
     _close_proc_pipes,
+    _BG_TOKEN_RE,
+    _kill_process_group,
+    _surface_port_in_use,
 )
 from backend.services.path_utils import resolve_workspace_path
 
@@ -55,11 +58,14 @@ WORKER_PERMISSIONS: Dict[str, Set[str]] = {
     "database": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "nexus": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},  # devops/integration
     "flint": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},  # infra
+    "devops": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
+    "deployment": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "debugger": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     
     # QA/testers with full access for testing
     "qa": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "testing": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},  # legacy alias
+    "performance": {"read_file", "explore", "search"},  # perf review (read-only)
     
     # Sprinter/crafter - coding-focused workers
     "sprinter": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
@@ -75,6 +81,7 @@ WORKER_PERMISSIONS: Dict[str, Set[str]] = {
     # Governance/read-only
     "hermes": {"read_file", "explore", "search", "git_status"},
     "rex": {"read_file", "explore", "search", "git_status"},  # compliance gatekeeper
+    "security": {"read_file", "explore", "search"},  # security review (read-only)
     
     # Planning/tiered workers
     "thinker": {"read_file", "explore", "search", "mcp_call"},  # can call MCP but not shell directly
@@ -403,7 +410,12 @@ class WorkerToolExecutor:
             return ToolResult.error_result("write_file", str(e))
     
     async def run_shell(self, command: str, timeout: int = 60) -> ToolResult:
-        """Execute shell command with security checks."""
+        """Execute shell command with security checks.
+
+        Supports backgrounded commands (``cmd &``) by detaching them and
+        returning immediately (no pipe-hold hang), kills the whole process
+        group on timeout, and surfaces port-in-use failures explicitly.
+        """
         if not await self.check_tool_permission("run_shell"):
             return ToolResult.error_result("run_shell", "Permission denied")
         
@@ -413,28 +425,57 @@ class WorkerToolExecutor:
         except PermissionError:
             return ToolResult.error_result("run_shell", "Command contains dangerous patterns")
         
+        is_background = bool(_BG_TOKEN_RE.search(command or ""))
+        proc = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
                 cwd=self.workspace_root,
                 start_new_session=True,
             )
             
+            if is_background:
+                # Detached: the shell exits immediately after backgrounding the
+                # real command (DEVNULL means no pipe fds to inherit). Reap the
+                # shell transport without waiting on the backgrounded child.
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+                _close_proc_pipes(proc)
+                return ToolResult(
+                    tool="run_shell",
+                    success=True,
+                    output="Started in background (detached). Command keeps running independently.",
+                    metadata={"background": True, "exit_code": 0},
+                )
+            
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
                 output = stdout.decode("utf-8", errors="replace") if stdout else ""
-                
-                return ToolResult.success_result(
-                    "run_shell",
-                    output[:50000],  # Limit output size
-                    {"exit_code": proc.returncode or 0}
-                )
+                exit_code = proc.returncode or 0
             except asyncio.TimeoutError:
-                return ToolResult.error_result("run_shell", f"Command timed out after {timeout}s")
+                await _kill_process_group(proc)
+                return ToolResult(
+                    tool="run_shell",
+                    success=False,
+                    output="",
+                    error=f"Command timed out after {timeout}s",
+                    metadata={"background": False},
+                )
+            
+            output = _surface_port_in_use(command, output)
+            return ToolResult(
+                tool="run_shell",
+                success=exit_code == 0,
+                output=output[:50000],  # Limit output size
+                error=None if exit_code == 0 else (output or f"Exit code: {exit_code}"),
+                metadata={"background": False, "exit_code": exit_code},
+            )
         except Exception as e:
-            return ToolResult.error_result("run_shell", str(e))
+            return ToolResult.error_result("run_shell", _surface_port_in_use(command, str(e)))
     
     async def explore(self, path: str = ".", max_depth: int = 3) -> ToolResult:
         """List directory contents."""

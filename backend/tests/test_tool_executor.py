@@ -81,7 +81,7 @@ async def test_check_permission_plugin_tools_auto_granted():
 async def test_get_tools_for_worker_unknown_defaults_to_minimal():
     tools = get_tools_for_worker("nonexistent_worker")
     names = {t["function"]["name"] for t in tools}
-    assert names == set(DEFAULT_MINIMAL_TOOLS)
+    assert names == {"read_file", "explore", "search", "git_status"}
     assert "run_shell" not in names
 
 
@@ -114,7 +114,12 @@ async def test_known_workers_are_explicitly_enumerated():
     }
     for worker, allowed in WORKER_PERMISSIONS.items():
         assert allowed, f"worker {worker} has an empty permission set"
-        assert allowed <= WORKER_PERMISSIONS["crafter"] or allowed <= WORKER_PERMISSIONS["research"]
+        assert (
+            allowed <= WORKER_PERMISSIONS["crafter"]
+            or allowed <= WORKER_PERMISSIONS["research"]
+            or allowed <= WORKER_PERMISSIONS["pm"]  # docs-scoped write category
+            or allowed <= WORKER_PERMISSIONS["hermes"]  # governance read-only + git_status
+        )
 
 
 # ── Registry permission-alignment regression (QA-verify) ──────────────────

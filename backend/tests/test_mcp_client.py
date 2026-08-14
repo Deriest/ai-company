@@ -66,7 +66,7 @@ class _FakeSession:
 
 @pytest.mark.asyncio
 async def test_connect_http_success_200():
-    client = MCPClient("http://localhost:8000/mcp", protocol="http")
+    client = MCPClient("test-server", "http://localhost:8000/mcp", protocol="http")
     fake_aiohttp = _fake_aiohttp_module(lambda: _FakeSession([_FakeResponse(200)]))
     with patch.dict(sys.modules, {"aiohttp": fake_aiohttp}):
         assert await client.connect() is True
@@ -75,7 +75,7 @@ async def test_connect_http_success_200():
 
 @pytest.mark.asyncio
 async def test_connect_http_non_200_handled():
-    client = MCPClient("http://localhost:8000/mcp", protocol="http")
+    client = MCPClient("test-server", "http://localhost:8000/mcp", protocol="http")
     fake_aiohttp = _fake_aiohttp_module(lambda: _FakeSession([_FakeResponse(500)]))
     with patch.dict(sys.modules, {"aiohttp": fake_aiohttp}):
         assert await client.connect() is True
@@ -88,7 +88,7 @@ async def test_connect_http_exception_returns_false():
         def post(self, *_args, **_kwargs):
             raise ConnectionError("refused")
 
-    client = MCPClient("http://localhost:8000/mcp", protocol="http")
+    client = MCPClient("test-server", "http://localhost:8000/mcp", protocol="http")
     fake_aiohttp = _fake_aiohttp_module(lambda: _BoomSession([]))
     with patch.dict(sys.modules, {"aiohttp": fake_aiohttp}):
         assert await client.connect() is False
@@ -97,7 +97,7 @@ async def test_connect_http_exception_returns_false():
 
 @pytest.mark.asyncio
 async def test_connect_unknown_protocol_returns_false():
-    client = MCPClient("whatever", protocol="bogus")
+    client = MCPClient("test-server", "whatever", protocol="bogus")
     assert await client.connect() is False
     assert client._connected is False
 
@@ -130,7 +130,7 @@ class _FakeProcess:
 
 @pytest.mark.asyncio
 async def test_send_stdio_parses_result():
-    client = MCPClient("fake", protocol="stdio")
+    client = MCPClient("test-server", "fake", protocol="stdio")
     client._process = _FakeProcess(
         b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"read_file"}]}}\n'
     )
@@ -141,7 +141,7 @@ async def test_send_stdio_parses_result():
 
 @pytest.mark.asyncio
 async def test_send_stdio_raises_on_error_response():
-    client = MCPClient("fake", protocol="stdio")
+    client = MCPClient("test-server", "fake", protocol="stdio")
     client._process = _FakeProcess(
         b'{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}\n'
     )
@@ -153,7 +153,7 @@ async def test_send_stdio_raises_on_error_response():
 
 @pytest.mark.asyncio
 async def test_send_stdio_raises_on_invalid_json():
-    client = MCPClient("fake", protocol="stdio")
+    client = MCPClient("test-server", "fake", protocol="stdio")
     client._process = _FakeProcess(b"not-json\n")
     with pytest.raises(MCPError) as exc_info:
         await client._send_stdio({"method": "tools/list", "params": {}})
@@ -162,7 +162,7 @@ async def test_send_stdio_raises_on_invalid_json():
 
 @pytest.mark.asyncio
 async def test_send_stdio_raises_on_empty_response():
-    client = MCPClient("fake", protocol="stdio")
+    client = MCPClient("test-server", "fake", protocol="stdio")
     client._process = _FakeProcess(b"")
     with pytest.raises(MCPError) as exc_info:
         await client._send_stdio({"method": "tools/list", "params": {}})

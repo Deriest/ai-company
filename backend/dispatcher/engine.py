@@ -278,14 +278,23 @@ class DispatcherEngine:
 
             failed_node_ids = [nid for nid, status in results if status == "failed"]
             if failed_node_ids:
-                # Record failures but CONTINUE processing remaining independent groups.
-                # Each group has its own dependencies that may still be satisfiable
-                # independently despite failures in this group.
+                # FAIL-FAST (fail-stop): a failed node means later dependency
+                # groups cannot run. Mark every remaining node as skipped
+                # (never executed) and break out of the group loop.
                 for failed_id in failed_node_ids:
-                    logger.warning(f"Dispatcher node {failed_id} failed; continuing with other groups")
-                
-                # Skip only this specific group's remaining nodes; proceed to next groups.
-                continue
+                    logger.warning(f"Dispatcher node {failed_id} failed; skipping dependent groups")
+                for remaining_group in scheduled[group_index + 1:]:
+                    for nid in remaining_group:
+                        if nid in task_results:
+                            task_results[nid].status = "skipped"
+                            task_results[nid].error = "Skipped: upstream node failed"
+                            task_results[nid].completed_at = datetime.now(timezone.utc)
+                            execution_log.append({
+                                "node_id": nid,
+                                "action": "skipped",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            })
+                break
 
         # Build dispatch result
         dispatch_result = DispatchResult(
@@ -427,10 +436,9 @@ class DispatcherEngine:
         if child_task is None:
             child_task = Task(
                 project_id=project_id,
-                # ROOT-CAUSE FIX: Set parent_task_id to execution_id_prefix for lineage
-                # The graph node remains source of truth for dependencies, but we also
-                # maintain parent/child relationship in Task table for audit trails.
-                parent_task_id=execution_id_prefix,
+                # parent_task_id MUST reference a real tasks.id (FK). The graph
+                # id is tracked in context.graph_id, not here — setting it would
+                # violate the FK and fail the insert for every graph-node child.
                 title=title,
                 description=description,
                 type=task_type,

@@ -290,7 +290,7 @@ async def test_migration_017_rebuild_resumes_after_crash(monkeypatch):
             await conn.execute(text("""
                 CREATE TABLE discovery_sessions_new (
                     id VARCHAR PRIMARY KEY,
-                    conversation_id VARCHAR NOT NULL,
+                    task_conversation_ref VARCHAR NOT NULL,
                     user_id VARCHAR,
                     status VARCHAR NOT NULL DEFAULT 'new_request',
                     round_number INTEGER DEFAULT 0,
@@ -302,7 +302,7 @@ async def test_migration_017_rebuild_resumes_after_crash(monkeypatch):
                 )
             """))
             await conn.execute(text(
-                "INSERT INTO discovery_sessions_new (id, conversation_id, status) "
+                "INSERT INTO discovery_sessions_new (id, task_conversation_ref, status) "
                 "VALUES ('s1', 'c1', 'done')"
             ))
             # Mark every other migration applied so only 017 runs.
@@ -327,7 +327,7 @@ async def test_migration_017_rebuild_resumes_after_crash(monkeypatch):
             ).scalars().all()
             rows = (
                 await conn.execute(
-                    text("SELECT id, conversation_id, status FROM discovery_sessions")
+                    text("SELECT id, task_conversation_ref, status FROM discovery_sessions")
                 )
             ).all()
         assert "017" in applied, "migration 017 must be marked applied after recovery"
