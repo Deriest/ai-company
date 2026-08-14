@@ -485,7 +485,7 @@ async def test_clarification_idempotency_helpers():
     await init_db()
     async with AsyncSessionLocal() as db:
         ds = DiscoverySession(
-            conversation_id="disc-gate-idem-conv",
+            task_conversation_ref="disc-gate-idem-conv",
             status=DiscoveryState.CLARIFICATION.value,
             context={"original_content": "x"},
         )

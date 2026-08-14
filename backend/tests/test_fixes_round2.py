@@ -116,7 +116,7 @@ async def test_find_pending_discovery_session_skips_brief_complete(db_session):
         # Create a discovery session in engineering_brief_complete state
         ds = DiscoverySession(
             id="ds-brief-complete",
-            conversation_id="conv-discovery",
+            task_conversation_ref="conv-discovery",
             status="engineering_brief_complete",
         )
         session.add(ds)
@@ -158,7 +158,7 @@ async def test_find_pending_discovery_session_returns_clarification(db_session):
         # Create a discovery session in clarification state
         ds = DiscoverySession(
             id="ds-clarify",
-            conversation_id="conv-clarify",
+            task_conversation_ref="conv-clarify",
             status="clarification",
         )
         session.add(ds)

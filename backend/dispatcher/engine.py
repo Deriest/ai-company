@@ -491,7 +491,7 @@ class DispatcherEngine:
                     if ds:
                         parent = (
                             await self.session.execute(
-                                select(Task).where(Task.id == ds.conversation_id).limit(1)
+                                select(Task).where(Task.id == ds.task_conversation_ref).limit(1)
                             )
                         ).scalar_one_or_none()
                         if parent and parent.project_id:

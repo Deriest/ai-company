@@ -118,44 +118,44 @@ async def batch_conversations(
                 "DELETE FROM lessons_learned WHERE report_id IN ("
                 "SELECT id FROM engineering_reports WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids)))"
             )
             await _del(
                 "DELETE FROM engineering_reports WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids))"
             )
             await _del(
                 "DELETE FROM dispatch_sessions WHERE graph_id IN ("
                 "SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id = ep.id "
                 "WHERE ep.brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids)))"
             )
             await _del(
                 "DELETE FROM task_graphs WHERE plan_id IN ("
                 "SELECT id FROM engineering_plans WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids)))"
             )
             await _del(
                 "DELETE FROM engineering_plans WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids))"
             )
             await _del(
                 "DELETE FROM planning_sessions WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids))"
             )
             await _del(
                 "DELETE FROM verification_sessions WHERE brief_id IN ("
                 "SELECT id FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids))"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids))"
             )
             await _del(
                 "DELETE FROM engineering_briefs WHERE discovery_session_id IN ("
-                "SELECT id FROM discovery_sessions WHERE conversation_id IN :cids)"
+                "SELECT id FROM discovery_sessions WHERE task_conversation_ref IN :cids)"
             )
             # Attachment rows + their binary files
             att_res = await session.execute(
@@ -167,7 +167,7 @@ async def batch_conversations(
             await session.execute(delete(Attachment).where(Attachment.message_id.in_(
                 select(Message.id).where(Message.conversation_id.in_(conv_ids))
             )))
-            await _del("DELETE FROM discovery_sessions WHERE conversation_id IN :cids")
+            await _del("DELETE FROM discovery_sessions WHERE task_conversation_ref IN :cids")
             await session.execute(delete(Message).where(Message.conversation_id.in_(conv_ids)))
             await session.execute(delete(Conversation).where(Conversation.id.in_(conv_ids)))
             await session.commit()
@@ -263,7 +263,7 @@ async def delete_conversation(
         WHERE report_id IN (
             SELECT id FROM engineering_reports WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
                 )
             )
         )
@@ -272,7 +272,7 @@ async def delete_conversation(
         DELETE FROM engineering_reports 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
             )
         )
     """), {"cid": conversation_id})
@@ -282,7 +282,7 @@ async def delete_conversation(
             SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id 
             WHERE ep.brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
                 )
             )
         )
@@ -292,7 +292,7 @@ async def delete_conversation(
         WHERE plan_id IN (
             SELECT id FROM engineering_plans WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
                 )
             )
         )
@@ -301,7 +301,7 @@ async def delete_conversation(
         DELETE FROM engineering_plans 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
             )
         )
     """), {"cid": conversation_id})
@@ -309,7 +309,7 @@ async def delete_conversation(
         DELETE FROM planning_sessions 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
             )
         )
     """), {"cid": conversation_id})
@@ -317,17 +317,17 @@ async def delete_conversation(
         DELETE FROM verification_sessions 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
             )
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
         DELETE FROM engineering_briefs 
         WHERE discovery_session_id IN (
-            SELECT id FROM discovery_sessions WHERE conversation_id = :cid
+            SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
         )
     """), {"cid": conversation_id})
-    await session.execute(delete(DiscoverySession).where(DiscoverySession.conversation_id == conversation_id))
+    await session.execute(delete(DiscoverySession).where(DiscoverySession.task_conversation_ref == conversation_id))
     await session.execute(delete(Attachment).where(Attachment.message_id.in_(
         select(Message.id).where(Message.conversation_id == conversation_id)
     )))

@@ -174,7 +174,7 @@ async def test_dispatcher_fail_stop_skips_dependents():
         db.add(proj)
         await db.flush()
 
-        ds = DiscoverySession(id="m8-ds", conversation_id="m8-task", user_id=None, status="ready")
+        ds = DiscoverySession(id="m8-ds", task_conversation_ref="m8-task", user_id=None, status="ready")
         db.add(ds)
         await db.flush()
         brief = EngineeringBrief(

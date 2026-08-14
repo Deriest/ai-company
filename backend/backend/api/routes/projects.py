@@ -209,7 +209,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db), us
         "DELETE FROM search_fts WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
     ), {"pid": project_id})
     await db.execute(text(
-        "DELETE FROM discovery_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = :pid)"
+        "DELETE FROM discovery_sessions WHERE task_conversation_ref IN (SELECT id FROM conversations WHERE project_id = :pid)"
     ), {"pid": project_id})
     # Collect attachment ids BEFORE deleting the rows so their binary files can
     # be removed from DATA_DIR/attachments/ (round-4 cleanup deletes the rows;

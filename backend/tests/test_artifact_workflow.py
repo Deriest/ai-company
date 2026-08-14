@@ -300,7 +300,7 @@ class TestDispatcherPRDMaterialization:
                 id="proj-prd", name="PRD Project", slug="prd-proj",
                 description="t", repo_path=repo_path, owner_id="user-1",
             )
-            ds = DiscoverySession(id="ds-prd", conversation_id="conv-1")
+            ds = DiscoverySession(id="ds-prd", task_conversation_ref="conv-1")
             brief = EngineeringBrief(
                 id="brief-prd", discovery_session_id="ds-prd",
                 engineering_goal="Build the PRD pipeline",
