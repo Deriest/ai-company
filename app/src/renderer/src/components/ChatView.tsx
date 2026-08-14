@@ -8,6 +8,7 @@
  * Status bar shows model, tokens, connection.
  */
 import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect, memo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Send, Plus, Search, Trash2,
   FileText, Terminal, Eye, PenLine, Play, Copy, Check,
@@ -70,7 +71,7 @@ const AGENT_WORKER_MAP: Record<AgentMode, string> = {
 type EngineTier = 'thinker' | 'crafter' | 'sprinter' | 'vision'
 type TierSelection = { provider: string; model: string }
 
-const ENGINE_TIERS: EngineTier[] = [] as EngineTier[]
+const ENGINE_TIERS: EngineTier[] = ['thinker', 'crafter', 'sprinter', 'vision']
 const TIER_LABEL_COLORS: Record<EngineTier, string> = {
   thinker: 'text-primary',
   crafter: 'text-success',
@@ -821,6 +822,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
     sprinter: { provider: '', model: '' },
     vision: { provider: '', model: '' },
   })
+  // Which tier's dropdown menu is open, anchored to its toolbar button. Rendered
+  // via a portal to <body> so it isn't clipped by the chat's overflow-hidden.
+  const [tierMenu, setTierMenu] = useState<{ tier: EngineTier; x: number; y: number } | null>(null)
   // Active project — used for the sidebar picker AND sent with chat requests
   // (`workspace` = repo_path, `project_id` = id) so the dispatcher creates
   // project folders in the user's chosen location instead of the app data dir.
@@ -854,6 +858,23 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const rowHeightRef = useRef(ROW_HEIGHT_DEFAULT)
   const sliceRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const tierMenuRef = useRef<HTMLDivElement | null>(null)
+  // Close the tier dropdown menu on outside click or Escape.
+  useEffect(() => {
+    if (!tierMenu) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (tierMenuRef.current && !tierMenuRef.current.contains(e.target as Node)) {
+        setTierMenu(null)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTierMenu(null) }
+    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [tierMenu])
   const abortRef = useRef<(() => void) | null>(null)
   const streamMsgIdRef = useRef<string | null>(null)
   // PERF-FIX: mutable buffer for the streaming assistant content — avoids a
@@ -1653,7 +1674,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     <Terminal className="size-5 text-muted-foreground/40" />
                   </div>
                   <p className="text-xs text-muted-foreground/60">
-                    {active ? `direct · describe what to do` : 'select or create a session'}
+                    {active ? `${agentMode} mode · describe what to do` : 'select or create a session'}
                   </p>
                 </div>
               </div>
@@ -1672,39 +1693,67 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             )}
           </div>
 
-          {/* Status bar */}
-          <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1.5 text-[9px] text-muted-foreground/50 shrink-0">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
-                {health === 'ok' ? 'connected' : health === 'bad' ? 'offline' : 'checking…'}
-              </span>
-              <span className="font-mono">Hermes</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setExplorerOpen(!explorerOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={explorerOpen ? "Hide explorer" : "Show explorer"}>
-                <PanelRight className="size-3" />
-                {explorerOpen ? 'explorer' : ''}
-              </button>
-              <span className="font-mono">Hermes</span>
-            </div>
-          </div>
-
           {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
           <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="w-full max-w-none">
               {/* Keep the complete toolbar on one horizontal row. On narrow
                   windows the row scrolls left/right instead of dropping tiers. */}
-              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden pb-1">
-                <span className="shrink-0 text-[10px] font-semibold tracking-wide text-primary">Hermes · direct</span>
-                <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
-                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
-                    {contextWindow > 0 && totalTokens > 0 ? `${(totalTokens / 1000).toFixed(1)}k / ${(contextWindow / 1000).toFixed(0)}k` : contextWindow > 0 ? `0 / ${(contextWindow / 1000).toFixed(0)}k` : '—'}
+              <div className="mb-2 flex w-full min-w-0 flex-wrap items-center justify-center gap-1 pb-1">
+                {/* Hermes */}
+                <span className="shrink-0 font-bold tracking-wide text-primary text-[9px]">Hermes</span>
+
+                {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[8px] font-semibold text-primary">Context</span>
+                  <span className="font-mono text-[8px] tabular-nums text-muted-foreground whitespace-nowrap">
+                    {totalTokens > 0 ? totalTokens.toLocaleString() : '?'}{contextWindow > 0 ? ` / ${contextWindow.toLocaleString()}` : ''}
                   </span>
-                  <div className="h-1 w-20 shrink-0 overflow-hidden rounded-full bg-muted/40">
-                    <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
-                  </div>
                 </div>
+
+                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
+                <div className="h-1 w-24 min-w-3 shrink-0 overflow-hidden rounded-full bg-muted/40">
+                  <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
+                </div>
+
+                {/* THINKER / CRAFTER / SPRINTER / VISION tier buttons — click opens a per-tier provider+model menu */}
+                {ENGINE_TIERS.map(tier => {
+                  const sel = tiers[tier]
+                  const displayFull = sel.model || sel.provider || '—'
+                  const display = displayFull.length > 28 ? displayFull.slice(0, 27) + '…' : displayFull
+                  const open = tierMenu?.tier === tier
+                  return (
+                    <div key={tier} className="shrink-0">
+                      <button
+                        onClick={(e) => {
+                          if (open) { setTierMenu(null); return }
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setTierMenu({ tier, x: Math.max(8, Math.min(r.left, window.innerWidth - 300)), y: r.top })
+                        }}
+                        className={cn(
+                          "flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[8px] transition-colors",
+                          open
+                            ? "border-primary/40 bg-primary/10"
+                            : "border-border/50 bg-card/60 hover:bg-muted/50 hover:border-border"
+                        )}
+                        aria-haspopup="true" aria-expanded={open}
+                        title={`${tier} · ${displayFull}`}
+                      >
+                        <span className={cn("font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}:</span>
+                        <span className="whitespace-nowrap font-mono text-muted-foreground">{display}</span>
+                      </button>
+                    </div>
+                  )
+                })}
+
+                {/* Fetch / Compact */}
+                <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
+                </button>
+                <button onClick={() => void handleCompact()} disabled={compacting || sending}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
+                </button>
               </div>
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
@@ -1834,6 +1883,50 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             className="absolute right-0 top-12 z-10 rounded-l-md border border-border bg-sidebar p-1 text-muted-foreground/60 hover:text-foreground">
             <PanelRight className="size-3.5" />
           </button>
+        )}
+
+        {tierMenu && createPortal(
+          (() => {
+            const tier = tierMenu.tier
+            const sel = tiers[tier]
+            const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
+            return (
+              <div ref={tierMenuRef} className="fixed z-[100] w-[280px] rounded-lg border border-border bg-card shadow-xl"
+                style={{ left: tierMenu.x, top: tierMenu.y, transform: 'translateY(-100%)', marginBottom: 6 }}>
+                <div className="border-b border-border px-2 py-1.5">
+                  <span className={cn("text-[10px] font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}</span>
+                </div>
+                <div className="p-1.5">
+                  <label className="mb-1.5 flex flex-col gap-0.5">
+                    <span className="text-[9px] text-muted-foreground">Provider</span>
+                    <select value={sel.provider}
+                      onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
+                      aria-label={`${tier} provider`}
+                      className="w-full cursor-pointer rounded border border-border/50 bg-background px-1.5 py-1 text-[10px] outline-none focus:border-primary/40">
+                      <option value="">—</option>
+                      {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
+                  </label>
+                  <span className="mb-1 block text-[9px] text-muted-foreground">Model</span>
+                  <div className="max-h-[220px] overflow-y-auto scroll-thin rounded-md border border-border/50">
+                    {providerModels.length === 0 ? (
+                      <p className="px-2 py-2 text-[10px] text-muted-foreground/60">No models — select a provider first</p>
+                    ) : (
+                      providerModels.map(m => (
+                        <button key={m.id} onClick={() => { handleTierChange(tier, { model: m.id }); setTierMenu(null) }}
+                          className={cn("flex w-full items-center justify-between px-2 py-1.5 text-left text-[10px] hover:bg-muted/50",
+                            sel.model === m.id ? "bg-primary/10 text-primary" : "text-foreground/80")}>
+                          <span className="truncate font-mono">{m.name || m.id}</span>
+                          {sel.model === m.id && <Check className="size-3 shrink-0" />}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })(),
+          document.body
         )}
       </div>
     </div>
