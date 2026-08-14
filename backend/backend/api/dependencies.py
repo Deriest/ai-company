@@ -15,16 +15,21 @@ security = HTTPBearer(auto_error=False)
 
 def verify_auth_fail_open_check() -> bool:
     """Verify that AIC_TESTING environment variable is not enabled.
-    
+
     This prevents accidental deployment with authentication disabled.
-    
+
     Returns:
         True if testing mode is NOT active (normal operation)
-        
+
     Raises:
         RuntimeError: If AIC_TESTING=1 detected (deployment security issue)
+
+    The test suite legitimately sets AIC_TESTING=1 (tests/conftest.py) to
+    exercise auth-fail-open paths, so the guard is relaxed when actually
+    running under pytest (``PYTEST_CURRENT_TEST``) — it still hard-fails a
+    production launch that leaked AIC_TESTING=1.
     """
-    if os.environ.get("AIC_TESTING") == "1":
+    if os.environ.get("AIC_TESTING") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
         raise RuntimeError(
             "FATAL ERROR: AIC_TESTING=1 detected in production environment. "
             "Authentication bypass is ACTIVE - this should never happen outside "

@@ -98,7 +98,7 @@ function setPlatform(platform: string): void {
 describe("UpdateManager.checkForUpdates", () => {
   it("reports up_to_date when the remote version is not newer", async () => {
     const { manager, io } = makeMocks();
-    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "1.0.0" }));
+    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "0.0.9" }));
 
     const state = await manager.checkForUpdates();
 

@@ -366,8 +366,8 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
     })
   }
 
-  const hasTests = deliverables.tests.passed > 0 || deliverables.tests.failed > 0
-  const hasErrors = deliverables.errors.length > 0
+  const hasTests = (deliverables.tests?.passed ?? 0) > 0 || (deliverables.tests?.failed ?? 0) > 0
+  const hasErrors = (deliverables.errors?.length ?? 0) > 0
 
   return (
     <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
@@ -397,13 +397,13 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
       </div>
 
       {/* Files */}
-      {deliverables.files.length > 0 && (
+      {(deliverables.files?.length ?? 0) > 0 && (
         <div className="mb-2">
           <div className="text-[10px] font-medium text-muted-foreground/70 mb-1">
-            Files ({deliverables.files.length})
+            Files ({deliverables.files?.length ?? 0})
           </div>
           <div className="space-y-1">
-            {deliverables.files.map((file, i) => (
+            {(deliverables.files ?? []).map((file, i) => (
               <div key={i} className="rounded border border-border/30 bg-muted/10 px-2 py-1.5">
                 <div className="flex items-center gap-2">
                   <span className={cn("text-[9px] rounded px-1 py-0.5 font-medium",
@@ -436,14 +436,14 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
         <div className="mb-2">
           <div className="text-[10px] font-medium text-muted-foreground/70 mb-1">Tests</div>
           <div className="flex items-center gap-3 text-[10px]">
-            {deliverables.tests.passed > 0 && (
-              <span className="text-success">{deliverables.tests.passed} passed</span>
+            {(deliverables.tests?.passed ?? 0) > 0 && (
+              <span className="text-success">{deliverables.tests?.passed} passed</span>
             )}
-            {deliverables.tests.failed > 0 && (
-              <span className="text-destructive">{deliverables.tests.failed} failed</span>
+            {(deliverables.tests?.failed ?? 0) > 0 && (
+              <span className="text-destructive">{deliverables.tests?.failed} failed</span>
             )}
           </div>
-          {deliverables.tests.output && (
+          {deliverables.tests?.output && (
             <pre className="mt-1 whitespace-pre-wrap font-mono text-[9px] text-muted-foreground/60 leading-relaxed max-h-20 overflow-y-auto scroll-thin">
               {deliverables.tests.output.slice(0, 1000)}
             </pre>
@@ -452,20 +452,20 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
       )}
 
       {/* Shell Commands */}
-      {deliverables.shell_commands.length > 0 && (
+      {(deliverables.shell_commands?.length ?? 0) > 0 && (
         <div className="mb-2">
           <div className="text-[10px] font-medium text-muted-foreground/70 mb-1">
-            Commands ({deliverables.shell_commands.length})
+            Commands ({deliverables.shell_commands?.length ?? 0})
           </div>
           <div className="space-y-0.5">
-            {deliverables.shell_commands.slice(0, 5).map((cmd, i) => (
+            {(deliverables.shell_commands ?? []).slice(0, 5).map((cmd, i) => (
               <div key={i} className="text-[9px] font-mono text-muted-foreground/60 truncate">
                 $ {cmd}
               </div>
             ))}
-            {deliverables.shell_commands.length > 5 && (
+            {(deliverables.shell_commands?.length ?? 0) > 5 && (
               <div className="text-[8px] text-muted-foreground/40">
-                +{deliverables.shell_commands.length - 5} more
+                +{(deliverables.shell_commands?.length ?? 0) - 5} more
               </div>
             )}
           </div>
@@ -476,10 +476,10 @@ function DeliverableSummaryPanel({ deliverables }: { deliverables: DeliverableSu
       {hasErrors && (
         <div>
           <div className="text-[10px] font-medium text-destructive mb-1">
-            Errors ({deliverables.errors.length})
+            Errors ({deliverables.errors?.length ?? 0})
           </div>
           <div className="space-y-0.5">
-            {deliverables.errors.slice(0, 3).map((err, i) => (
+            {(deliverables.errors ?? []).slice(0, 3).map((err, i) => (
               <div key={i} className="text-[9px] text-destructive/80">
                 <span className="font-medium">{err.tool}:</span> {err.error}
               </div>

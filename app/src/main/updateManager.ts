@@ -409,12 +409,15 @@ export class UpdateManager {
     try {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
       
-      // Fetch manifest and signature side-by-side
-      const fetchOptions: RequestInit = { headers: { 'Accept': 'application/json' } };
-      const [raw, signature] = await Promise.all([
-        fetch(url, fetchOptions).then(r => r.json()),
-        fetch(`${url}.sig`, { headers: { 'Accept': 'text/plain' } }).then(r => r.text()).catch(() => ""),
-      ]);
+      // Fetch manifest + signature side-by-side. The manifest MUST go through
+      // the injected io.fetchJson seam (so tests can mock it) — and through the
+      // hardened transport (https-only, size cap, redirect cap). The raw
+      // global `fetch` previously used here bypassed both, which is why the
+      // injected seam never took effect and the transport guardrails were dead.
+      const raw = await this.io.fetchJson(url);
+      const signature = await requestRaw(`${url}.sig`, 30000, MAX_MANIFEST_BYTES, "signature")
+        .then((v) => String(v))
+        .catch(() => "");
       
       // Verify cryptographic signature before parsing
       if (signature) {

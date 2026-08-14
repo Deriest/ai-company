@@ -27,6 +27,7 @@ from typing import Optional, Any, Dict, List, Set
 from jose import jwt
 from urllib.parse import unquote
 
+from backend.services.path_utils import resolve_workspace_path
 from backend.security.shell_security import (
     check_dangerous_patterns,
     _denylisted_shell_command,
@@ -117,7 +118,7 @@ def check_permission(
     normalized_tool = tool_name
     if normalized_tool == "shell":
         normalized_tool = "run_shell"
-    elif normalized_tool == "list_dir":
+    elif normalized_tool in ("list_dir", "list_directory"):
         normalized_tool = "explore"
     
     if tool_name.startswith("mcp_"):
@@ -213,7 +214,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
         tools.append({
             "type": "function",
             "function": {
-                "name": "shell",
+                "name": "run_shell",
                 "description": "Execute shell command",
                 "parameters": {
                     "type": "object",
@@ -302,22 +303,11 @@ class WorkerToolExecutor:
     
     def _resolve_path(self, path: str) -> str:
         """Resolve user-supplied path inside workspace, blocking traversal.
-        
-        Raises ValueError on any escape attempt.
+
+        Delegates to the single consolidated resolver (path_utils) so this
+        copy can't drift. Raises ValueError on any escape attempt.
         """
-        # Reject absolute paths
-        if os.path.isabs(path):
-            raise ValueError(f"Path is outside the workspace: {path}")
-        
-        # Normalize and check for traversal
-        candidate = os.path.join(self.workspace_root, path.lstrip("./"))
-        resolved = os.path.realpath(candidate)
-        
-        # Verify containment
-        if not resolved.startswith(self.workspace_root + os.sep) and resolved != self.workspace_root:
-            raise ValueError(f"Path is outside the workspace: {path}")
-        
-        return resolved
+        return resolve_workspace_path(self.workspace_root, path)
     
     async def check_tool_permission(self, tool_name: str) -> bool:
         """Check if current worker can execute this tool."""
