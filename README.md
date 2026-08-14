@@ -43,32 +43,34 @@ npm run build:electron
 > and reuses it on every subsequent launch — no `AIC_JWT_SECRET` setup required for desktop use.
 > If `AIC_JWT_SECRET` **is** set in the environment it takes precedence (for server-mode deploys).
 
-### Security — `AIC_JWT_SECRET` checklist (non-desktop deploys)
+### Security — `AIC_JWT_SECRET` (server / shared-host deploys only)
 
-When JWT auth matters (shared host / server mode), set `AIC_JWT_SECRET` **before** starting the app.
+**Desktop users can skip this section entirely** — the app auto-generates a
+per-install secret (see the note above) and binds the backend to `127.0.0.1`.
 
-AIC_JWT_SECRET environment variable is required for production security. Generate with:
+Set `AIC_JWT_SECRET` only when running in **server / shared-host mode**, where
+remote JWT authentication matters. Generate a secret and set it before launch:
+
 ```bash
+# Generate:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-⚠️ **PRODUCTION DEPLOYMENT CHECKLIST:**
-1. Generate a secure random secret (do **NOT** use example values)
-2. Set `AIC_JWT_SECRET` as an environment variable **before** starting the app
-3. Never commit secrets to version control
-4. Use a secure secret manager (vault, Kubernetes secrets, etc.)
-
 ```bash
-# Example (Linux/Mac):
+# Linux/Mac:
 export AIC_JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 npm start
 ```
 
 ```powershell
-# Example (Windows PowerShell):
+# Windows PowerShell:
 $env:AIC_JWT_SECRET = (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 npm start
 ```
+
+⚠️ **Server-deploy checklist:** use a secure random secret (never example values),
+set it before launch, never commit it to version control, and prefer a secret
+manager (vault, Kubernetes secrets, etc.).
 
 ### Release Artifacts
 
