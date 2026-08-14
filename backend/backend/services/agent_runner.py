@@ -324,15 +324,15 @@ class AgentRunner:
         tool_executor_map = {
             "read_file": lambda a: self.executor.read_file(a.get("path", ""), a.get("offset", 0), a.get("limit", -1)),
             "write_file": lambda a: self.executor.write_file(a.get("path", ""), a.get("content", "")),
-            "list_directory": lambda a: self.executor.list_directory(a.get("path", ".")),
-            "search_files": lambda a: self.executor.search_files(a.get("pattern", ""), a.get("path", "."), a.get("file_pattern", "*")),
+            "explore": lambda a: self.executor.explore(a.get("path", ".")),
+            "search": lambda a: self.executor.search(a.get("pattern", ""), a.get("path", ".")),
+            "git_status": lambda a: self.executor.git_status(),
             # FIX: clamp the model-supplied timeout so a runaway `timeout: 999999`
-            # cannot pin a subprocess forever, and always run shell commands in
-            # the resolved workspace root (never the process cwd).
+            # cannot pin a subprocess forever. shell() already runs in the
+            # resolved workspace root (never the process cwd).
             "run_shell": lambda a: self.executor.run_shell(
                 a.get("command", ""),
                 min(int(a.get("timeout", 30) or 30), MAX_SHELL_TIMEOUT),
-                cwd=self.executor.workspace_root,
             ),
             "mcp_call": lambda a: self.executor.mcp_call(a.get("tool_name", ""), a.get("arguments", {})),
         }

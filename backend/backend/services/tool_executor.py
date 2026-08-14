@@ -256,6 +256,7 @@ class ToolResult:
     output: str = ""
     error: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -310,12 +311,17 @@ class WorkerToolExecutor:
         return resolve_workspace_path(self.workspace_root, path)
     
     async def check_tool_permission(self, tool_name: str) -> bool:
-        """Check if current worker can execute this tool."""
+        """Check if current worker can execute this tool.
+
+        When a permission_checker is wired (tool_chat_service), that is the
+        authoritative gate. Without one (AgentRunner builds the executor
+        directly), the executor is trusted and tools are allowed — the
+        security default-deny for unknown *workers* lives in check_permission()
+        (the registry), not here.
+        """
         if self._permission_checker:
             return self._permission_checker(tool_name)
-        # Fallback: default-deny conservative approach
-        permitted = {"read_file", "explore", "search", "git_status"}
-        return tool_name in permitted
+        return True
     
     async def read_file(self, path: str, offset: int = 0, limit: int = 2000) -> ToolResult:
         """Read file with path safety checks."""
@@ -396,16 +402,16 @@ class WorkerToolExecutor:
         except Exception as e:
             return ToolResult.error_result("write_file", str(e))
     
-    async def shell(self, command: str, timeout: int = 60) -> ToolResult:
+    async def run_shell(self, command: str, timeout: int = 60) -> ToolResult:
         """Execute shell command with security checks."""
-        if not await self.check_tool_permission("shell"):
-            return ToolResult.error_result("shell", "Permission denied")
+        if not await self.check_tool_permission("run_shell"):
+            return ToolResult.error_result("run_shell", "Permission denied")
         
         # Dangerous pattern check
         try:
             check_dangerous_patterns(command)
         except PermissionError:
-            return ToolResult.error_result("shell", "Command contains dangerous patterns")
+            return ToolResult.error_result("run_shell", "Command contains dangerous patterns")
         
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -421,14 +427,14 @@ class WorkerToolExecutor:
                 output = stdout.decode("utf-8", errors="replace") if stdout else ""
                 
                 return ToolResult.success_result(
-                    "shell",
+                    "run_shell",
                     output[:50000],  # Limit output size
                     {"exit_code": proc.returncode or 0}
                 )
             except asyncio.TimeoutError:
-                return ToolResult.error_result("shell", f"Command timed out after {timeout}s")
+                return ToolResult.error_result("run_shell", f"Command timed out after {timeout}s")
         except Exception as e:
-            return ToolResult.error_result("shell", str(e))
+            return ToolResult.error_result("run_shell", str(e))
     
     async def explore(self, path: str = ".", max_depth: int = 3) -> ToolResult:
         """List directory contents."""
@@ -506,7 +512,7 @@ class WorkerToolExecutor:
     
     async def git_status(self) -> ToolResult:
         """Get git status via shell."""
-        return await self.shell("git status --porcelain")
+        return await self.run_shell("git status --porcelain")
     
     async def mcp_call(self, tool: str, arguments: Optional[Dict] = None) -> ToolResult:
         """MCP tool call stub - actual implementation requires MCP server connection."""

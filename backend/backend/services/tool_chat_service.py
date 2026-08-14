@@ -301,7 +301,7 @@ class ToolAwareChatService:
                 elif tool_type == "write_file":
                     tc = await executor.write_file(args.get("path", ""), args.get("content", ""))
                 elif tool_type == "shell":
-                    tc = await executor.shell(args.get("command", ""), args.get("timeout", 60))
+                    tc = await executor.run_shell(args.get("command", ""), args.get("timeout", 60))
                 elif tool_type == "explore":
                     tc = await executor.explore(args.get("path", "."), args.get("max_depth", 3))
                 elif tool_type == "search":
