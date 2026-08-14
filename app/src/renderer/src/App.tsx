@@ -239,16 +239,23 @@ const boot = useBoot({
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
             <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-              <ChatView
-                health={boot.health}
-                currentProvider={boot.currentProvider}
-                view={view}
-                newSessionSignal={newSessionSignal}
-                projectRoot={projectRoot}
-                projectName={projectName}
-                projectRefreshKey={projectRefreshKey}
-                onProjectChange={handleProjectChange}
-              />
+              {/*
+                Chat is also wrapped in a per-view boundary: a render error
+                while streaming / rendering a task must not take down the whole
+                app. The compact fallback now shows the actual error detail.
+              */}
+              <ErrorBoundary resetKey={view} compact label="Chat failed to render">
+                <ChatView
+                  health={boot.health}
+                  currentProvider={boot.currentProvider}
+                  view={view}
+                  newSessionSignal={newSessionSignal}
+                  projectRoot={projectRoot}
+                  projectName={projectName}
+                  projectRefreshKey={projectRefreshKey}
+                  onProjectChange={handleProjectChange}
+                />
+              </ErrorBoundary>
             </div>
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {/* Per-view boundary: a render error in one view shows a
