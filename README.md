@@ -74,9 +74,9 @@ npm start
 
 | Platform | Download | Size |
 |----------|----------|------|
-| Linux AppImage | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/AIC-ADE-2.6.13.AppImage) | 221 MB |
-| Linux DEB | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/aic-ade_2.6.13_amd64.deb) | 151 MB |
-| Windows NSIS | [v2.6.13](https://github.com/Deriest/ai-company/releases/download/v2.6.13/AIC-ADE.SETUP.V2.6.13.exe) | 183 MB |
+| Linux AppImage | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/AIC-ADE-2.6.19.AppImage) | 221 MB |
+| Linux DEB | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/aic-ade_2.6.19_amd64.deb) | 149 MB |
+| Windows NSIS | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/AIC-ADE.SETUP.V2.6.19.exe) | 183 MB |
 
 > **Auto-update:** installed apps poll `latest.json` on `raw.githubusercontent.com` and prompt when newer than the running build.
 
@@ -84,15 +84,16 @@ npm start
 
 - [Architecture](docs/ARCHITECTURE.md) - System design & components
 - [Product](docs/PRODUCT.md) - Feature specifications
+- [Development](docs/DEVELOPMENT.md) - Build & dev conventions
 - [Deployment](docs/DEPLOYMENT.md) - Build & release guides
 - [Testing](docs/TESTING.md) - QA & validation strategies
 - [Security](docs/SECURITY.md) - Security hardening notes
 
 ### Current Status
 
-✅ **v2.6.13 Released** — renderer packaging + backend boot chain + JWT-optional local-first fixed, healthy engine verified (`GET /health 200`), first fully-bootable packaged app  
-🟡 **Next** — engine cold-start polish (10s boot timeout vs ~2s actual) + installer icon/site assets  
-⚪ **Backlog** — multi-user scope TBD (local-first single-user is product stance)
+✅ **v2.6.19 Released** — Command Center composer rebuilt as a single centered row (`Hermes · Context · THINKER/CRAFTER/SPRINTER/VISION · Fetch · Compact`). Each tier is a button that opens a per-tier provider+model menu; selected model shows with a 27-char cap (full name on hover). Includes the accumulated renderer-packaging, backend boot-chain, onboarding, flicker, and JWT-optional local-first fixes from v2.6.13–2.6.18. A healthy packaged backend is verified via `GET /health 200` and automatic updates are served through `latest.json`.
+⚪ **Next** — engine cold-start polish (10s boot timeout vs ~2s actual) and installer icon/site asset polish.
+⚪ **Backlog** — multi-user scope TBD (local-first single-user is the product stance).
 
 ---
 
