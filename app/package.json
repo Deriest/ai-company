@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.24",
+  "version": "2.6.25",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -121,7 +121,7 @@
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
-      "version": "2.6.24"
+      "version": "2.6.25"
     },
     "extraResources": [
       {
