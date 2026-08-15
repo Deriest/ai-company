@@ -85,6 +85,10 @@ class DeliverableCollector:
                     "output": output[:1000],
                 }
             )
+            # M2 (cycle-12): bound the retained results so a runaway agent
+            # loop cannot grow the summary unboundedly (keep the most recent).
+            if len(self.shell_results) > 200:
+                self.shell_results = self.shell_results[-200:]
             # Check for test results
             if "test" in args.get("command", "").lower() and success:
                 if "passed" in output:
