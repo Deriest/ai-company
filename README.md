@@ -26,6 +26,25 @@ AI-Company/
 └── tests/         # Test suites
 ```
 
+### Current Release — v2.6.24
+
+**14-cycle error-elimination + wiring audit release.** 31 issues fixed
+(4 Critical / 8 High / 12 Medium / 7 Low), plus dependency hardening and
+feature-wiring fixes:
+
+- **Security**: 18 npm vulnerabilities → 0 (electron 34→43, builder 25→26);
+  router-level auth on all bare routers; MCP allowlist enforcement
+- **Reliability**: memory upsert race fixed (partial unique index), atomic
+  checkpoint writes, job scheduler crash recovery, silent exception handlers
+  now log
+- **Fixes**: `name:json` tool_call parser variant (raw markup leak),
+  MCP stdio NameError on connect, deliverable collector tracks failed runs
+- **Wiring**: release-signing endpoints (`/release/manifest`, `/release/latest-manifest`,
+  `/release/sign`) now mounted; 4 orphan services removed (0 callers)
+- **Cleanup**: ruff static-analysis pass (dead imports/vars/redefinitions,
+  730 whitespace issues), 12 unused Codemirror packages removed
+- **QA**: pytest 848 · vitest 213 · tsc clean · e2e Electron launch green
+
 ### Quick Start
 
 ```bash
