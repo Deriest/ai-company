@@ -3,8 +3,11 @@
 Materializes docs/PRD.md from an EngineeringBrief into a task workspace.
 This is a template-driven rendering — no LLMs involved, just data aggregation.
 """
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger("aic.prd_writer")
 
 
 def _fmt_list(items: list | None) -> str:
@@ -165,4 +168,12 @@ def materialize_prd(workspace_path: str, brief: Any) -> str | None:
             f.write(content)
         return prd_path
     except Exception:
+        # M1 (cycle-13): a silently-swallowed write failure (disk full,
+        # permissions, encoding) is indistinguishable from "no brief" — the
+        # pipeline continues as if the PRD was materialized. Log it.
+        logger.warning(
+            "materialize_prd failed for workspace %s: %s",
+            workspace_path,
+            exc_info=True,
+        )
         return None
