@@ -89,7 +89,7 @@ def extract_error_context(
                     end_line = min(len(all_lines), line_number + 5)
                     source_lines = [l.rstrip() for l in all_lines[start_line:end_line]]
             except Exception:
-                pass
+                logger.debug("error-viewer context read failed", exc_info=True)
         
         # Create surrounding context description
         surrounding = None

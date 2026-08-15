@@ -1,3 +1,4 @@
+import logging
 import os
 import glob
 import time
@@ -5,6 +6,8 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from backend.services.path_utils import resolve_workspace_path
+
+logger = logging.getLogger("aic.tool_dispatcher")
 
 class ToolDispatcher:
     def __init__(self, workspace_dir: str | None = None):
@@ -84,6 +87,7 @@ class ToolDispatcher:
                             matches.append(rel)
                 except Exception:
                     pass
+                logger.debug("tool dispatch step failed", exc_info=True)
         return {"matches": matches}
 
 tool_dispatcher = ToolDispatcher()
