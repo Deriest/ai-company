@@ -120,14 +120,24 @@ def _parse_tool_calls(content: str) -> list[tuple[str, dict]]:
     # Format 2: <tool_call>...</tool_call>
     for match in TOOL_XML_PATTERN.finditer(content):
         xml_body = match.group(1).strip()
+        parsed = None
         try:
             parsed = json.loads(xml_body)
+        except json.JSONDecodeError:
+            # Variant seen in the wild (v2.6.21 screenshot): the LLM emits
+            # <tool_call>name:{"args": ...}</tool_call> — name-colon-JSON
+            # instead of a pure JSON object. Retry by splitting on first ':'.
+            m = re.match(r'^(\w+):(\{.*\})$', xml_body, re.DOTALL)
+            if m:
+                try:
+                    parsed = {"name": m.group(1), **json.loads(m.group(2))}
+                except json.JSONDecodeError:
+                    parsed = None
+        if isinstance(parsed, dict):
             tool_type = parsed.get("name") or parsed.get("tool") or parsed.get("type", "")
             tool_args = parsed.get("args") or parsed.get("arguments") or parsed.get("parameters") or {}
             if tool_type:
                 results.append((tool_type, tool_args))
-        except json.JSONDecodeError:
-            pass
 
     # Format 3: {"tool": "type", "args": {...}}
     for tool_type, args_str in TOOL_JSON_PATTERN.findall(content):
