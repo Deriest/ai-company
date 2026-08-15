@@ -147,10 +147,38 @@ class JobSchedulerService:
 
     # ── Background Execution ──────────────────────────────────
 
+    async def recover_stale_jobs(self, db_factory) -> int:
+        """Re-queue jobs stuck in 'running' from a previous crashed run.
+
+        Without this, a hard kill (crash / power loss / force-quit) leaves the
+        row in 'running' forever — _process_loop only picks 'queued', so the
+        job is a permanent ghost in the Jobs view and its slot is leaked.
+        """
+        recovered = 0
+        async with db_factory() as db:
+            res = await db.execute(select(Job).where(Job.status == "running"))
+            for job in res.scalars().all():
+                job.status = "queued"
+                await self._add_log(
+                    db, job.id, "warning",
+                    "Recovered after restart — job was 'running' when the app exited",
+                )
+                recovered += 1
+            if recovered:
+                await db.commit()
+        if recovered:
+            logger.info(json.dumps({"event": "jobs_recovered", "count": recovered}))
+        return recovered
+
     async def start_background_worker(self, db_factory):
         """Start the background job processor."""
         if self._running:
             return
+        # One-time crash recovery before the loop starts serving new work.
+        try:
+            await self.recover_stale_jobs(db_factory)
+        except Exception as e:
+            logger.error(f"Stale-job recovery failed (non-fatal): {e}")
         self._running = True
         self._task = asyncio.create_task(self._process_loop(db_factory))
 
