@@ -532,6 +532,8 @@ from backend.api.routes.approval_config import router as approval_config_router
 app.include_router(approval_config_router, prefix="")
 from backend.api.routes.provider_manage import router as provider_manage_router
 app.include_router(provider_manage_router, prefix="")
+from backend.api.routes.release import router as release_router
+app.include_router(release_router, prefix="")
 from backend.api.routes.tasks import router as tasks_router
 app.include_router(tasks_router, prefix="")
 
