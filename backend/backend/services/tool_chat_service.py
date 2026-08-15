@@ -130,7 +130,12 @@ def _parse_tool_calls(content: str) -> list[tuple[str, dict]]:
             m = re.match(r'^(\w+):(\{.*\})$', xml_body, re.DOTALL)
             if m:
                 try:
-                    parsed = {"name": m.group(1), **json.loads(m.group(2))}
+                    body = json.loads(m.group(2))
+                    if isinstance(body, dict) and not any(
+                        k in body for k in ("args", "arguments", "parameters")
+                    ):
+                        body = {"args": body}  # body IS the args payload itself
+                    parsed = {"name": m.group(1), **body}
                 except json.JSONDecodeError:
                     parsed = None
         if isinstance(parsed, dict):
