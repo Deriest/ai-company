@@ -138,7 +138,7 @@ class MCPClient:
             })
             self._connected = True
             self._last_seen_at = time.time()
-            logger.info(f"MCP stdio connected: {self.endpoint} (server_id={server_id})")
+            logger.info(f"MCP stdio connected: {self.endpoint} (server_id={self.server_id})")
             return True
         except FileNotFoundError:
             logger.error(f"MCP stdio command not found: {self.endpoint}")
@@ -555,7 +555,6 @@ class MCPClientPool:
                 return loop.run_until_complete(_get_states())
         except RuntimeError:
             # No event loop - create one
-            import asyncio
             return asyncio.run(_get_states())
 
     def load_server_states(self, states: list[dict]):
@@ -584,7 +583,6 @@ class MCPClientPool:
             else:
                 loop.run_until_complete(_load())
         except RuntimeError:
-            import asyncio
             asyncio.run(_load())
 
 

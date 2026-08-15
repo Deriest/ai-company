@@ -45,41 +45,6 @@ def _deduplicate_messages(messages: list, keep_recent: int = 10) -> list:
     
     return unique[:keep_recent * 2]
 
-    # First pass: collect all tool call results by ID
-    for msg in reversed(messages):
-        if msg.get('role') == 'tool' and 'tool_calls' in msg:
-            for tool_call in msg['tool_calls']:
-                call_id = tool_call.get('id', '')
-                if call_id:
-                    tools_by_call_id[call_id] = msg
-    
-    # Second pass: deduplicate non-tool messages
-    for msg in reversed(messages):
-        role = msg.get('role')
-        
-        # Keep all tool messages
-        if role == 'tool':
-            if msg not in unique_messages:
-                unique_messages.insert(0, msg)
-            continue
-        
-        # Deduplicate user/system/assistant messages
-        content = msg.get('content', '') or ''
-        content_hash = hash(content[:100])
-        
-        if content_hash not in seen_content_hashes:
-            seen_content_hashes.add(content_hash)
-            unique_messages.insert(0, msg)
-    
-    # Add back any tool messages that reference calls we removed
-    for tool_msg in tools_by_call_id.values():
-        if tool_msg not in unique_messages:
-            unique_messages.insert(0, tool_msg)
-    
-    # Keep only top N messages
-    return unique_messages[:keep_recent * 2]  # Double buffer for safety
-
-
 """Auto-adaptive context management for workers with RAG support.
 
 Version 9.0 - Phase 4 & 5 improvements:
