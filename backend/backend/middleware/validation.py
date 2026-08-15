@@ -50,7 +50,6 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
         if isinstance(value, str):
             # M3 FIX: Keep only path-traversal checks (../; /etc/;)
             # Remove SQL keyword blacklist (drop table, union select, etc.)
-            lower_value = value.lower()
             if (
                 "../" in value
                 or "/etc/" in value

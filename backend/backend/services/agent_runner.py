@@ -19,7 +19,6 @@ import re
 from typing import AsyncGenerator
 
 # PHASE 2: Planning imports
-from backend.api.schemas.plan_schemas import TaskPlan
 
 from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_tools_for_worker, check_permission
 from backend.services.context_builder import ContextBuilder, get_context_policy
@@ -430,16 +429,7 @@ class AgentRunner:
         # PHASE 3 FIX: Track verification state
 
         # PHASE 2 FIX: Plan tracking
-        from typing import Optional
-        task_plan: Optional[TaskPlan] = None
-        from backend.services.checkpoint_service import CheckpointService
-        checkpoint_service: Optional[CheckpointService] = None
-
-        # PHASE 3: Create checkpoint service for state persistence
-        try:
-            checkpoint_service = CheckpointService()
-        except Exception as e:
-            logger.warning(f"Checkpoint service init failed: {e}, continuing without checkpoints")
+        
 
         for iteration in range(max_iterations):
             # ── Cooperative cancellation ─────────────────────────────

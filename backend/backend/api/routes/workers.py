@@ -216,7 +216,6 @@ async def execute_tool(payload: ToolExecuteRequest, _auth: str = Depends(require
 # GET /runtime/workforce — Office Floor Live Status
 # ---------------------------------------------------------------------------
 from storage.models import Lease, LeaseStatus, Task
-from sqlalchemy import select
 from sqlalchemy import func as sqlfunc
 
 @router.get("/runtime/workforce")
