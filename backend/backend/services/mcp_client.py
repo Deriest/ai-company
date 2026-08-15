@@ -201,7 +201,7 @@ class MCPClient:
         """Reconnect if stdio process died. Returns True if successfully reconnected."""
         if not self._connected:
             return False
-        
+
         if self.protocol == "stdio" and not self._check_process_alive():
             logger.warning(
                 f"MCP server {self.server_id} process died (PID={self._process.pid if self._process else 'N/A'}), attempting reconnection..."
@@ -210,7 +210,7 @@ class MCPClient:
             await self.disconnect()
             # Attempt fresh connection
             return await self.connect()
-        
+
         # Update heartbeat
         self._last_seen_at = time.time()
         return True
@@ -462,7 +462,7 @@ class MCPClientPool:
         """Start background process watcher that checks stdio connections every 30s."""
         if self._watcher_task is not None:
             return  # Already running
-        
+
         self._stop_watcher.clear()
         self._watcher_task = asyncio.create_task(self._background_watcher_loop())
         logger.info("MCP process watcher started")
@@ -485,7 +485,7 @@ class MCPClientPool:
             try:
                 async with self._lock:
                     clients = list(self._clients.items())
-                
+
                 for server_id, client in clients:
                     if client.protocol == "stdio":
                         reconnected = await client.reconnect_if_dead()
@@ -493,7 +493,7 @@ class MCPClientPool:
                             logger.info(f"MCP server {server_id} reconnected successfully")
                         elif not client._connected:
                             logger.error(f"MCP server {server_id} failed to reconnect")
-                
+
                 # Update state timestamps for persistence
                 async with self._lock:
                     for server_id, client in self._clients.items():
@@ -530,7 +530,7 @@ class MCPClientPool:
 
     def persist_server_states(self) -> dict:
         """Return all server states for SQLite persistence.
-        
+
         Returns: List of dicts with server_id and last_seen_at for DB storage.
         """
         async def _get_states():
@@ -539,7 +539,7 @@ class MCPClientPool:
                     {"server_id": sid, "last_seen_at": data["last_seen_at"], "status": data["status"]}
                     for sid, data in self._server_state.items()
                 ]
-        
+
         # Run in event loop if needed
         try:
             loop = asyncio.get_event_loop()
@@ -558,7 +558,7 @@ class MCPClientPool:
 
     def load_server_states(self, states: list[dict]):
         """Load saved server states from SQLite on startup.
-        
+
         Args:
             states: List of dicts with server_id and last_seen_at
         """
@@ -571,7 +571,7 @@ class MCPClientPool:
                             "last_seen_at": state.get("last_seen_at", 0),
                             "status": state.get("status", "unknown")
                         }
-        
+
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():

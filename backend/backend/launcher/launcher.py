@@ -27,12 +27,12 @@ def check_health(url: str, timeout: int = 30) -> bool:
 def launch_backend(data_dir: str, host: str = "127.0.0.1", start_port: int = 8000):
     """
     Launch the backend with smart port management.
-    
+
     Port selection logic:
     1. If our backend is already running (lock file + health check), reuse it
     2. If start_port is free, use it
     3. If start_port has another service, find next free port
-    
+
     This prevents port-hopping when stale backends exist.
     """
     try:
@@ -47,25 +47,25 @@ def launch_backend(data_dir: str, host: str = "127.0.0.1", start_port: int = 800
     if health:
         url = f"http://{host}:{port}"
         logger.info(f"Backend already running at {url} (version: {health.get('version', 'unknown')})")
-        
+
         # Verify it's healthy and update lock file
         write_port_lock(data_dir, port, health.get("pid", os.getpid()), host)
         write_runtime_state(host, port, health.get("pid", os.getpid()), data_dir)
-        
+
         # Return None for process since it's already running
         return None, url
 
     logger.info(f"Launching backend on {host}:{port}")
-    
+
     # Get platform dir
     current_dir = Path(__file__).parent.parent.parent.resolve()
-    
+
     env = os.environ.copy()
     env["AIC_DATA_DIR"] = data_dir
     env["PYTHONPATH"] = str(current_dir)
-    
+
     cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", host, "--port", str(port)]
-    
+
     process = subprocess.Popen(
         cmd,
         cwd=str(current_dir),
@@ -74,15 +74,15 @@ def launch_backend(data_dir: str, host: str = "127.0.0.1", start_port: int = 800
         stderr=subprocess.PIPE,
         text=True
     )
-    
+
     url = f"http://{host}:{port}"
     if check_health(url):
         logger.info("Backend is healthy")
-        
+
         # Write port lock to prevent port-hopping
         write_port_lock(data_dir, port, process.pid, host)
         write_runtime_state(host, port, process.pid, data_dir)
-        
+
         # Register cleanup handler to remove lock on exit
         def cleanup_handler(signum=None, frame=None):
             logger.info("Cleaning up backend lock...")
@@ -95,10 +95,10 @@ def launch_backend(data_dir: str, host: str = "127.0.0.1", start_port: int = 800
                     process.kill()
             if signum is not None:
                 sys.exit(0)
-        
+
         signal.signal(signal.SIGTERM, cleanup_handler)
         signal.signal(signal.SIGINT, cleanup_handler)
-        
+
         return process, url
     else:
         logger.error("Backend failed to become healthy")
@@ -111,10 +111,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", required=True)
     args = parser.parse_args()
-    
+
     logging.basicConfig(level=logging.INFO)
     result = launch_backend(args.data_dir)
-    
+
     if result[0] is not None:
         # Wait for process
         result[0].wait()

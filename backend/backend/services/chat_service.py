@@ -404,7 +404,7 @@ class ChatService:
     ) -> Dict[str, Any]:
         start_time = time.time()
         config = await cls._get_provider_config(db, provider_id)
-        
+
         # Persist user message
         user_content = content_to_text(messages[-1].get("content", "")) if messages else ""
         if user_content:
@@ -440,7 +440,7 @@ class ChatService:
         # Graceful fallback when no provider is connected (desktop-first behavior)
         if not config or not model_id:
             content = "No AI provider configured. Please add a provider in Settings > Providers to start chatting."
-            
+
             # create assistant message
             msg = Message(
                 conversation_id=conversation_id,
@@ -453,10 +453,10 @@ class ChatService:
             db.add(msg)
             await db.commit()
             await db.refresh(msg)
-            
+
             # extract artifacts
             await artifact_service.extract_and_store(db, conversation_id, msg.id, content)
-            
+
             # log generation
             log = GenerationLog(
                 conversation_id=conversation_id,
@@ -469,7 +469,7 @@ class ChatService:
             )
             db.add(log)
             await db.commit()
-            
+
             latency_ms = int((time.time() - start_time) * 1000)
             logger.info(json.dumps({
                 "event": "chat_completion",
@@ -522,14 +522,14 @@ class ChatService:
             )
             provider = LLMProvider(provider_config)
             _owns_provider = True
-        
+
         try:
             # Inject system prompt from worker if not already present
             has_system = any(m.get("role") == "system" for m in messages)
             if system_prompt and not has_system:
                 messages = [{"role": "system", "content": system_prompt}] + messages
                 payload["messages"] = messages
-            
+
             # QA-249-R6: History already flattened by provider.chat() internally
             # Use provider.chat() which handles SSE properly
             result = await provider.chat(
@@ -539,19 +539,19 @@ class ChatService:
                 max_tokens=max_tokens,
                 purpose="chat_completion"
             )
-            
+
             content = result.get("content", "")
             data = result.get("raw", {})
-            
+
             choice = data.get("choices", [{}])[0]
             msg_data = choice.get("message", {})
             content = msg_data.get("content", "") or content  # Use result content as fallback
             tool_calls = msg_data.get("tool_calls", [])
             finish_reason = choice.get("finish_reason", "stop")
-            
+
             # FITUR 2: Taste checker — scan for AI-isms and rewrite if needed
             content = await cls._taste_rewrite_if_needed(content, provider)
-            
+
             # handle tool calls if present
             if tool_calls:
                 for tc in tool_calls:
@@ -561,7 +561,7 @@ class ChatService:
                         t_args = json.loads(fn.get("arguments", "{}"))
                     except Exception:
                         t_args = {}
-                    
+
                     exec_res = await tool_dispatcher.execute(t_name, t_args)
                     content += f"\n\n[Tool Executed: {t_name}] -> {json.dumps(exec_res.get('result') or exec_res.get('error'))}"
 
@@ -597,7 +597,7 @@ class ChatService:
             )
             db.add(log)
             await db.commit()
-            
+
             # C7: Calculate cost based on token usage
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
@@ -658,7 +658,7 @@ class ChatService:
     ) -> AsyncGenerator[str, None]:
         start_time = time.time()
         config = await cls._get_provider_config(db, provider_id)
-        
+
         # Persist user message from the last message in the payload
         user_query = content_to_text(messages[-1].get("content", "")) if messages else ""
         if user_query:
@@ -679,7 +679,7 @@ class ChatService:
                 logger.warning(f"FTS indexing failed for user message (non-critical): {fts_err}")
             # New message → cached context assembly for this conversation is stale.
             _invalidate_context_cache(conversation_id)
-        
+
         # create initial streaming message in DB
         msg = Message(
             conversation_id=conversation_id,
@@ -692,14 +692,14 @@ class ChatService:
         db.add(msg)
         await db.commit()
         await db.refresh(msg)
-        
+
         yield f"data: {json.dumps({'type': 'start', 'message_id': msg.id})}\n\n"
 
         if not config:
             error_msg = "No AI provider configured. Please add a provider in Settings > Providers to start chatting."
             msg.content = error_msg
             yield f"data: {json.dumps({'type': 'chunk', 'content': error_msg})}\n\n"
-            
+
             msg.status = "completed"
             await db.commit()
             await artifact_service.extract_and_store(db, conversation_id, msg.id, msg.content)
@@ -751,11 +751,11 @@ class ChatService:
             msg.status = "error"
             await db.commit()
             return
-            
+
         base_url, api_key = config
         url = f"{base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        
+
         # WP-01: Build context before LLM call
         context_str = ""
         try:
@@ -764,20 +764,20 @@ class ChatService:
                 logger.info(f"Context injected: {len(context_str)} chars")
         except Exception as ctx_err:
             logger.warning(f"Context build failed (proceeding without): {ctx_err}")
-        
+
         # Inject context into messages if available
         if context_str:
             context_msg = {"role": "system", "content": f"Relevant context:\n{context_str}"}
             messages = [context_msg] + messages
-        
+
         # BUG-05 FIX + QA-249-R4: Apply token budget to prevent context overflow
         from backend.services.context_builder import get_context_policy, get_model_context_window, get_context_policy_for_window
         from backend.services.context_overflow import estimate_tokens
-        
+
         # Get the appropriate context policy based on model capabilities
         policy = get_context_policy("crafter")  # Default policy (60k tokens)
         metadata_available = False
-        
+
         if provider_id and model_id:
             try:
                 context_window = await get_model_context_window(db, provider_id, model_id)
@@ -790,18 +790,18 @@ class ChatService:
             except Exception as e:
                 logger.warning(f"Failed to get model context window, using default policy: {e}")
                 yield f"data: {json.dumps({'type': 'warning', 'message': 'Unable to determine model capacity, using conservative limit (60k tokens)'})}\n\n"
-        
+
         # Inject system prompt if needed
         has_system = any(m.get("role") == "system" for m in messages)
         if system_prompt and not has_system:
             messages = [{"role": "system", "content": system_prompt}] + messages
-        
+
         # Estimate tokens
         estimated = estimate_tokens(messages)
-        
+
         # QA-249-R5: Removed hard_limit guard at 90% — only truncate at actual max_tokens
         # Old logic rejected 160k conversations that were still valid within 183k limit
-        
+
         # QA-249-R5 FIX: Only truncate if exceeds policy.max_tokens (hard ceiling), not 90%
         # Previously truncated at 90% (148k) which broke valid 160k conversations
         if policy.max_tokens > 0 and estimated > policy.max_tokens:
@@ -809,15 +809,15 @@ class ChatService:
             # Keep system messages, drop oldest user/assistant messages
             system_messages = [m for m in messages if m.get("role") == "system"]
             other_messages = [m for m in messages if m.get("role") != "system"]
-            
+
             # Truncate from the beginning (oldest messages) until under policy.max_tokens
             while estimate_tokens(system_messages + other_messages) > policy.max_tokens and len(other_messages) > 1:
                 other_messages.pop(0)
-            
+
             messages = system_messages + other_messages
             new_estimated = estimate_tokens(messages)
             logger.info(f"Truncated to {len(messages)} messages, estimated {new_estimated} tokens")
-            
+
             # Verify after truncate
             if new_estimated > policy.max_tokens:
                 error_msg = f"Cannot truncate context below limit ({new_estimated:,} > {policy.max_tokens:,} tokens). Start a new session."
@@ -825,13 +825,13 @@ class ChatService:
                 yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
-            
+
             yield f"data: {json.dumps({'type': 'warning', 'message': f'Context truncated: {estimated:,} → {new_estimated:,} tokens'})}\n\n"
-        
+
         # QA-249-R6: Flatten history before sending to upstream (workaround VansRouter bug)
         from llm.provider import _flatten_history
         messages = _flatten_history(messages)
-        
+
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": messages,

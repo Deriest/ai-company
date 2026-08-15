@@ -473,6 +473,6 @@ async def run_migrations():
                     raise
             else:
                 logger.error(f"  Failed: {e}")
-                
+
 
 

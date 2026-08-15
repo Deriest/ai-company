@@ -43,14 +43,14 @@ async def require_current_user(
     _auth_check: bool = Depends(verify_auth_fail_open_check)  # Force runtime validation
 ) -> Optional[str]:
     """Get current authenticated user.
-    
+
     For single-user desktop apps, auth is optional:
     - Normal operation: User provides JWT token (stored locally)
     - Testing mode: Auth skipped if AIC_TESTING=1 (dev only)
-    
+
     Returns:
         User ID from JWT token, or None if no auth provided
-        
+
     Security Note:
         This function ALWAYS checks AIC_TESTING first via dependency injection.
         Even if credentials are None, we ensure testing mode is not enabled.
@@ -58,7 +58,7 @@ async def require_current_user(
     # Always validate auth fail-open protection first
     if _auth_check is False:
         raise RuntimeError("Auth fail-open protection failed")
-    
+
     # Single-user desktop: JWT is required for protected routes.
     # localhost_only_middleware already blocks non-localhost clients, so
     # this layer enforces that even localhost callers present a valid token.
@@ -94,7 +94,7 @@ async def require_current_user(
 
 class AuthValidationError(Exception):
     """Raised when authentication validation fails."""
-    
+
     def __init__(self, message: str, code: int = 401):
         self.message = message
         self.code = code

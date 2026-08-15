@@ -244,55 +244,55 @@ async def restore_backup(
     _auth: str = Depends(require_current_user),
 ):
     """Safely restore from a validated backup zip.
-    
+
     Requires application graceful shutdown to prevent data corruption.
     """
     import shutil
-    
+
     if not _safe_backup_filename(payload.filename):
         raise HTTPException(status_code=400, detail="Invalid backup filename")
-    
+
     zip_path = _backups_dir() / payload.filename
     if not zip_path.is_file():
         raise HTTPException(status_code=404, detail="Backup not found")
-    
+
     # Validate backup before proceeding
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
         if "backup-manifest.json" not in names or "aic.db" not in names:
             raise HTTPException(status_code=400, detail="Invalid backup format")
-        
+
         manifest = json.loads(zf.read("backup-manifest.json"))
         required = {"version", "created_at", "app"}
         if not required.issubset(manifest):
             raise HTTPException(status_code=400, detail="Manifest missing required fields")
         if manifest.get("app") != "AIC-ADE":
             raise HTTPException(status_code=400, detail="Incompatible backup format")
-    
+
     # Create temp directory for extraction
     temp_dir = settings.DATA_DIR / ".restore_tmp"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    
+
     try:
         # Extract backup contents
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(temp_dir)
-        
+
         # Verify extracted structure
         extracted_db = temp_dir / "aic.db"
         if not extracted_db.exists():
             raise HTTPException(status_code=400, detail="Extracted backup missing database")
-        
+
         # Safety snapshot: keep existing data for 7 days rollback
-        old_data_dir = settings.DATA_DIR.with_suffix(settings.DATA_DIR.suffix + ".old." + 
+        old_data_dir = settings.DATA_DIR.with_suffix(settings.DATA_DIR.suffix + ".old." +
                                                      datetime.now().strftime("%Y%m%d%H%M%S"))
         if settings.DATA_DIR.exists():
             shutil.move(str(settings.DATA_DIR), str(old_data_dir))
-        
+
         # Atomic restore: move temp to final location
         import os
         os.rename(str(temp_dir), str(settings.DATA_DIR))
-        
+
         # Verify restored database integrity
         try:
             await run_database_migrations()
@@ -301,14 +301,14 @@ async def restore_backup(
             shutil.rmtree(str(settings.DATA_DIR), ignore_errors=True)
             shutil.move(str(old_data_dir), str(settings.DATA_DIR))
             raise HTTPException(status_code=500, detail=f"Database migration failed after restore: {e}")
-        
+
         return {
             "status": "restored",
             "version": manifest.get("version"),
             "created_at": manifest.get("created_at"),
             "rollback_available_until": (datetime.now() + timedelta(days=7)).isoformat(),
         }
-    
+
     finally:
         # Clean up temp dir if still exists
         if temp_dir.exists():

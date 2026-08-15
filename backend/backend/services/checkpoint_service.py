@@ -15,7 +15,7 @@ logger = logging.getLogger("aic.checkpoint_service")
 
 class CheckpointService:
     """Save and restore agent execution checkpoints for pause/resume capability."""
-    
+
     def __init__(self, checkpoint_dir: str | None = None):
         # M2: default must be resolved to an ABSOLUTE path anchored at the
         # process CWD at construction time — a relative default silently
@@ -24,7 +24,7 @@ class CheckpointService:
         base = Path(checkpoint_dir) if checkpoint_dir else Path(".aic/checkpoints")
         self.checkpoint_dir = base.resolve()
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def create_checkpoint(
         self,
         task_plan: TaskPlan,
@@ -34,7 +34,7 @@ class CheckpointService:
     ) -> PlanCheckpoint:
         """Create a new checkpoint with current agent state."""
         checkpoint_id = f"ckpt_{uuid.uuid4().hex[:8]}"
-        
+
         checkpoint = PlanCheckpoint(
             checkpoint_id=checkpoint_id,
             task_plan=task_plan,
@@ -43,7 +43,7 @@ class CheckpointService:
             saved_at=datetime.now().isoformat(),
             tool_results_summary=tool_results_summary or [],
         )
-        
+
         # M1: atomic write — tmp file + os.replace so a crash mid-write never
         # leaves a truncated checkpoint at the final path.
         checkpoint_path = self.checkpoint_dir / f"{checkpoint_id}.json"
@@ -55,18 +55,18 @@ class CheckpointService:
         os.replace(tmp_path, checkpoint_path)
 
         return checkpoint
-    
+
     def load_checkpoint(self, checkpoint_id: str) -> Optional[PlanCheckpoint]:
         """Load a checkpoint by ID."""
         checkpoint_path = self.checkpoint_dir / f"{checkpoint_id}.json"
         if not checkpoint_path.exists():
             return None
-        
+
         with open(checkpoint_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
         return PlanCheckpoint.from_dict(data)
-    
+
     def get_latest_checkpoint(self, task_id: str) -> Optional[PlanCheckpoint]:
         """Get the most recent checkpoint for a task."""
         checkpoints = []
@@ -82,14 +82,14 @@ class CheckpointService:
             except (OSError, IOError, json.JSONDecodeError) as e:
                 logger.warning(f"Failed to load checkpoint {ckpt_file.name}: {e}")
                 continue
-        
+
         if not checkpoints:
             return None
-        
+
         # Sort by saved_at timestamp
         checkpoints.sort(key=lambda x: x[1].saved_at, reverse=True)
         return checkpoints[0][1]
-    
+
     def list_checkpoints(self) -> List[PlanCheckpoint]:
         """List all available checkpoints."""
         checkpoints = []
@@ -102,7 +102,7 @@ class CheckpointService:
                 logger.warning(f"Failed to load checkpoint {ckpt_file.name}: {e}")
                 continue
         return sorted(checkpoints, key=lambda c: c.saved_at, reverse=True)
-    
+
     def delete_checkpoint(self, checkpoint_id: str) -> bool:
         """Delete a checkpoint by ID."""
         checkpoint_path = self.checkpoint_dir / f"{checkpoint_id}.json"
@@ -110,13 +110,13 @@ class CheckpointService:
             checkpoint_path.unlink()
             return True
         return False
-    
+
     def cleanup_old_checkpoints(self, keep_last: int = 5):
         """Keep only the N most recent checkpoints."""
         checkpoints = self.list_checkpoints()
         if len(checkpoints) <= keep_last:
             return
-        
+
         for ckpt in checkpoints[keep_last:]:
             checkpoint_path = self.checkpoint_dir / f"{ckpt.checkpoint_id}.json"
             if checkpoint_path.exists():

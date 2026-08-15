@@ -22,26 +22,26 @@ _DANGEROUS_COMMANDS = [
     r'\brm\s+-rf\s+/+',                     # rm -rf / (must have at least one slash)
     r'\brm\s+-rf\s+~\s*$',                  # rm -rf ~ (home directory)
     r'\brm\s+-rf\s+\$HOME\s*$',             # rm -rf $HOME
-    
+
     # ===== Filesystem operations =====
     r'\bmkfs\b',                            # mkfs (format filesystem)
     r'\bdd\s+(?:if=\s*.+?|of=\s*.+?)?',     # dd (raw disk access)
     r'>\s*/dev/sd',                         # write to raw block device
-    
+
     # ===== Code execution === 禁止 =====
     r'\b(eval|exec|system)\b',              # direct code execution
-    
+
     # ===== Obfuscation attacks =====
     r"e['\"']?val",                         # e'val', eval obfuscation
     r"e['\"]?\x56\x61\x6c",                 # eval hex encoded
     r"`[^`]+`|\$\([^)]+\)",                 # backtick or $() command substitution
-    
+
     # ===== Dangerous permission changes =====
     r'\bchmod\s+-R\s+777',                  # chmod -R 777 (any path)
-    
+
     # ===== Fork bomb =====
     r':\(\)\s*\{[^}]*\};:',                 # fork bomb pattern
-    
+
     # ===== Network exfiltration/download execute =====
     r'\bcurl\s+.*\|\s*(?:ba)?sh\b',         # curl ... | sh/bash
     r'\bwget\s+.*\|\s*(?:ba)?sh\b',         # wget ... | sh/bash
@@ -90,7 +90,7 @@ def _normalize_command_for_check(command: str) -> str:
 
 def check_dangerous_patterns(command: str) -> None:
     """Check command against dangerous patterns.
-    
+
     Raises PermissionError if command contains a dangerous pattern.
     """
     # H2: interpreter eval guard (production-only; tests exempt)
@@ -99,9 +99,9 @@ def check_dangerous_patterns(command: str) -> None:
 
     if not command:
         return
-    
+
     normalized = _normalize_command_for_check(command)
-    
+
     for pattern in _DANGEROUS_PATTERNS_COMPILED:
         if pattern.search(normalized):
             raise PermissionError("Command contains dangerous pattern")
@@ -109,7 +109,7 @@ def check_dangerous_patterns(command: str) -> None:
 
 def _denylisted_shell_command(command: str) -> str | None:
     """Return a human-readable reason if the command is blocked, else None.
-    
+
     DEPRECATED: Use check_dangerous_patterns() instead (returns error on violation).
     Kept for backward compatibility.
     """

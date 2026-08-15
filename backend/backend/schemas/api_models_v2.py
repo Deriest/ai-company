@@ -54,7 +54,7 @@ class ProviderCreate(BaseModel):
     version: Optional[str] = "1.0"
     healthNotes: Optional[List[str]] = []
     models: Optional[List[Any]] = []
-    
+
 class ProviderUpdate(BaseModel):
     name: Optional[str] = None
     endpoint: Optional[str] = None

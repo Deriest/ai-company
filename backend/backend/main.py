@@ -37,14 +37,14 @@ async def lifespan(app: FastAPI):
     # This is a TEST-ONLY escape hatch — NEVER allowed in production!
     # We enforce this at startup time BEFORE any operations, not just warn.
     from backend.config import settings as app_settings
-    
+
     if app_settings.is_testing_mode:
         raise RuntimeError(
             "FATAL ERROR: AIC_TESTING=1 detected in production environment. "
             "Authentication bypass is ACTIVE - this should never happen outside "
             "of CI/CD test environments. Please unset AIC_TESTING and restart."
         )
-    
+
     logger.info("Production mode verified: authentication enabled")
 
     # Move DB initialization AFTER security check to prevent partial state on misconfig
@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"LLM provider initialized: {config.name} ({config.base_url})")
     else:
         logger.warning("No LLM provider configured (AIC_LLM_BASE_URL not set) — workers will use fallback templates")
-    
+
     # BUG-01 FIX: Register providers from database
     from backend.models.schema import Provider, ProviderModel, WorkerRuntime
     from backend.services.crypto import decrypt as decrypt_api_key
@@ -104,16 +104,16 @@ async def lifespan(app: FastAPI):
                     logger.error(f"CRITICAL: Provider {p.name} has invalid/empty API key")
                     # Fail fast - active provider cannot work without valid credentials
                     raise ValueError(f"Provider {p.name}: invalid API key - application requires valid LLM credentials")
-                
+
                 # Get models for this provider
                 model_result = await db.execute(
                     select(ProviderModel).where(ProviderModel.provider_id == p.id)
                 )
                 provider_models = model_result.scalars().all()
-                
+
                 # R2 FIX: Build models dict from worker_runtime, not first_model
                 models = {}
-                
+
                 # QA-FIX: env AIC_MODEL_* must only be applied to the provider
                 # whose endpoint matches AIC_LLM_BASE_URL — stamping them onto
                 # every DB provider would send a model that doesn't exist on
@@ -122,14 +122,14 @@ async def lifespan(app: FastAPI):
                 for tier, model in _env_models_for_base_url(base_url).items():
                     if model:
                         models[tier] = model
-                
+
                 # Query worker_runtime to get role-specific model assignments
                 # (only fill tiers not already set by env config)
                 worker_result = await db.execute(
                     select(WorkerRuntime).where(WorkerRuntime.provider_id == p.id)
                 )
                 workers = worker_result.scalars().all()
-                
+
                 # Map worker roles to their assigned models
                 for worker in workers:
                     if worker.model_id:
@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
                         tier = role_to_tier.get(worker.role)
                         if tier and tier not in models:
                             models[tier] = worker.model_id
-                
+
                 # Fallback: if no worker_runtime models, find a valid non-combo model
                 if not models and provider_models:
                     # Filter out models that are known-bad defaults:
@@ -169,7 +169,7 @@ async def lifespan(app: FastAPI):
                             "crafter": fallback_model,
                             "sprinter": fallback_model,
                         }
-                
+
                 db_config = ProviderConfig(
                     name=p.name,
                     base_url=base_url,

@@ -112,7 +112,7 @@ class SelfHealingEngine:
             if expire_blocked_leases:
                 from datetime import timedelta
                 threshold = datetime.now(timezone.utc)
-                
+
                 # Query for active leases where expires_at < now (expired by TTL)
                 res_leases = await self.session.execute(
                     select(Lease).where(
@@ -120,7 +120,7 @@ class SelfHealingEngine:
                     )
                 )
                 active_leases = res_leases.scalars().all()
-                
+
                 expired_count = 0
                 for lease in active_leases:
                     # Check if lease has an expires_at and it's in the past
@@ -133,7 +133,7 @@ class SelfHealingEngine:
                         )
                         repairs.append(f"Expired lease {lease.id[:8]} ({lease.worker_name})")
                         expired_count += 1
-                        
+
                         # Reset the owning worker so it can accept new work
                         if lease.worker_id:
                             wres = await self.session.execute(
@@ -145,9 +145,9 @@ class SelfHealingEngine:
                                 w.current_task_id = None
                                 w.current_lease_id = None
                                 repairs.append(f"Reset worker '{w.name}' to IDLE after lease expiry")
-                
+
                 logger.info("Expired %d leases via TTL check", expired_count)
-                
+
                 # Fallback: Also catch leases without expires_at that are > 30 min old
                 # (legacy support for existing data before expires_at was added)
                 threshold_legacy = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -160,7 +160,7 @@ class SelfHealingEngine:
                     )
                 )
                 legacy_blocked = legacy_res.scalars().all()
-                
+
                 for lease in legacy_blocked:
                     lease.status = LeaseStatus.EXPIRED.value
                     lease.error_message = "Expired by self-healing (legacy fallback >30min)"
@@ -169,7 +169,7 @@ class SelfHealingEngine:
                         f"Lease {lease.id[:8]} ({lease.worker_name}) blocked >30min (legacy)"
                     )
                     repairs.append(f"Expired legacy lease {lease.id[:8]} ({lease.worker_name})")
-                    
+
                     if lease.worker_id:
                         wres = await self.session.execute(
                             select(Worker).where(Worker.id == lease.worker_id)
@@ -215,13 +215,13 @@ class SelfHealingEngine:
                     select(Task).where(Task.status == "created")
                 )
                 created = res2.scalars().all()
-                
+
                 # FIX P2: Also audit 'investigate' tasks that were orphaned mid-dispatch
                 res_investigate = await self.session.execute(
                     select(Task).where(Task.status == "investigate")
                 )
                 investigate_tasks = res_investigate.scalars().all()
-                
+
                 if created or investigate_tasks:
                     issues.append(f"{len(created)} task(s) in status 'created'")
                     await self.session.commit()
@@ -288,7 +288,7 @@ class SelfHealingEngine:
                                 )
                             )
                             repairs.append(f"Blocked task {tid[:8]} (dispatch failed)")
-                    
+
                     # FIX P2: Handle orphaned 'investigate' tasks (stuck after partial failure)
                     for t in investigate_tasks:
                         # Check if there's an active lease bound to this task via workers
@@ -298,7 +298,7 @@ class SelfHealingEngine:
                                 Lease.status == LeaseStatus.ACTIVE.value,
                             )
                         ).scalar_one_or_none()
-                        
+
                         if not has_active_lease:
                             # Task is stuck in 'investigate' with no active work — likely
                             # a failed or partial dispatch that left the task orphaned.
@@ -306,7 +306,7 @@ class SelfHealingEngine:
                             max_attempts = 3
                             current_status = "investigate"
                             err = None
-                            
+
                             while attempt < max_attempts and current_status == "investigate":
                                 attempt += 1
                                 try:
@@ -320,7 +320,7 @@ class SelfHealingEngine:
                                     current_status = "blocked"
                                     repairs.append(f"Blocked orphaned task {t.id[:8]} after {max_attempts} attempts")
                                     break
-                            
+
                             if current_status == "blocked":
                                 await self.session.execute(
                                     update(Task)

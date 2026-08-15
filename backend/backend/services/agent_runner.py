@@ -126,7 +126,7 @@ async def _get_mcp_tools_for_agent(db) -> list[dict]:
 
 class AgentRunner:
     """Run an AI agent with real tool execution loop.
-    
+
     Flow:
     1. Send prompt + tool definitions to LLM
     2. LLM responds with text + tool_calls
@@ -134,7 +134,7 @@ class AgentRunner:
     4. Feed results back to LLM
     5. Repeat until LLM gives final answer (no more tool calls)
     """
-    
+
     def __init__(self, workspace_root: str = "."):
         self.executor = WorkerToolExecutor(workspace_root)
         self.context_builder = ContextBuilder(workspace_root)
@@ -164,7 +164,7 @@ class AgentRunner:
         except (OSError, ValueError, zipfile.BadZipFile, subprocess.SubprocessError):
             return ""
         return ""
-    
+
     async def run_agent(
         self,
         worker_type: str,
@@ -180,7 +180,7 @@ class AgentRunner:
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Run agent with tool execution loop, yielding events.
-        
+
         When *db*, *provider_id* and *model_id* are provided the runner
         queries the real model context window and applies overflow
         handling (summarization / truncation) before each LLM call.
@@ -195,7 +195,7 @@ class AgentRunner:
 
         def _cancelled_event(iteration: int) -> dict:
             return {"type": "cancelled", "iterations": iteration, "reason": "User cancelled"}
-        
+
         # BUG-17 FIX: Get static tools + merge MCP tool schemas
         tools = get_tools_for_worker(worker_type)
         mcp_tools = await _get_mcp_tools_for_agent(db)
@@ -289,7 +289,7 @@ class AgentRunner:
             messages.append({"role": "user", "content": parts})
         else:
             messages.append({"role": "user", "content": prompt})
-        
+
         tier_map = {"thinker": ModelTier.THINKER, "crafter": ModelTier.CRAFTER, "sprinter": ModelTier.SPRINTER, "vision": ModelTier.VISION}
         tier = tier_map.get(model_tier, ModelTier.CRAFTER)
 
@@ -302,7 +302,7 @@ class AgentRunner:
         #   sprinter error -> crafter  -> thinker
         # planner/reviewer/manager are not in the 3-worker group — no cross-cover.
         tier_chain = _worker_fallback_chain(tier)
-        
+
         # QA-2441 FIX: get_active() returns the FIRST registered provider,
         # which may have an empty api_key (e.g. VansRouter from env), causing
         # "Illegal header value b'Bearer '". Pick a provider with a usable key.
@@ -319,7 +319,7 @@ class AgentRunner:
         if not provider.config.get_model(tier):
             yield {"type": "error", "error": f"Model is not configured for tier '{tier}'. Select a model in Settings > Providers."}
             return
-        
+
         tool_executor_map = {
             "read_file": lambda a: self.executor.read_file(a.get("path", ""), a.get("offset", 0), a.get("limit", -1)),
             "write_file": lambda a: self.executor.write_file(a.get("path", ""), a.get("content", "")),
@@ -345,7 +345,7 @@ class AgentRunner:
             tool_executor_map[mcp_fn_name] = (
                 lambda a, tn=actual_tool_name: self.executor.mcp_call(tn, a)
             )
-        
+
         # Plugin runtime injection: adapted commands → tools, agents → instructions, hooks → permissions.
         plugin_tool_names: list[str] = []  # G3: plugin tools to auto-grant to this worker
         if db and assigned_plugins:
@@ -377,7 +377,7 @@ class AgentRunner:
                                         f"failed security validation"
                                     )
                                     continue  # Skip this tool
-                
+
                                 def make_tool_fn(sp=script_path):
                                     # QA-E2E FIX: quote the script path — a
                                     # plugin path containing "'" previously
@@ -417,24 +417,24 @@ class AgentRunner:
                         pdef.setdefault("_skill_instructions", p_instructions)
             except Exception as e:
                 logger.warning(f"Plugin runtime injection failed: {e}")
-        
+
         all_tool_results = []
 
         # FIX: stuck-loop detection — track identical (tool, args) signatures.
         call_signatures: dict[str, int] = {}
         loop_warned = False
-        
+
         # FIX: self-check — ask the model to verify before finishing exactly once.
         verify_prompted = False
-        
+
         # PHASE 3 FIX: Track verification state
-        
+
         # PHASE 2 FIX: Plan tracking
         from typing import Optional
         task_plan: Optional[TaskPlan] = None
         from backend.services.checkpoint_service import CheckpointService
         checkpoint_service: Optional[CheckpointService] = None
-        
+
         # PHASE 3: Create checkpoint service for state persistence
         try:
             checkpoint_service = CheckpointService()
@@ -499,20 +499,20 @@ class AgentRunner:
                 )
                 yield {"type": "error", "error": "Agent execution failed: LLM call failed. Check the provider configuration and try again."}
                 return
-            
+
             content = result.get("content", "")
             raw_msg = (result.get("raw") or {}).get("choices", [{}])[0].get("message", {})
             tool_calls = raw_msg.get("tool_calls", []) if isinstance(raw_msg, dict) else []
-            
+
             # Clean thinking tags
             if content:
                 for tag in ("thinking", "thought", "reason"):
                     content = re.sub(rf'<{tag}>.*?</{tag}>', '', content, flags=re.DOTALL).strip()
-            
+
             # Emit content
             if content:
                 yield {"type": "content", "content": content}
-            
+
             # If no tool calls, we're done — unless we haven't asked for a final
             # self-check verification yet (FIX: verify step before finishing).
             if not tool_calls:
@@ -531,10 +531,10 @@ class AgentRunner:
                     continue
                 yield {"type": "done", "iterations": iteration + 1, "tool_results": all_tool_results, "deliverables": collector.get_summary().to_dict()}
                 return
-            
+
             # Execute tool calls
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-            
+
             for call in tool_calls:
                 # FIX: cooperative cancellation — stop before executing the
                 # next tool round when the user has stopped the stream.
@@ -546,15 +546,15 @@ class AgentRunner:
                 fn_name = fn.get("name", "")
                 fn_args_raw = fn.get("arguments", "{}")
                 call_id = call.get("id", f"call_{iteration}_{fn_name}")
-                
+
                 try:
                     args = json.loads(fn_args_raw) if isinstance(fn_args_raw, str) else fn_args_raw
                 except json.JSONDecodeError:
                     args = {}
-                
+
                 # Emit tool start
                 yield {"type": "tool_start", "tool": fn_name, "args": args, "call_id": call_id}
-                
+
                 # Check permission (G3: plugin-cmd_* tools are auto-granted for
                 # workers the plugin is assigned to via plugin_tool_names).
                 if not check_permission(worker_type, fn_name, allowed_plugin_tools=plugin_tool_names):
@@ -588,7 +588,7 @@ class AgentRunner:
                             )
                     else:
                         tool_result = ToolResult(tool=fn_name, success=False, output="", error=f"Unknown tool: {fn_name}")
-                
+
                 all_tool_results.append({
                     "tool": fn_name,
                     "success": tool_result.success,
@@ -605,7 +605,7 @@ class AgentRunner:
                     error=tool_result.error or "",
                     args=args,
                 )
-                
+
                 # Emit tool result
                 yield {
                     "type": "tool_result",
@@ -616,7 +616,7 @@ class AgentRunner:
                     "metadata": tool_result.metadata,
                     "call_id": call_id,
                 }
-                
+
                 # Add tool result to messages (always include output + exit code + error)
                 tool_content = _format_tool_result(tool_result)
                 messages.append({
@@ -644,7 +644,7 @@ class AgentRunner:
                         ),
                     })
                     yield {"type": "warning", "message": "Detected repeated identical tool calls — prompting the agent to stop looping"}
-        
+
         yield {"type": "done", "iterations": max_iterations, "note": "Max iterations reached", "tool_results": all_tool_results, "deliverables": collector.get_summary().to_dict()}
 
 
@@ -663,7 +663,7 @@ async def run_worker_with_tools(
     runner = AgentRunner(workspace_root=workspace_root)
     final_content = ""
     tool_results = []
-    
+
     async for event in runner.run_agent(
         worker_type,
         prompt,
@@ -681,5 +681,5 @@ async def run_worker_with_tools(
             return {"success": False, "error": event["error"], "content": final_content, "tool_results": tool_results}
         elif event["type"] == "done":
             return {"success": True, "content": final_content, "tool_results": tool_results, "iterations": event.get("iterations", 0)}
-    
+
     return {"success": True, "content": final_content, "tool_results": tool_results}

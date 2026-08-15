@@ -8,7 +8,7 @@ def generate_uuid():
 
 class Provider(Base):
     __tablename__ = "providers"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     # Round-6 FIX: unique names — POST /providers/config upserts by name while
     # POST /providers was creating duplicate rows. The unique constraint is
@@ -32,7 +32,7 @@ class ProviderModel(Base):
     model_id = Column(String, nullable=False) # e.g. "gpt-4o"
     display_name = Column(String, nullable=False)
     owned_by = Column(String, nullable=True)
-    
+
     # Capabilities (Inferred)
     context_window = Column(Integer, nullable=True)
     context_source = Column(String, nullable=True)  # "user_override", "probe", "cache", "models_dev", "catalog", "pattern", "fallback"
@@ -47,7 +47,7 @@ class ProviderModel(Base):
     supports_embeddings = Column(Boolean, default=False)
 
     raw_metadata = Column(JSON, nullable=True)
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -61,7 +61,7 @@ WORKER_DEFAULTS = {
 
 class WorkerRuntime(Base):
     __tablename__ = "worker_runtime"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     role = Column(String, unique=True, nullable=False, index=True)
     label = Column(String, nullable=False, default="")
@@ -79,7 +79,7 @@ class WorkerRuntime(Base):
 # Merge the rest from schema.py
 class Settings(Base):
     __tablename__ = "settings"
-    
+
     id = Column(String, primary_key=True, default="default")
     crash_reports = Column(Boolean, default=True)
     diagnostics = Column(Boolean, default=True)
@@ -91,7 +91,7 @@ class Settings(Base):
 
 class Company(Base):
     __tablename__ = "companies"
-    
+
     id = Column(String, primary_key=True, default="default")
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False)
@@ -103,7 +103,7 @@ class Company(Base):
 class User(Base):
     __tablename__ = "users"
     __table_args__ = {"extend_existing": True}
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     username = Column(String, unique=True, nullable=False)
     email = Column(String, unique=True, nullable=False)

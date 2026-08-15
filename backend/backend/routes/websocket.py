@@ -86,13 +86,13 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, channel: str, user_id: str | None = None):
         await websocket.accept()
         self.connections[channel].append(websocket)
-        
+
         # Track this WS's subscriptions to enable proper cleanup (P4 fix)
         ws_id = self._get_ws_id(websocket)
         if ws_id not in self.ws_channels:
             self.ws_channels[ws_id] = set()
         self.ws_channels[ws_id].add(channel)
-        
+
         if user_id:
             self.user_channels[user_id].add(channel)
         logger.info(f"WebSocket connected: channel={channel} user={user_id or 'anonymous'}")

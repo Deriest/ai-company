@@ -1,44 +1,44 @@
 
 def _deduplicate_messages(messages: list[dict], keep_recent: int = 10) -> list[dict]:
     """Remove duplicate messages while keeping most recent ones.
-    
+
     Dedup based on first 100 chars of content for user/system assistant messages.
     Tool messages are kept if they reference different tool_calls.
     """
     if len(messages) <= keep_recent:
         return messages
-    
+
 
 def _deduplicate_messages(messages: list, keep_recent: int = 10) -> list:
     """Remove duplicate messages while keeping most recent ones.
-    
+
     Dedup based on first 100 chars of content for user/system/assistant messages.
     Tool messages are kept if they reference different tool_calls.
     Reduces token waste by ~30% typically.
     """
     if len(messages) <= keep_recent:
         return messages
-    
+
     seen_hashes = set()
     unique = []
-    
+
     for msg in reversed(messages):
         role = msg.get('role')
-        
+
         # Keep all tool messages
         if role == 'tool':
             if msg not in unique:
                 unique.insert(0, msg)
             continue
-        
+
         # Hash first 100 chars for non-tool messages
         content = str(msg.get('content', '') or '')[:100]
         h = hash(content)
-        
+
         if h not in seen_hashes:
             seen_hashes.add(h)
             unique.insert(0, msg)
-    
+
     return unique[:keep_recent * 2]
 
 """Auto-adaptive context management for workers with RAG support.
@@ -138,36 +138,36 @@ async def get_model_context_window(
     )
     result = await db.execute(stmt)
     row = result.one_or_none()
-    
+
     if not row:
         return None
-    
+
     context_window, context_source, context_cached_at = row
-    
+
     # Layer 1: User override - always wins
     if context_source == "user_override" and context_window:
         logger.info(f"Context for {model_id}: {context_window} (user override)")
         return context_window
-    
+
     # Layer 2: Probe result - trust if fresh (within 24h)
     if context_source == "probe" and context_window and context_cached_at:
         age = datetime.now(context_cached_at.tzinfo) - context_cached_at
         if age < timedelta(hours=24):
             logger.info(f"Context for {model_id}: {context_window} (probe, age: {age})")
             return context_window
-    
+
     # Layer 3: Any cached value within TTL
     if context_window and context_cached_at:
         age = datetime.now(context_cached_at.tzinfo) - context_cached_at
         if age < timedelta(hours=24):
             logger.info(f"Context for {model_id}: {context_window} (cache, source: {context_source}, age: {age})")
             return context_window
-    
+
     # If we have a cached value but it's stale, fall through to re-detection
     if context_window:
         logger.info(f"Context for {model_id}: {context_window} (stale cache, source: {context_source})")
         return context_window
-    
+
     return None
 
 
@@ -304,21 +304,21 @@ class WorkerContext:
 
 class ContextBuilder:
     """Build context for workers with RAG and deduplication support."""
-    
+
     def __init__(self, workspace_root: str = "."):
         self.workspace_root = workspace_root
         self._rag_index = None
         self._rag_initialized = False
-    
+
     async def _get_rag_retriever(self):
         """Initialize and return RAG retriever."""
         from backend.services.rag_context import get_rag_context_retriever
-        
+
         if self._rag_index is None:
             self._rag_index = get_rag_context_retriever(self.workspace_root)
-        
+
         return self._rag_index
-    
+
     async def build_context(
         self,
         worker_type: str,
@@ -400,56 +400,56 @@ class ContextBuilder:
             "devops": "You are Nexus, the Integration Engineer. You ensure components work together.",
         }
         return prompts.get(worker_type, "You are a specialized AI worker.")
-    
+
     def _deduplicate_messages(
         self,
         messages: list,
         max_count: int
     ) -> list:
         """Remove duplicate messages across iterations with relevance ranking.
-        
+
         Prioritizes:
         1. Messages with errors
         2. Recent messages
         3. Messages with unique content
-        
+
         Returns deduplicated list up to max_count.
         """
         if len(messages) <= max_count:
             return messages
-        
+
         seen_content: dict[str, int] = {}
         ranked: list[tuple[int, int, dict]] = []  # (priority, index, message)
-        
+
         for i, msg in enumerate(messages):
             content = msg.get("content", "")
-            
+
             # Create content fingerprint (first 100 chars)
             fingerprint = content[:100].lower()
-            
+
             # Priority scoring: errors get highest priority, recent gets bonus
             priority = 0
-            
+
             # Bonus for error messages
             if "error" in content.lower() or "failed" in content.lower():
                 priority += 1000
-            
+
             # Recency bonus (more recent = higher)
             priority += (len(messages) - i) * 10
-            
+
             # Dedup logic: keep first occurrence, skip duplicates
             if fingerprint in seen_content:
                 continue  # Skip duplicate
-            
+
             seen_content[fingerprint] = i
             ranked.append((priority, i, msg))
-        
+
         # Sort by priority (highest first)
         ranked.sort(key=lambda x: (-x[0], x[1]))
-        
+
         # Take top max_count messages
         return [msg for _, _, msg in ranked[:max_count]]
-    
+
     async def _build_project_overview(
         self,
         max_files: int = 50,
@@ -458,12 +458,12 @@ class ContextBuilder:
         include_rag: bool = True,
     ) -> str:
         """Build project overview with RAG-based file selection.
-        
+
         Uses RAG to retrieve top 100+ relevant files instead of limited 30.
         """
         try:
             scored_files: list[tuple[float, str, str]] = []
-            
+
             if include_rag and task_keywords:
                 # Use RAG for intelligent retrieval
                 rag_retriever = await self._get_rag_retriever()
@@ -471,12 +471,12 @@ class ContextBuilder:
                     query=" ".join(task_keywords),
                     max_results=min(150, max_files * 3),  # Get more options
                 )
-                
+
                 for embedding in retrieval_result.files[:max_files]:
                     score = embedding.relevance_score
                     if score > 0:
                         scored_files.append((score, embedding.rel_path, embedding.abs_path))
-            
+
             # Fallback: traditional scoring if RAG not available
             if not scored_files:
                 for root, dirs, files in os.walk(self.workspace_root):
@@ -486,28 +486,28 @@ class ContextBuilder:
                     depth = root.replace(self.workspace_root, '').count(os.sep)
                     if depth > 3:
                         continue
-                    
+
                     for f in files:
                         if f.startswith('.'):
                             continue
-                        
+
                         rel_path = os.path.relpath(os.path.join(root, f), self.workspace_root)
                         abs_path = os.path.join(root, f)
-                        
+
                         # Skip large/binary files
                         try:
                             if os.path.getsize(abs_path) > 500_000:
                                 continue
                         except OSError:
                             continue
-                        
+
                         score = self._file_relevance_score(rel_path, task_keywords)
                         scored_files.append((score, rel_path, abs_path))
-            
+
             # Sort by relevance
             scored_files.sort(key=lambda x: (-x[0], x[1]))
             top_files = scored_files[:max_files]
-            
+
             # Build directory tree
             lines: list[str] = []
             seen_dirs: set[str] = set()
@@ -521,7 +521,7 @@ class ContextBuilder:
                         lines.append(f"{indent}{parts[i]}/")
                 indent = '  ' * (len(parts) - 1)
                 lines.append(f"{indent}{parts[-1]}")
-            
+
             # Content preview for top 3 files
             content_preview_lines: list[str] = []
             for score, rel_path, abs_path in top_files[:3]:
@@ -530,32 +530,32 @@ class ContextBuilder:
                 preview = self._read_file_preview(abs_path, max_lines=20)
                 if preview:
                     content_preview_lines.append(f"\n--- {rel_path} ---\n{preview}")
-            
+
             result = "\n".join(lines)
             if content_preview_lines:
                 result += "\n\n## Relevant File Previews" + "".join(content_preview_lines)
-            
+
             # Clamp to max_tokens
             if max_tokens:
                 max_chars = max_tokens * 4
                 if len(result) > max_chars:
                     result = result[:max_chars] + "\n... (truncated to fit context budget)"
-            
+
             return result
-            
+
         except Exception as e:
             logger.warning(f"Failed to build project overview: {e}")
             return ""
-    
+
     async def load_referenced_file(self, rel_path: str, max_lines: int = 200) -> Optional[str]:
         """Lazy-load file content only when actually referenced."""
         from backend.services.rag_context import get_rag_context_retriever
-        
+
         if self._rag_index is None:
             self._rag_index = get_rag_context_retriever(self.workspace_root)
-        
+
         return await self._rag_index.load_file_content(rel_path, max_lines)
-    
+
     @staticmethod
     def _extract_keywords(task_description: str) -> list[str]:
         """Extract meaningful keywords from task description."""
@@ -577,10 +577,10 @@ class ContextBuilder:
             wl = w.lower()
             if wl not in stop_words and len(wl) > 2:
                 keywords.append(w)
-        
+
         exts = re.findall(r'\.\w{1,5}', task_description)
         keywords.extend(exts)
-        
+
         seen: set[str] = set()
         unique: list[str] = []
         for k in keywords:
@@ -589,7 +589,7 @@ class ContextBuilder:
                 seen.add(kl)
                 unique.append(k)
         return unique
-    
+
     @staticmethod
     def _file_relevance_score(rel_path: str, task_keywords: list[str] | None) -> float:
         """Score file relevance to task keywords."""
@@ -615,7 +615,7 @@ class ContextBuilder:
             score += 1.0
 
         return score
-    
+
     @staticmethod
     def _read_file_preview(abs_path: str, max_lines: int = 20) -> str:
         """Read file preview, skipping binaries."""
@@ -647,7 +647,7 @@ class SubtaskProgress:
     error: Optional[str] = None
 
 
-@dataclass  
+@dataclass
 class ExecutionProgress:
     """Overall execution progress tracking."""
     total_subtasks: int = 0
@@ -656,15 +656,15 @@ class ExecutionProgress:
     current_subtask: Optional[str] = None
     overall_percentage: float = 0.0
     events: list[dict] = field(default_factory=list)
-    
+
     def add_subtask(self, subtask_id: str, name: str):
         """Register a new subtask."""
         self.total_subtasks += 1
-    
+
     def start_subtask(self, subtask_id: str):
         """Mark subtask as started."""
         self.current_subtask = subtask_id
-    
+
     def update_subtask_progress(self, subtask_id: str, progress: int, event_msg: str):
         """Update subtask progress and emit event."""
         self.events.append({
@@ -673,23 +673,23 @@ class ExecutionProgress:
             "progress": progress,
             "message": event_msg,
         })
-    
+
     def complete_subtask(self, subtask_id: str, success: bool, error: str | None = None):
         """Mark subtask as completed."""
         self.completed_subtasks += 1 if success else 0
         self.failed_subtasks += 1 if not success else 0
         self.current_subtask = None
-        
+
         if self.total_subtasks > 0:
             self.overall_percentage = (self.completed_subtasks / self.total_subtasks) * 100
-        
+
         self.events.append({
             "type": "subtask_complete",
             "subtask_id": subtask_id,
             "success": success,
             "error": error,
         })
-    
+
     def get_current_status(self) -> dict:
         """Get current execution status."""
         return {

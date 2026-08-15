@@ -259,7 +259,7 @@ async def delete_conversation(
     att_ids = [row[0] for row in att_res.all()]
     # CASCADE: delete brief chain first (FK to discovery_sessions), then briefs/discovery_sessions
     await session.execute(text("""
-        DELETE FROM lessons_learned 
+        DELETE FROM lessons_learned
         WHERE report_id IN (
             SELECT id FROM engineering_reports WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
@@ -269,7 +269,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM engineering_reports 
+        DELETE FROM engineering_reports
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
                 SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
@@ -277,9 +277,9 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM dispatch_sessions 
+        DELETE FROM dispatch_sessions
         WHERE graph_id IN (
-            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id 
+            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id
             WHERE ep.brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
                     SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
@@ -288,7 +288,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM task_graphs 
+        DELETE FROM task_graphs
         WHERE plan_id IN (
             SELECT id FROM engineering_plans WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
@@ -298,7 +298,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM engineering_plans 
+        DELETE FROM engineering_plans
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
                 SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
@@ -306,7 +306,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM planning_sessions 
+        DELETE FROM planning_sessions
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
                 SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
@@ -314,7 +314,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM verification_sessions 
+        DELETE FROM verification_sessions
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
                 SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
@@ -322,7 +322,7 @@ async def delete_conversation(
         )
     """), {"cid": conversation_id})
     await session.execute(text("""
-        DELETE FROM engineering_briefs 
+        DELETE FROM engineering_briefs
         WHERE discovery_session_id IN (
             SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
         )

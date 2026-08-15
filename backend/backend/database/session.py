@@ -14,8 +14,8 @@ DATABASE_URL = settings.DATABASE_URL
 # streaming chat and dashboard requests run concurrently.
 # Configure connection pool for SQLite (single-writer optimization)
 engine = create_async_engine(
-    DATABASE_URL, 
-    echo=False, 
+    DATABASE_URL,
+    echo=False,
     connect_args={"timeout": 30},
     pool_size=5,          # Keep small for SQLite WAL mode
     max_overflow=10,      # Allow temporary scaling during spikes

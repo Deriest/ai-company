@@ -13,10 +13,10 @@ class Subtask:
     status: str = "pending"  # pending, in_progress, done, blocked
     dependencies: List[str] = field(default_factory=list)  # IDs of required subtasks
     completed_at: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Subtask":
         return cls(**data)
@@ -32,7 +32,7 @@ class TaskPlan:
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     current_subtask_index: int = 0
     is_complete: bool = False
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "task_id": self.task_id,
@@ -43,7 +43,7 @@ class TaskPlan:
             "current_subtask_index": self.current_subtask_index,
             "is_complete": self.is_complete,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskPlan":
         subtasks = [Subtask.from_dict(s) for s in data.get("subtasks", [])]
@@ -56,7 +56,7 @@ class TaskPlan:
             current_subtask_index=data.get("current_subtask_index", 0),
             is_complete=data.get("is_complete", False),
         )
-    
+
     def mark_subtask_done(self, subtask_id: str) -> bool:
         """Mark a subtask as complete."""
         for i, subtask in enumerate(self.subtasks):
@@ -67,7 +67,7 @@ class TaskPlan:
                 self._advance_subtask_index()
                 return True
         return False
-    
+
     def _advance_subtask_index(self):
         """Find first non-done subtask."""
         for i, subtask in enumerate(self.subtasks):
@@ -77,7 +77,7 @@ class TaskPlan:
         else:
             self.is_complete = True
             self.current_subtask_index = len(self.subtasks) - 1
-    
+
     def get_current_subtask(self) -> Optional[Subtask]:
         """Get currently active subtask."""
         if self.current_subtask_index < len(self.subtasks):
@@ -94,7 +94,7 @@ class PlanCheckpoint:
     iteration_count: int
     saved_at: str = field(default_factory=lambda: datetime.now().isoformat())
     tool_results_summary: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "checkpoint_id": self.checkpoint_id,
@@ -104,7 +104,7 @@ class PlanCheckpoint:
             "saved_at": self.saved_at,
             "tool_results_summary": self.tool_results_summary,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PlanCheckpoint":
         return cls(

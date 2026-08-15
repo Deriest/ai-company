@@ -158,7 +158,7 @@ def embed_single(text: str) -> list[float]:
 
 def validate_embedding_provider() -> dict:
     """Validate embedding provider and return status info.
-    
+
     Returns dict with:
         - provider: str (openai/ollama/sentencetransformers/hash)
         - production_ready: bool
@@ -167,19 +167,19 @@ def validate_embedding_provider() -> dict:
     try:
         provider = get_embedding_provider()
         is_production = os.getenv("AIC_PRODUCTION_MODE", "").strip() == "1"
-        
+
         result = {
             "provider": provider,
             "production_ready": provider != "hash",
             "warning": None
         }
-        
+
         if provider == "hash":
             if is_production:
                 result["warning"] = "CRITICAL: Hash fallback in production mode"
             else:
                 result["warning"] = "Using hash fallback (dev mode only)"
-        
+
         return result
     except Exception as e:
         return {

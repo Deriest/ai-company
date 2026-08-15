@@ -168,7 +168,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db), us
         await validate_ownership(db, project_id, "project", user)
     except HTTPException:
         raise  # Re-raise ownership violations (403)
-    
+
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalars().first()
     if not project:

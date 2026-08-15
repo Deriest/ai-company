@@ -18,7 +18,7 @@ class ProviderResponse(BaseModel):
     base_url: str
     api_key: str
     enabled: bool
-    
+
     model_config = {"from_attributes": True}
 
 class WorkerRuntimeUpdate(BaseModel):

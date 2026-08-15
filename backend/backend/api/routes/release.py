@@ -30,15 +30,15 @@ def _load_signing_keys() -> tuple:
             "Release signing private key not found. "
             "Generate with: ./scripts/generate_release_key.sh"
         )
-    
+
     try:
         from cryptography.hazmat.primitives.serialization import (
             load_pem_private_key,
         )
-        
+
         with open(SECRET_KEY_PATH, "rb") as f:
             private_key = load_pem_private_key(f.read(), password=None)
-        
+
         return private_key
     except Exception as e:
         raise RuntimeError(f"Failed to load signing key: {e}")
@@ -46,7 +46,7 @@ def _load_signing_keys() -> tuple:
 
 def _generate_ed25519_signature(data: bytes) -> str:
     """Sign data using Ed25519 and return base64-encoded signature."""
-    
+
     private_key = _load_signing_keys()
     signature = private_key.sign(data)
     return base64.b64encode(signature).decode("ascii")
@@ -58,20 +58,20 @@ router = APIRouter(prefix="/release", tags=["release"])
 @router.get("/manifest/{version}", dependencies=[Depends(require_current_user)])
 async def get_signed_manifest(version: str) -> Dict[str, Any]:
     """Get signed manifest for a specific version.
-    
+
     Returns manifest with cryptographic signature for client verification.
-    
+
     M5 FIX: Dev-only endpoint - returns 501 Not Implemented in production.
     """
     if not _is_dev_mode():
         raise HTTPException(
-            status_code=501, 
+            status_code=501,
             detail="Not Implemented: Release endpoints are dev-only"
         )
-    
+
     # In production, this would fetch from S3/CDN
     # For development, generate mock manifest
-    
+
     manifest_data = {
         "version": version,
         "name": "AIC ADE Platform",
@@ -102,11 +102,11 @@ async def get_signed_manifest(version: str) -> Dict[str, Any]:
         },
         "notes": f"Release {version} with new features and security fixes.",
     }
-    
+
     # Sign the manifest
     manifest_json = json.dumps(manifest_data, sort_keys=True, separators=(",", ":"))
     signature = _generate_ed25519_signature(manifest_json.encode("utf-8"))
-    
+
     result = {
         "manifest": manifest_data,
         "signature": signature,
@@ -126,21 +126,21 @@ async def get_latest_signed_manifest() -> Dict[str, Any]:
 @router.post("/sign", dependencies=[Depends(require_current_user)])
 async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
     """Manually sign release data for testing purposes.
-    
+
     Args:
         payload: {"version": "...", "notes": "...", "urls": {...}}
-    
+
     Returns:
         Signed manifest with signature
-    
+
     M5 FIX: Dev-only endpoint - returns 501 Not Implemented in production.
     """
     if not _is_dev_mode():
         raise HTTPException(
-            status_code=501, 
+            status_code=501,
             detail="Not Implemented: Release endpoints are dev-only"
         )
-    
+
     try:
         data = {
             "version": payload.get("version", "unknown"),
@@ -148,10 +148,10 @@ async def sign_release_data(payload: Dict[str, str]) -> Dict[str, Any]:
             "urls": payload.get("urls", {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
+
         data_json = json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
         signature = _generate_ed25519_signature(data_json)
-        
+
         result = {
             "signed_data": data,
             "signature": signature,
@@ -171,16 +171,16 @@ async def get_public_key() -> Dict[str, str]:
     """Get public key for client-side verification."""
     if not _is_dev_mode():
         raise HTTPException(
-            status_code=501, 
+            status_code=501,
             detail="Not Implemented: Release endpoints are dev-only"
         )
-    
+
     if not PUBLIC_KEY_PUB_PATH.exists():
         raise HTTPException(status_code=404, detail="Public key not found")
-    
+
     with open(PUBLIC_KEY_PUB_PATH, "r") as f:
         public_key = f.read().strip()
-    
+
     result = {
         "key": public_key,
         "algorithm": "Ed25519",

@@ -95,7 +95,7 @@ async def install_github_skill(
             else:
                 entry = SkillEntry(skill_id=skill_id, name=parsed_name, description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True); db.add(entry)
             installed.append(entry)
-        if not installed: 
+        if not installed:
             logger.warning("Skill install failed (repo=%s): no usable skills found", repo_url)
             raise HTTPException(status_code=400, detail="No usable skills found")
         await db.commit()

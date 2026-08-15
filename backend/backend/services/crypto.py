@@ -70,7 +70,7 @@ def _rotate_backups(secrets_path: Path) -> None:
     """Rotate secret file backups: keep last BACKUP_COUNT copies."""
     if not secrets_path.exists():
         return
-    
+
     # Shift existing backups
     for i in range(BACKUP_COUNT - 1, 0, -1):
         old_backup = secrets_path.parent / f".aic-secrets.json.backup.{i}"
@@ -80,7 +80,7 @@ def _rotate_backups(secrets_path: Path) -> None:
                 old_backup.rename(new_backup)
             except OSError as e:
                 logger.warning(f"Failed to rotate backup {i}: {e}")
-    
+
     # Create new backup from current file
     current_backup = secrets_path.parent / ".aic-secrets.json.backup.1"
     try:
@@ -95,7 +95,7 @@ def _rotate_backups(secrets_path: Path) -> None:
 def _load_or_generate_secrets() -> tuple[str, bytes]:
     """Load installation-specific secrets or generate on first run."""
     path = _get_secrets_path()
-    
+
     if path.exists():
         try:
             data = json.loads(path.read_text())
@@ -104,13 +104,13 @@ def _load_or_generate_secrets() -> tuple[str, bytes]:
             return secret, salt
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Corrupt secrets file, regenerating: {e}")
-    
+
     # Generate new installation-specific secrets
     secret = secrets.token_urlsafe(48)
     salt = secrets.token_bytes(32)
-    
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # M7 FIX: Use atomic write pattern + backup rotation
     # This prevents corruption if process crashes during write
     fd, temp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
@@ -122,11 +122,11 @@ def _load_or_generate_secrets() -> tuple[str, bytes]:
                 "version": 1,
             }, f)
         os.chmod(temp_path, 0o600)
-        
+
         # Create backup of existing file BEFORE replacing
         if path.exists():
             _rotate_backups(path)
-        
+
         os.replace(temp_path, path)
     except Exception as e:
         # Clean up temp file on failure
@@ -135,7 +135,7 @@ def _load_or_generate_secrets() -> tuple[str, bytes]:
         except OSError:
             pass
         raise e
-    
+
     logger.info(f"Generated new encryption secrets at {path} (backup created)")
     return secret, salt
 
@@ -159,13 +159,13 @@ def _get_legacy_fernet() -> Fernet:
 
 def encrypt(text: str) -> str:
     """Encrypt plaintext. Uses installation-specific key.
-    
+
     Args:
         text: Plaintext to encrypt
-        
+
     Returns:
         Base64-encoded encrypted string
-        
+
     Raises:
         ValueError: If input is empty
     """
@@ -178,31 +178,31 @@ def decrypt(text: str) -> str:
     """
     Decrypt ciphertext. Tries installation-specific key first,
     falls back to legacy key for backward compatibility.
-    
+
     Security Note:
-        Undecryptable values raise ValueError instead of returning the 
-        ciphertext, which would let corrupt/plaintext secrets masquerade 
+        Undecryptable values raise ValueError instead of returning the
+        ciphertext, which would let corrupt/plaintext secrets masquerade
         as valid API keys.
-        
+
     Args:
         text: Ciphertext to decrypt
-        
+
     Returns:
         Decrypted plaintext
-        
+
     Raises:
         ValueError: If value cannot be decrypted with current or legacy key
     """
     if not text:
         return ""
-    
+
     # Try current key
     try:
         return _get_fernet().decrypt(text.encode()).decode()
     except Exception:
         # Log the failure but don't expose full exception to caller
         logger.debug("Current-key decrypt failed (expected for legacy/invalid data)")
-    
+
     # Try legacy key (migration path)
     try:
         decrypted = _get_legacy_fernet().decrypt(text.encode()).decode()
@@ -210,19 +210,19 @@ def decrypt(text: str) -> str:
         return decrypted
     except Exception:
         logger.debug("Legacy-key decrypt failed")
-    
+
     raise ValueError("Unable to decrypt value (not encrypted with current or legacy key)")
 
 
 def re_encrypt(text: str) -> str:
     """Re-encrypt a value with the current key (for migration).
-    
+
     Args:
         text: Ciphertext to re-encrypt
-        
+
     Returns:
         New ciphertext encrypted with current key
-        
+
     Raises:
         ValueError: If original value cannot be decrypted
     """
@@ -236,9 +236,9 @@ def re_encrypt(text: str) -> str:
 
 def ensure_keys_exist() -> bool:
     """Verify that encryption keys exist and are accessible.
-    
+
     This function is called at startup to validate encryption system.
-    
+
     Returns:
         True if keys exist and are usable
     """

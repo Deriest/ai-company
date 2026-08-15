@@ -146,7 +146,7 @@ async def delete_message(id: str, db: AsyncSession = Depends(get_db), user: str 
         await validate_ownership(db, id, "message", user)
     except HTTPException:
         raise  # Re-raise ownership violations (403)
-    
+
     res = await db.execute(select(Message).where(Message.id == id))
     msg = res.scalars().first()
     if not msg:

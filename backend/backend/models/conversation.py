@@ -13,7 +13,7 @@ def utcnow():
 
 class ConversationFolder(Base):
     __tablename__ = "conversation_folders"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, server_default=func.now())
@@ -21,7 +21,7 @@ class ConversationFolder(Base):
 
 class ConversationTag(Base):
     __tablename__ = "conversation_tags"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     tag = Column(String, nullable=False, index=True)
@@ -29,7 +29,7 @@ class ConversationTag(Base):
 
 class ConversationPin(Base):
     __tablename__ = "conversation_pins"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     pinned_at = Column(DateTime(timezone=True), default=utcnow, server_default=func.now())
@@ -53,7 +53,7 @@ class Conversation(Base):
 
 class Attachment(Base):
     __tablename__ = "attachments"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     # Messages are canonical storage models, so attachment cleanup is handled
     # by application routes rather than a cross-registry foreign key.

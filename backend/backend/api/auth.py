@@ -34,16 +34,16 @@ def require_roles(*allowed_roles: Role):
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # For now, authenticated users have at least USER role
         user_roles: Set[Role] = {Role.USER}
-        
+
         if any(role in user_roles for role in allowed_roles):
             return current_user
-        
+
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Required role(s): {', '.join([r.value for r in allowed_roles])}",
         )
-    
+
     return role_checker

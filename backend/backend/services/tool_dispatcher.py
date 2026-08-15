@@ -37,7 +37,7 @@ class ToolDispatcher:
                 res = {"current_time": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())}
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
-            
+
             exec_time = int((time.time() - start_time) * 1000)
             return {"result": res, "error": None, "execution_time_ms": exec_time}
         except Exception as e:

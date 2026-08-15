@@ -413,16 +413,16 @@ class MCPService:
         config: dict = None,
     ) -> bool:
         """Restore a server connection after restart using saved state.
-        
+
         This is called on startup to reconnect servers that were active before.
-        
+
         Args:
             db: Database session
             server_id: Unique server identifier
             endpoint: Server endpoint (stdio command or HTTP URL)
             protocol: Transport protocol (stdio/http/sse)
             config: Optional server configuration
-            
+
         Returns:
             True if reconnection successful
         """
