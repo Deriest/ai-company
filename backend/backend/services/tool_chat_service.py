@@ -249,7 +249,6 @@ class ToolAwareChatService:
 
         # Track modified files across the conversation
         all_modified_files = []
-        all_todos = []
         max_tool_rounds = 10  # Prevent infinite tool loops
 
         for round_num in range(max_tool_rounds):

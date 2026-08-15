@@ -132,7 +132,6 @@ def scan_text(text: str) -> list[Finding]:
         return []
 
     findings: list[Finding] = []
-    lower = text.lower()
 
     # 1. Banned phrases
     word_level_findings: list[Finding] = []

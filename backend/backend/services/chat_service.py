@@ -482,8 +482,6 @@ class ChatService:
             return {"id": msg.id, "role": "assistant", "content": content, "status": "completed"}
 
         base_url, api_key = config
-        url = f"{base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload: Dict[str, Any] = {
             "model": model_id,
             "messages": messages,
@@ -785,7 +783,6 @@ class ChatService:
                 context_window = await get_model_context_window(db, provider_id, model_id)
                 if context_window:
                     policy = get_context_policy_for_window(context_window)
-                    metadata_available = True
                     logger.info(f"Using context policy for window {context_window}: max_tokens={policy.max_tokens}")
                 else:
                     logger.warning(f"Model {model_id} context_window not found in DB, using conservative fallback (60k tokens). Run fetch-models to auto-detect.")

@@ -257,7 +257,7 @@ async def lifespan(app: FastAPI):
     # PHASE 3: Start lease scanner for automatic lease expiration and recovery
     try:
         from backend.services.lease_scanner import start_lease_scanner
-        lease_scanner = start_lease_scanner(AsyncSessionLocal)
+        lease_scanner = start_lease_scanner(AsyncSessionLocal)  # noqa: F841 — keep task ref alive (cycle-3 fix)
         logger.info("Lease scanner started successfully")
     except Exception as e:
         logger.warning(f"Failed to start lease scanner: {e}")

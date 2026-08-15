@@ -36,8 +36,8 @@ def get_embedding_provider() -> str:
     else:
         # Auto-detect: try providers in order (SentenceTransformers now preferred)
         try:
-            import openai
-            if os.getenv("OPENAI_API_KEY"):
+            import importlib.util as _ilu
+            if _ilu.find_spec("openai") and os.getenv("OPENAI_API_KEY"):
                 _embedding_provider = "openai"
                 return _embedding_provider
         except ImportError:
@@ -54,7 +54,9 @@ def get_embedding_provider() -> str:
             pass
 
         try:
-            from sentence_transformers import SentenceTransformer
+            import importlib.util as _ilu2
+            if not _ilu2.find_spec("sentence_transformers"):
+                raise ImportError("sentence_transformers not installed")
             _embedding_provider = "sentencetransformers"
             logger.info("Using SentenceTransformers for embeddings (local, no API key needed)")
             return _embedding_provider

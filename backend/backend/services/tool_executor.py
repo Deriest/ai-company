@@ -403,7 +403,6 @@ class WorkerToolExecutor:
             if any(p == ".." for p in parts):
                 return ToolResult.error_result("write_file", "Path traversal not allowed")
             
-            stem_lower = os.path.splitext(path)[0].lower()
             allowed_doc_names = {"readme", "license", "changelog", "contributing", "architecture", 
                                "design", "prd", "research", "qa_report", "test_report",
                                "security_audit", "performance_report"}

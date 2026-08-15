@@ -8,10 +8,6 @@ def _deduplicate_messages(messages: list[dict], keep_recent: int = 10) -> list[d
     if len(messages) <= keep_recent:
         return messages
     
-    seen_content_hashes = set()
-    unique_messages = []
-    tools_by_call_id = {}
-    
 
 def _deduplicate_messages(messages: list, keep_recent: int = 10) -> list:
     """Remove duplicate messages while keeping most recent ones.
@@ -283,7 +279,7 @@ class WorkerContext:
         if max_tokens_limit > 0 and estimated_tokens > max_tokens_limit:
             i = 1
             while i < len(messages) and estimated_tokens > max_tokens_limit:
-                removed = messages.pop(i)
+                messages.pop(i)
                 dropped_count += 1
                 total_chars = sum(len(m.get("content", "")) for m in messages)
                 estimated_tokens = int(total_chars // 4 * 1.3)

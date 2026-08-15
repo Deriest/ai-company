@@ -428,8 +428,6 @@ class AgentRunner:
         verify_prompted = False
         
         # PHASE 3 FIX: Track verification state
-        test_passed = False
-        has_errors_in_last_iteration = False
         
         # PHASE 2 FIX: Plan tracking
         from typing import Optional
