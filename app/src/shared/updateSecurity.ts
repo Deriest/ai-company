@@ -12,11 +12,25 @@ import * as crypto from "node:crypto";
 // For development/testing, replace with your own public key or use mock.
 
 // C2 FIX: Bake Ed25519 public key as a source constant for packaged builds.
-// Set AIC_UPDATE_PUBLIC_KEY at build time (electron-builder --extraMetadata or env).
-// Packaged Electron does NOT reliably set NODE_ENV=production, so verification
-// MUST use app.isPackaged semantics. The consumer (updateManager) passes
-// isPackaged explicitly; this module also falls back to NODE_ENV for tests.
-const PUBLIC_KEY_BASE64 = process.env.AIC_UPDATE_PUBLIC_KEY || "";
+//
+// The main process is compiled with `tsc` (not bundled by vite), so
+// process.env is read at RUNTIME. A packaged Electron app has no
+// AIC_UPDATE_PUBLIC_KEY in its environment, so relying on env alone leaves the
+// key empty and — because verification is fail-closed for packaged builds —
+// bricks auto-update entirely. The key must therefore be baked into the source
+// as BAKED_UPDATE_PUBLIC_KEY below.
+//
+// RELEASE PROCEDURE (one time):
+//   1. ./scripts/generate_release_key.sh            # creates secrets/release_private_key.pem
+//   2. node scripts/sign_manifest.js latest.json secrets/release_private_key.pem
+//      → prints `AIC_UPDATE_PUBLIC_KEY=<base64>` (the raw 32-byte Ed25519 key)
+//   3. paste that base64 value into BAKED_UPDATE_PUBLIC_KEY here and commit.
+//   4. scripts/release.sh signs latest.json on every release automatically.
+//
+// Env still wins when explicitly set (dev/CI overrides); packaged builds fall
+// back to the baked constant.
+const BAKED_UPDATE_PUBLIC_KEY = "fXxYzXuiMkeMi4u7obc7RmJI07Whuvewlkl308ThH+o=";
+const PUBLIC_KEY_BASE64 = process.env.AIC_UPDATE_PUBLIC_KEY || BAKED_UPDATE_PUBLIC_KEY || "";
 
 // Parse base64 public key if available
 let publicKeyBytes: Buffer | null = null;

@@ -684,7 +684,7 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
     
     if (!ALLOWED_STORE_KEYS.has(key)) {
       console.warn("[main] Ignoring disallowed storeSet key:", key);
-      return true;
+      return false;
     }
     
     if (key === "projectRoot") {

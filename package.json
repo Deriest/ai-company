@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.8",
+  "version": "2.6.26",
   "description": "AICompany ADE",
   "main": "app/dist-electron/main/main.js",
   "scripts": {
@@ -12,7 +12,7 @@
   "build": {
     "appId": "com.aicompany.ade",
     "productName": "AIC-ADE",
-    "copyright": "Copyright © 2024 AI Company",
+    "copyright": "Copyright \u00a9 2024 AI Company",
     "files": [
       "**/*.{html,json,js,css}",
       "src/**/*",
@@ -29,7 +29,7 @@
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
-      "version": "2.6.8"
+      "version": "2.6.26"
     },
     "extraResources": [
       {

@@ -25,7 +25,7 @@ _DANGEROUS_COMMANDS = [
 
     # ===== Filesystem operations =====
     r'\bmkfs\b',                            # mkfs (format filesystem)
-    r'\bdd\s+(?:if=\s*.+?|of=\s*.+?)?',     # dd (raw disk access)
+    r'\bdd\s+(?:if|of|bs|count|conv|seek|skip|status)=',  # dd raw disk I/O (must carry an operand)
     r'>\s*/dev/sd',                         # write to raw block device
 
     # ===== Code execution === 禁止 =====
@@ -64,8 +64,13 @@ _DANGEROUS_COMMANDS = [
     r'\brm\s+-rf\s+\$PWD',                   # rm -rf $PWD
 
     # ===== Source / import bypass =====
-    r'\bsource\s+',                            # source evil.sh
-    r'\b\.\s+\./',                            # . ./evil.sh
+    # Narrowed (L2): a blanket `source ` block also rejects the extremely common
+    # and legitimate `source venv/bin/activate`, breaking normal Python agent
+    # workflows, while adding little protection (sourcing a local script the
+    # agent could already run directly). Block only the download-execute /
+    # stdin-execute vectors: sourcing from /tmp, /dev/stdin, a URL, or a
+    # process/stdin substitution.
+    r'(?:^|\s)(?:source|\.)\s+(?:/tmp/|/dev/stdin|<\(|https?://)',  # source /tmp/x, . <(...), source http://...
 
     # ===== Sudo escalation =====
     r'\bsudo\s+.*\brm\b',                    # sudo rm

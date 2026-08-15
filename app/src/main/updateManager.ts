@@ -581,6 +581,30 @@ export class UpdateManager {
         });
 
         this.setState({ status: "verifying", progress: 100 });
+
+        // M5: enforce the manifest-declared size before trusting the file.
+        // SHA256 below is the real integrity gate, but a size mismatch is a
+        // cheap early reject (truncated download, wrong asset, or a manifest
+        // whose `size` disagrees with the served bytes) — fail here instead of
+        // hashing a bogus file.
+        if (artifact.size && artifact.size > 0) {
+          let actualSize = 0;
+          try {
+            actualSize = fs.statSync(tempDest).size;
+          } catch {
+            actualSize = 0;
+          }
+          if (actualSize !== artifact.size) {
+            try { fs.unlinkSync(tempDest); } catch { /* best effort */ }
+            this.setState({
+              status: "error",
+              error: `Downloaded size ${actualSize} bytes does not match manifest size ${artifact.size} bytes`,
+              downloadPath: undefined,
+            });
+            return this.getState();
+          }
+        }
+
         const hash = await this.io.sha256File(tempDest);
         const expected = (artifact.sha256 || "").toLowerCase();
         // sha256 is REQUIRED by parseManifest — never skip verification.

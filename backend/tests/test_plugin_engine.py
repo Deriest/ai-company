@@ -53,7 +53,10 @@ def _build_fixture_repo(repo_dir: Path) -> None:
 def _fake_git_clone(returncode: int = 0, stderr: str = ""):
     """Return a subprocess.run stand-in that materializes the fixture repo."""
     def fake_run(cmd, **kwargs):
-        if cmd and len(cmd) >= 3 and cmd[0] == "git" and cmd[1] == "clone":
+        # Robust to hardened argv (e.g. `git -c core.hooksPath=/dev/null clone
+        # --depth 1 --no-tags -- <url> <dest>`): detect a git-clone invocation
+        # by presence of both tokens rather than a fixed position.
+        if cmd and cmd[0] == "git" and "clone" in cmd:
             target = Path(cmd[-1])
             _build_fixture_repo(target)
             return SimpleNamespace(returncode=returncode, stderr=stderr)

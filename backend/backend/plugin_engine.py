@@ -121,7 +121,8 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
     # Parse URL
     requested = repo_url.strip().rstrip("/")
     path_hint = plugin_path.strip().strip("/")
-    match = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/tree/[^/]+(?:/(.*))?)?", requested)
+    # H3: constrain owner/repo to GitHub's real charset and forbid a leading '-'.
+    match = re.fullmatch(r"https://github\.com/([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/([A-Za-z0-9](?:[A-Za-z0-9._-]*?)?)(?:\.git)?(?:/tree/[^/]+(?:/(.*))?)?", requested)
     if not match:
         raise ValueError("Invalid GitHub URL")
 
@@ -131,9 +132,11 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
     try:
         # G11 FIX: run git clone off the event loop — subprocess.run blocks up
         # to 120s and would otherwise stall the whole async endpoint.
+        # H3: '--' terminates option parsing; core.hooksPath=/dev/null stops a
+        # hostile repo executing hooks during clone.
         result = await asyncio.to_thread(
             subprocess.run,
-            ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")],
+            ["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--no-tags", "--", repo_url, str(temp_dir / "repo")],
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode != 0:

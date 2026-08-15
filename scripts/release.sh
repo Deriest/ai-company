@@ -70,6 +70,21 @@ else
 echo "📋 Step 1/7: Bumping version to ${VERSION}..."
 # package.json
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package.json"
+# root package.json — keep it in lockstep so AIC_APP_VERSION / build metadata
+# never drift from app/package.json (M4 fix). Update both the top-level
+# version and build.extraMetadata.version via a safe JSON rewrite.
+python3 -c "
+import json
+p = '$ROOT_DIR/package.json'
+with open(p) as f:
+    data = json.load(f)
+data['version'] = '$VERSION'
+if isinstance(data.get('build'), dict) and isinstance(data['build'].get('extraMetadata'), dict):
+    data['build']['extraMetadata']['version'] = '$VERSION'
+with open(p, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
 # package-lock.json — use Python json for safe update (BUG-11 fix)
 python3 -c "
 import json
@@ -229,12 +244,42 @@ EOF
 cp "$ROOT_DIR/latest.json" "$RELEASE_DIR/latest.json"
 echo "  ✅ latest.json updated (root + app/release/)"
 
+# ── 5b. Sign latest.json (Ed25519) ──────────────────────────────────────────
+# The packaged updater is fail-closed: verifyManifestSignature() rejects any
+# unsigned manifest in a packaged build. We MUST publish latest.json.sig next
+# to latest.json (raw.githubusercontent.com), signed with the release private
+# key whose PUBLIC half is baked into the app via AIC_UPDATE_PUBLIC_KEY.
+#
+# The signer canonicalizes exactly like the verifier
+# (sha256(JSON.stringify(JSON.parse(bytes))) then Ed25519 over the digest) and
+# self-verifies, so a bad key or drift aborts the release here rather than
+# bricking every client's auto-update.
+echo ""
+echo "🔏 Step 5b/7: Signing latest.json (Ed25519)..."
+RELEASE_PRIVATE_KEY="${AIC_UPDATE_PRIVATE_KEY:-$ROOT_DIR/secrets/release_private_key.pem}"
+if [[ ! -f "$RELEASE_PRIVATE_KEY" ]]; then
+  echo "❌ Release signing key not found: $RELEASE_PRIVATE_KEY"
+  echo "   Generate it once with: ./scripts/generate_release_key.sh"
+  echo "   then set AIC_UPDATE_PUBLIC_KEY (printed below) in the build env so"
+  echo "   packaged clients can verify the manifest. Refusing to publish an"
+  echo "   unsigned manifest (packaged clients would reject it)."
+  exit 1
+fi
+node "$ROOT_DIR/scripts/sign_manifest.js" "$ROOT_DIR/latest.json" "$RELEASE_PRIVATE_KEY" "$ROOT_DIR/latest.json.sig"
+cp "$ROOT_DIR/latest.json.sig" "$RELEASE_DIR/latest.json.sig"
+echo "  ✅ latest.json.sig written (root + app/release/)"
+
+# Upload the signature alongside the manifest is NOT required (the client reads
+# latest.json.sig from raw.githubusercontent.com/.../main, same as latest.json),
+# so it ships via the git commit in step 7.
+
 # ── 6. Update SHA256SUMS ────────────────────────────────────────────────────
 
 echo ""
 echo "📋 Step 6/7: Updating SHA256SUMS..."
 
 LATEST_SHA=$(sha256sum "$ROOT_DIR/latest.json" | cut -d' ' -f1)
+LATEST_SIG_SHA=$(sha256sum "$ROOT_DIR/latest.json.sig" | cut -d' ' -f1)
 
 # app/release/SHA256SUMS — remove old entries for this version + old latest.json, append new
 touch "$RELEASE_DIR/SHA256SUMS"
@@ -245,6 +290,7 @@ ${APPIMAGE_SHA}  ${APPIMAGE}
 ${DEB_SHA}  ${DEB}
 ${EXE_SHA}  ${EXE}
 ${LATEST_SHA}  latest.json
+${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 # Root SHA256SUMS — same but with app/release/ prefix
@@ -256,6 +302,7 @@ ${APPIMAGE_SHA}  app/release/${APPIMAGE}
 ${DEB_SHA}  app/release/${DEB}
 ${EXE_SHA}  app/release/${EXE}
 ${LATEST_SHA}  latest.json
+${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 echo "  ✅ SHA256SUMS updated (root + app/release/)"
