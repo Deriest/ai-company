@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.26",
+  "version": "2.6.27",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -104,7 +104,7 @@
     },
     "afterPack": "scripts/after-pack-chmod-sandbox.js",
     "productName": "AIC-ADE",
-    "copyright": "Copyright © 2024 AI Company",
+    "copyright": "Copyright \u00a9 2024 AI Company",
     "files": [
       "dist/**/*",
       "**/*.{html,json,js,css}",
@@ -121,7 +121,7 @@
     ],
     "extraMetadata": {
       "main": "dist-electron/main/main.js",
-      "version": "2.6.26"
+      "version": "2.6.27"
     },
     "extraResources": [
       {

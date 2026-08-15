@@ -18,7 +18,23 @@ logger = logging.getLogger("aic.context_overflow")
 
 def estimate_tokens(messages: list[dict]) -> int:
     """Rough token estimate (~4 chars per token). Handles multimodal content."""
-    return sum(len(content_to_text(m.get("content", ""))) // 4 for m in messages)
+    return sum(estimate_text_tokens(content_to_text(m.get("content", ""))) for m in messages)
+
+
+def estimate_text_tokens(text: str) -> int:
+    """Token estimate for a single text, calibrated for mixed content.
+
+    Plain ASCII prose is ~4 chars/token, so the legacy ``len // 4`` is kept as
+    the base. CJK/ideographic characters carry ~1 token each (a flat //4
+    under-counts them badly, distorting context-window checks), and code-like
+    whitespace compresses further. Falls back gracefully for multimodal
+    placeholders.
+    """
+    if not text:
+        return 0
+    cjk = sum(1 for ch in text if "\u2e80" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff" or "\uac00" <= ch <= "\ud7af" or "\uf900" <= ch <= "\ufaff")
+    ascii_ish = len(text) - cjk
+    return cjk + (max(1, ascii_ish // 4) if ascii_ish else 0)
 
 
 async def summarize_messages(messages: list[dict], provider: "LLMProvider") -> str:

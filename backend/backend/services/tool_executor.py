@@ -16,6 +16,7 @@ Security layers:
 """
 import os
 import asyncio
+import shlex
 import logging
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict, List, Set
@@ -53,6 +54,38 @@ async def _read_output_with_cap(proc, cap: int = 1_000_000, kill_at: int = 4_000
             await _kill_process_group(proc)
             raise _OutputOverflow(f"output exceeded {kill_at} bytes")
     return b"".join(chunks)
+
+
+_SHELL_BUILTINS = frozenset({
+    "alias", "bg", "break", "cd", "command", "continue", "declare", "dirs",
+    "disown", "echo", "enable", "eval", "exec", "exit", "export", "fc", "fg",
+    "getopts", "hash", "help", "history", "jobs", "let", "local", "logout",
+    "popd", "printf", "pushd", "pwd", "read", "readarray", "readonly", "return",
+    "set", "shift", "shopt", "source", "suspend", "test", "times", "trap",
+    "type", "typeset", "ulimit", "umask", "unalias", "unset", "wait",
+})
+
+
+def _has_shell_metacharacters(command: str) -> bool:
+    """True when a command needs actual shell parsing.
+
+    Pipes, redirects, globs, substitutions, backgrounding, `FOO=bar cmd`
+    env-var prefixes, and shell builtins (``exit``, ``cd``, ``export``, …)
+    require a shell; a plain argv-safe external command does not. Quotes are
+    intentionally excluded — shlex.split handles quoting safely for the
+    argv-array path.
+    """
+    if not command:
+        return True
+    cmd = command.strip()
+    head = cmd.split(None, 1)[0] if cmd else ""
+    # Env-var assignment prefix (`FOO=bar cmd`) is shell syntax.
+    if "=" in head:
+        return True
+    # Shell builtins have no external binary → must run through a shell.
+    if head in _SHELL_BUILTINS:
+        return True
+    return any(ch in cmd for ch in "|&;<>$`~*?[]{}()")
 
 
 def _clamp_timeout(v, default=60, lo=1, hi=600):
@@ -452,13 +485,30 @@ class WorkerToolExecutor:
         is_background = bool(_BG_TOKEN_RE.search(command or ""))
         proc = None
         try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
-                cwd=self.workspace_root,
-                start_new_session=True,
-            )
+            # Prefer argv-array execution (create_subprocess_exec) for simple
+            # commands so shell metacharacters are never interpreted. Only
+            # fall back to a shell for compound commands that genuinely need
+            # pipes/redirects/substitutions — the blocklist remains an advisory
+            # guardrail here, not a security boundary (single-user local trust).
+            simple_argv = shlex.split(command or "")
+            needs_shell = _has_shell_metacharacters(command or "")
+            if simple_argv and not needs_shell:
+                proc = await asyncio.create_subprocess_exec(
+                    simple_argv[0],
+                    *simple_argv[1:],
+                    stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
+                    cwd=self.workspace_root,
+                    start_new_session=True,
+                )
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
+                    cwd=self.workspace_root,
+                    start_new_session=True,
+                )
 
             if is_background:
                 # Detached: the shell exits immediately after backgrounding the

@@ -908,8 +908,10 @@ class ChatService:
             if stream_usage and stream_usage.get("total_tokens"):
                 msg.token_count = stream_usage["total_tokens"]
             else:
-                # Estimate: ~4 chars per token for content + messages
-                msg.token_count = len(msg.content) // 4 + sum(len(m.get("content", "")) // 4 for m in messages)
+                # Estimate: ~4 chars per token for content + messages,
+                # with CJK-aware weighting (calibrated estimator).
+                from backend.services.context_overflow import estimate_text_tokens
+                msg.token_count = estimate_text_tokens(msg.content or "") + sum(estimate_text_tokens(m.get("content", "")) for m in messages)
             await db.commit()
             # FIX: index the finalized assistant message so /conversations/search
             # finds streaming chat content (REST routes already index).

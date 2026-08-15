@@ -629,7 +629,7 @@ class OrchestratorService:
                 child.error_message = str(e)
                 await db.flush()
             except Exception:
-                pass
+                logger.warning("Failed to persist child task FAILED status", exc_info=True)
             result = {"success": False, "error": str(e)}
 
         output_text = json.dumps(result, default=str)

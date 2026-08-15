@@ -85,8 +85,7 @@ class ToolDispatcher:
                             rel = os.path.relpath(p, self.workspace_dir)
                             matches.append(rel)
                 except Exception:
-                    pass
-                logger.debug("tool dispatch step failed", exc_info=True)
+                    logger.debug("tool dispatch step failed", exc_info=True)
         return {"matches": matches}
 
 tool_dispatcher = ToolDispatcher()
