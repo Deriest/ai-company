@@ -27,8 +27,16 @@ def _fake_aiohttp_module(session_factory):
 # ── stdio endpoint validation ─────────────────────────────────────
 
 def test_is_allowed_stdio_endpoint_non_empty():
-    assert MCPClient.is_allowed_stdio_endpoint("node-server") is True
-    assert MCPClient.is_allowed_stdio_endpoint("tail -f log") is True
+    # Allowlist enforced: first token must be a known-safe runtime binary
+    # (H4 fix completed — previously the allowlist was defined but dead code).
+    assert MCPClient.is_allowed_stdio_endpoint("node server.js") is True
+    assert MCPClient.is_allowed_stdio_endpoint("npx -y @modelcontextprotocol/server-filesystem /tmp") is True
+    assert MCPClient.is_allowed_stdio_endpoint("python3 -m mcp_server") is True
+    assert MCPClient.is_allowed_stdio_endpoint("uvx mcp-server-fetch") is True
+    # Unknown binaries are rejected even without shell metachars.
+    assert MCPClient.is_allowed_stdio_endpoint("node-server") is False
+    assert MCPClient.is_allowed_stdio_endpoint("tail -f log") is False
+    assert MCPClient.is_allowed_stdio_endpoint("curl http://evil") is False
     assert MCPClient.is_allowed_stdio_endpoint("") is False
     assert MCPClient.is_allowed_stdio_endpoint("   ") is False
     assert MCPClient.is_allowed_stdio_endpoint(None) is False

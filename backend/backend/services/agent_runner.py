@@ -284,7 +284,7 @@ class AgentRunner:
                         return
                     parts.append({"type": "image_url", "image_url": {"url": data_url}})
                 else:
-                    extracted = self._extract_attachment_text(attachment)
+                    extracted = await asyncio.to_thread(self._extract_attachment_text, attachment)
                     if extracted:
                         parts.append({"type": "text", "text": f"\n[Attached document: {attachment.get('name', 'file')}]\n{extracted}"})
             messages.append({"role": "user", "content": parts})

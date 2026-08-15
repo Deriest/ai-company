@@ -86,7 +86,20 @@ class MCPClient:
             return False
         if MCPClient._SHELL_METACHARS_RE.search(ep):
             return False
-        return True
+        # The allowlist was previously defined but never enforced (dead code)
+        # — enforce it now: the first token must be a known-safe binary name,
+        # or an absolute path inside system-safe prefixes.
+        first = ep.split()[0]
+        base = first.rsplit("/", 1)[-1]
+        if base in MCPClient._ALLOWED_MCP_BINS:
+            return True
+        import os as _os
+        real = _os.path.realpath(first)
+        if real.startswith(("/usr/", "/opt/")) and base in MCPClient._ALLOWED_MCP_BINS | {
+            "mcp-server", "mcp", "server",
+        }:
+            return True
+        return False
 
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""
@@ -100,7 +113,11 @@ class MCPClient:
             env = None
             if self.config.get("env"):
                 import os
-                env = os.environ.copy()
+                # Minimal env: forward only what runtimes need (PATH/HOME/LANG/
+                # TMPDIR), never the full parent environment — AIC secrets
+                # (AIC_JWT_SECRET, API keys) must not leak into MCP servers.
+                keep = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TERM", "SHELL")
+                env = {k: v for k, v in os.environ.items() if k in keep}
                 env.update(self.config["env"])
 
             self._process = await asyncio.create_subprocess_exec(
