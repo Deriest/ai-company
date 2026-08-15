@@ -26,7 +26,7 @@ AI-Company/
 └── tests/         # Test suites
 ```
 
-### Current Release — v2.6.24
+### Current Release — v2.6.25
 
 **14-cycle error-elimination + wiring audit release.** 31 issues fixed
 (4 Critical / 8 High / 12 Medium / 7 Low), plus dependency hardening and
@@ -95,9 +95,9 @@ manager (vault, Kubernetes secrets, etc.).
 
 | Platform | Download | Size |
 |----------|----------|------|
-| Linux AppImage | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/AIC-ADE-2.6.19.AppImage) | 221 MB |
-| Linux DEB | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/aic-ade_2.6.19_amd64.deb) | 149 MB |
-| Windows NSIS | [v2.6.19](https://github.com/Deriest/ai-company/releases/download/v2.6.19/AIC-ADE.SETUP.V2.6.19.exe) | 183 MB |
+| Linux AppImage | [v2.6.25](https://github.com/Deriest/ai-company/releases/download/v2.6.25/AIC-ADE-2.6.25.AppImage) | 237 MB |
+| Linux DEB | [v2.6.25](https://github.com/Deriest/ai-company/releases/download/v2.6.25/aic-ade_2.6.25_amd64.deb) | 184 MB |
+| Windows NSIS | [v2.6.25](https://github.com/Deriest/ai-company/releases/download/v2.6.25/AIC-ADE.SETUP.V2.6.25.exe) | 229 MB |
 
 > **Auto-update:** installed apps poll `latest.json` on `raw.githubusercontent.com` and prompt when newer than the running build.
 
@@ -112,7 +112,7 @@ manager (vault, Kubernetes secrets, etc.).
 
 ### Current Status
 
-✅ **v2.6.19 Released** — Command Center composer rebuilt as a single centered row (`Hermes · Context · THINKER/CRAFTER/SPRINTER/VISION · Fetch · Compact`). Each tier is a button that opens a per-tier provider+model menu; selected model shows with a 27-char cap (full name on hover). Includes the accumulated renderer-packaging, backend boot-chain, onboarding, flicker, and JWT-optional local-first fixes from v2.6.13–2.6.18. A healthy packaged backend is verified via `GET /health 200` and automatic updates are served through `latest.json`.
+✅ **v2.6.25 Released** — 14-cycle error-elimination loop complete (31 issues fixed: 4 Critical / 8 High / 12 Medium / 7 Low), dependency hardening (18 npm vulns → 0, electron 43), full wiring audit (release-signing endpoints mounted, 4 orphan services removed), and fresh review of previously-unaudited areas. QA baseline: pytest 848 · vitest 213 · tsc clean · e2e Electron launch green. A healthy packaged backend is verified via `GET /health 200` and automatic updates are served through `latest.json`.
 ⚪ **Next** — engine cold-start polish (10s boot timeout vs ~2s actual) and installer icon/site asset polish.
 ⚪ **Backlog** — multi-user scope TBD (local-first single-user is the product stance).
 

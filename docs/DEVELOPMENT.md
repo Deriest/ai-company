@@ -117,7 +117,7 @@ npm run build
 npm run build:electron
 
 # Full release (includes all platforms)
-bash scripts/release.sh 2.6.6
+bash scripts/release.sh {{VERSION}}  # contoh: 2.6.25
 ```
 
 ### Auto-Update Configuration

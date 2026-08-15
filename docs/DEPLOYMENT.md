@@ -17,19 +17,19 @@ npm run build
 npm run build:electron
 
 # Full production build (Linux + Windows)
-bash scripts/release.sh 2.6.6
+bash scripts/release.sh {{VERSION}}  # contoh: 2.6.25
 ```
 
 ## Output Artifacts
 
 ### Linux
-- `dist/AIC-ADE-{{VERSION}}.AppImage` - Portable AppImage (~158MB)
-- `dist/aic-ade_{{VERSION}}_amd64.deb` - Debian package (~115MB)
+- `release/AIC-ADE-{{VERSION}}.AppImage` - Portable AppImage (~237MB)
+- `release/aic-ade_{{VERSION}}_amd64.deb` - Debian package (~184MB)
 
 ### Windows  
-- `dist/AIC-ADE Setup {{VERSION}}.exe` - NSIS installer (~127MB)
+- `release/AIC-ADE.SETUP.V{{VERSION}}.exe` - NSIS installer (~229MB)
 
-### File Sizes (v2.6.6)
+### File Sizes (v2.6.25)
 | Format | Size | Content |
 |--------|------|---------|
 | AppImage | 158 MB | Electron + Python runtime bundled |
@@ -46,10 +46,10 @@ https://raw.githubusercontent.com/Deriest/ai-company/main/latest.json
 ### latest.json Structure
 ```json
 {
-  "version": "2.6.6",
+  "version": "2.6.25",
   "platforms": {
-    "linux": { "filename": "AIC-ADE-2.6.6.AppImage", ... },
-    "win32": { "filename": "AIC-ADE.Setup.2.6.6.exe", ... }
+    "linux": { "filename": "AIC-ADE-2.6.25.AppImage", ... },
+    "win32": { "filename": "AIC-ADE.SETUP.V2.6.25.exe", ... }
   }
 }
 ```
@@ -66,15 +66,15 @@ https://raw.githubusercontent.com/Deriest/ai-company/main/latest.json
 ### 1. Bump Version
 ```bash
 # app/package.json
-"version": "2.6.7"
+"version": "2.6.25"
 
 # backend/backend/__init__.py
-__version__ = "2.6.7"
+__version__ = "{{NEW_VERSION}}"
 ```
 
 ### 2. Build & Test
 ```bash
-bash scripts/release.sh 2.6.7
+bash scripts/release.sh {{NEW_VERSION}}
 pytest tests/integration/ -xvs
 ```
 
@@ -86,14 +86,14 @@ pytest tests/integration/ -xvs
 ### 4. Push to Main
 ```bash
 git add latest.json
-git commit -m "release: v2.6.7"
+git commit -m "release: v{{NEW_VERSION}}"
 git push origin main
 ```
 
 ### 5. Verify Auto-Update
-- Install v2.6.6
+- Install versi lama
 - Run app and trigger update check
-- Confirm v2.6.7 download starts automatically
+- Confirm update ke {{NEW_VERSION}} mulai terunduh otomatis
 
 ## CI/CD Integration
 

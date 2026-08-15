@@ -2,7 +2,7 @@
 
 ## Current Security Posture
 
-### v2.6.6 Hardening (Latest)
+### v2.6.25 Hardening (Latest)
 
 ✅ **Bare `except:` clauses fixed** - Replaced with specific exception handling + logging:
 - `checkpoint_service.py` - OSError/IOError/JSONDecodeError handlers

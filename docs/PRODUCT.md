@@ -91,7 +91,7 @@ graph LR
 
 See `docs/archive/` for historical release notes and QA reports.
 
-### v2.6.6 (Current)
+### v2.6.25 (Current)
 - Security hardening: Fixed bare `except:` clauses
 - Python runtime bundled (158MB + Electron ≈ 765MB)
 - Updated auto-update checksums
