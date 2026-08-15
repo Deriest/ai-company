@@ -9,7 +9,7 @@ import asyncio
 import datetime
 import json
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from backend.models.jobs import Job, JobLog

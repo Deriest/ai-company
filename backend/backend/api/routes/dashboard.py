@@ -7,11 +7,10 @@ Provides a single endpoint that returns all the data the dashboard needs:
 - Completed tasks count
 - Recent activity
 """
-from fastapi import APIRouter, Depends, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
-from datetime import datetime, timezone
 
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user

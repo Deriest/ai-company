@@ -8,7 +8,6 @@ Sets default expires_at to created_at + 5 minutes for existing leases.
 
 import asyncio
 import logging
-from datetime import datetime, timezone, timedelta
 
 import sys
 from pathlib import Path

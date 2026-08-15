@@ -9,7 +9,7 @@ import time
 import re
 import threading
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from fastapi import Request
 from fastapi.responses import Response, JSONResponse

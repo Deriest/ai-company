@@ -5,7 +5,6 @@ Manages MCP server registry, tool discovery, tool execution,
 and permission system for dynamic tool loading.
 """
 
-import asyncio
 import json
 import datetime
 import logging

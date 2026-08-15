@@ -47,15 +47,7 @@ async def get_db():
 
 async def init_db():
     # Import all models
-    import storage.models
     from storage.models import Base as StorageBase
-    import backend.models.schema
-    import backend.models.conversation
-    import backend.models.ai_runtime
-    import backend.models.orchestration
-    import backend.models.jobs
-    import backend.models.mcp
-    import backend.models.local_profile
 
     # H7: Create ALL tables on the same engine (checkfirst=True skips existing).
     # StorageBase owns canonical users/conversations tables; backend.models.schema

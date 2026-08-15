@@ -199,7 +199,7 @@ def decrypt(text: str) -> str:
     # Try current key
     try:
         return _get_fernet().decrypt(text.encode()).decode()
-    except Exception as e:
+    except Exception:
         # Log the failure but don't expose full exception to caller
         logger.debug("Current-key decrypt failed (expected for legacy/invalid data)")
     
@@ -208,7 +208,7 @@ def decrypt(text: str) -> str:
         decrypted = _get_legacy_fernet().decrypt(text.encode()).decode()
         logger.warning("Decrypted with legacy key — consider re-encrypting for security")
         return decrypted
-    except Exception as e:
+    except Exception:
         logger.debug("Legacy-key decrypt failed")
     
     raise ValueError("Unable to decrypt value (not encrypted with current or legacy key)")

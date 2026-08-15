@@ -6,7 +6,7 @@ Validates request body, query parameters, and path parameters.
 
 import logging
 import json
-from typing import Any, Callable
+from typing import Callable
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -115,7 +115,7 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                 ]
             }
         )
-    except Exception as e:
+    except Exception:
         # Let other exceptions pass through
         raise
 

@@ -4,7 +4,7 @@ Provides centralized input sanitization to prevent XSS and SQL injection
 attacks across all route handlers.
 """
 import html
-from typing import Any, Optional
+from typing import Any
 
 
 def sanitize_input(value: str) -> str:

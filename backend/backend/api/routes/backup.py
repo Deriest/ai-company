@@ -24,7 +24,6 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from backend.api.dependencies import require_current_user
-from backend.api.auth import Role, require_roles
 from backend.config import settings
 
 

@@ -1,9 +1,8 @@
 import logging
 import os
-import glob
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from backend.services.path_utils import resolve_workspace_path
 

@@ -46,7 +46,6 @@ def _load_signing_keys() -> tuple:
 
 def _generate_ed25519_signature(data: bytes) -> str:
     """Sign data using Ed25519 and return base64-encoded signature."""
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     
     private_key = _load_signing_keys()
     signature = private_key.sign(data)

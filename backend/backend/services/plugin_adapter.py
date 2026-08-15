@@ -8,7 +8,6 @@ Adapter types:
 - skill/scripts → direct context injection
 """
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any

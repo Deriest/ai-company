@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from backend.database.session import init_db, AsyncSessionLocal, engine
 from backend.config import settings
-from backend.services.search_service import init_fts5
 from backend.middleware.logging_middleware import logging_middleware
 from backend.middleware.metrics import metrics_middleware, metrics_endpoint
 

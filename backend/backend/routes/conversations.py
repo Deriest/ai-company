@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from storage.database import get_session
 from backend.api.dependencies import require_current_user
-from storage.models import Conversation, Message, Project, Task, DiscoverySession
+from storage.models import Conversation, Message, Task, DiscoverySession
 from backend.models.conversation import Attachment
 from conversation.engine import ConversationEngine, LLMUnavailableError, LLMInferenceError
 

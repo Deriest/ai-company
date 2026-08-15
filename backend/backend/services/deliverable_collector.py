@@ -1,8 +1,6 @@
 """Collect and package deliverables from agent execution."""
-import os
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from backend.services.content_utils import truncate_content
 

@@ -71,8 +71,7 @@ Context structure:
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, List
-from collections import OrderedDict
+from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -132,7 +131,6 @@ async def get_model_context_window(
     """Get the actual context window for a specific model using waterfall detection."""
     from backend.models.schema import ProviderModel
     from datetime import datetime, timedelta
-    from backend.services.model_catalog import lookup_catalog
 
     stmt = select(
         ProviderModel.context_window,

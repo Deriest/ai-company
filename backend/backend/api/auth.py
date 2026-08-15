@@ -1,7 +1,7 @@
 """Role-based authentication and authorization."""
 
 from enum import Enum
-from typing import Optional, Set
+from typing import Set
 
 
 class Role(str, Enum):

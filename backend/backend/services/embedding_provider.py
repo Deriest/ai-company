@@ -15,7 +15,6 @@ Development mode (default): Hash fallback allowed with warning.
 import os
 import hashlib
 import logging
-import math
 from typing import Optional
 
 logger = logging.getLogger(__name__)

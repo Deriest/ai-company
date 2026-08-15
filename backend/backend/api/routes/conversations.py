@@ -17,12 +17,12 @@ from backend.models.conversation import (
 from backend.schemas.conversation_schemas import (
     BaseModel,
     ConversationCreate, ConversationUpdate, ConversationResponse,
-    MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
+    MessageCreate, MessageResponse, AttachmentResponse,
     SearchResultItem, ImportConversationPayload, ExportConversationPayload,
 )
 from backend.services.search_service import (
     index_conversation_fts, index_message_fts,
-    remove_fts_by_conversation, init_fts5,
+    remove_fts_by_conversation,
 )
 from backend.services.attachment_store import (
     save_attachment, delete_attachment, read_attachment, decode_data_url,
@@ -310,7 +310,7 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db), user:
     # H1 FIX: Verify user owns this conversation before allowing delete
     try:
         await validate_ownership(db, id, "conversation", user)
-    except HTTPException as e:
+    except HTTPException:
         raise  # Re-raise ownership violations (403)
     
     res = await db.execute(select(Conversation).where(Conversation.id == id))

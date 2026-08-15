@@ -6,7 +6,6 @@ This is NOT a substitute for sandboxing — denylist is ADVISORY ONLY; productio
 CRITICAL: This module consolidates previously duplicated denylists from tool_executor.py
 and workers/tools.py into a single source of truth.
 """
-import asyncio
 import os
 import re
 import signal
@@ -105,7 +104,7 @@ def check_dangerous_patterns(command: str) -> None:
     
     for pattern in _DANGEROUS_PATTERNS_COMPILED:
         if pattern.search(normalized):
-            raise PermissionError(f"Command contains dangerous pattern")
+            raise PermissionError("Command contains dangerous pattern")
 
 
 def _denylisted_shell_command(command: str) -> str | None:

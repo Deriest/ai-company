@@ -9,7 +9,6 @@ from typing import Optional
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user, validate_ownership
 from backend.models.local_profile import LocalProfile
-from backend.models.conversation import Attachment
 from backend.services.attachment_store import delete_attachment
 from storage.models import Project
 
@@ -167,7 +166,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db), us
     # M1 FIX: Verify user owns this project before allowing delete
     try:
         await validate_ownership(db, project_id, "project", user)
-    except HTTPException as e:
+    except HTTPException:
         raise  # Re-raise ownership violations (403)
     
     result = await db.execute(select(Project).where(Project.id == project_id))

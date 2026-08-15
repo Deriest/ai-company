@@ -7,12 +7,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
-from pydantic import BaseModel, Field, EmailStr, validator
 
 from backend.database.session import get_db, AsyncSessionLocal
 from backend.api.dependencies import require_current_user
@@ -30,7 +29,7 @@ from backend.services.chat_service import chat_service
 from backend.services.worker_runtime_service import worker_runtime_service
 from conversation.engine import (
     ConversationEngine,
-    INTENT_CHAT, INTENT_QUESTION, INTENT_TASK_REQUEST,
+    INTENT_CHAT, INTENT_TASK_REQUEST,
     INTENT_TASK_CONFIRM, INTENT_STATUS, INTENT_APPROVAL,
     LLMUnavailableError,
 )

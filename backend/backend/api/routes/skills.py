@@ -1,5 +1,5 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
-from fastapi import APIRouter, Depends, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
 import asyncio
 import logging

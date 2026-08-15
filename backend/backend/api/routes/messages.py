@@ -11,7 +11,7 @@ from backend.api.dependencies import require_current_user, validate_ownership
 from storage.models import Conversation, Message
 from backend.models.conversation import Attachment
 from backend.schemas.conversation_schemas import (
-    MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
+    MessageCreate, MessageUpdate, MessageResponse,
 )
 from backend.services.attachment_store import (
     save_attachment, delete_attachment, read_attachment, decode_data_url,
@@ -144,7 +144,7 @@ async def delete_message(id: str, db: AsyncSession = Depends(get_db), user: str 
     # H1 FIX: Verify user owns this message before allowing delete
     try:
         await validate_ownership(db, id, "message", user)
-    except HTTPException as e:
+    except HTTPException:
         raise  # Re-raise ownership violations (403)
     
     res = await db.execute(select(Message).where(Message.id == id))

@@ -16,11 +16,10 @@ import zipfile
 from pathlib import Path
 import logging
 import re
-from typing import AsyncGenerator, Dict, Any, List
-from datetime import datetime
+from typing import AsyncGenerator
 
 # PHASE 2: Planning imports
-from backend.api.schemas.plan_schemas import TaskPlan, Subtask, PlanCheckpoint
+from backend.api.schemas.plan_schemas import TaskPlan
 
 from backend.services.tool_executor import WorkerToolExecutor, ToolResult, get_tools_for_worker, check_permission
 from backend.services.context_builder import ContextBuilder, get_context_policy
@@ -508,7 +507,6 @@ class AgentRunner:
             tool_calls = raw_msg.get("tool_calls", []) if isinstance(raw_msg, dict) else []
             
             # Clean thinking tags
-            import re
             if content:
                 for tag in ("thinking", "thought", "reason"):
                     content = re.sub(rf'<{tag}>.*?</{tag}>', '', content, flags=re.DOTALL).strip()

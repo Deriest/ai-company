@@ -10,7 +10,6 @@ import logging
 from datetime import datetime
 from typing import Optional, Any, List
 from dataclasses import dataclass, field
-from pathlib import Path
 
 logger = logging.getLogger("aic.errors")
 
@@ -174,7 +173,7 @@ def generate_fix_suggestions(error_ctx: ErrorContext) -> List[str]:
         suggestions.extend([
             "Review the stack trace above for more details",
             "Enable debug logging for more verbose output",
-            f"Check logs at: /tmp/aic-data/logs/"
+            "Check logs at: /tmp/aic-data/logs/"
         ])
     
     return suggestions[:5]  # Top 5 most relevant suggestions

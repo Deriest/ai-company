@@ -15,28 +15,19 @@ Security layers:
 5. MCP access control based on shell capability
 """
 import os
-import json
-import time
-import uuid
 import asyncio
 import logging
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from pathlib import Path
+from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict, List, Set
-from jose import jwt
-from urllib.parse import unquote
 
 from backend.services.path_utils import resolve_workspace_path
 from backend.security.shell_security import (
     check_dangerous_patterns,
-    _denylisted_shell_command,
     _close_proc_pipes,
     _BG_TOKEN_RE,
     _kill_process_group,
     _surface_port_in_use,
 )
-from backend.services.path_utils import resolve_workspace_path
 
 class _OutputOverflow(Exception):
     """Raised when a subprocess emits more output than the executor will retain."""

@@ -4,8 +4,8 @@ Pydantic models for all API endpoints.
 Ensures type safety, boundary validation, and proper error responses.
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional, Any, Dict, Union
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Any, Dict
 from enum import Enum
 
 

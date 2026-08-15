@@ -14,7 +14,6 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from backend.services.content_utils import content_to_text
 from backend.models.orchestration import (
     OrchestrationSession, OrchestrationTask, OrchestrationApproval,
     WorkflowDefinition, Checkpoint,

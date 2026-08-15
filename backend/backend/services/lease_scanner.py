@@ -8,8 +8,7 @@ import asyncio
 import logging
 from datetime import timedelta, datetime, timezone
 from typing import Optional
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from storage.models import Lease, LeaseStatus, Task, TaskStatus
 
 logger = logging.getLogger("aic.lease_scanner")
