@@ -86,6 +86,13 @@ async def supersede_memory_entry(
     if not old_entry:
         return None
 
+    # H1 (cycle-11): deactivate the old row FIRST so the partial unique index
+    # (active rows only) permits the replacement insert. Previously both rows
+    # stayed active with the same (scope, key, project_id) — the exact
+    # duplicate the index now rejects — and retrieval returned stale data.
+    old_entry.is_active = False
+    await session.flush()
+
     new_entry = MemoryEntry(
         project_id=old_entry.project_id,
         scope=old_entry.scope,

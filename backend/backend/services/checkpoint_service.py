@@ -16,8 +16,13 @@ logger = logging.getLogger("aic.checkpoint_service")
 class CheckpointService:
     """Save and restore agent execution checkpoints for pause/resume capability."""
     
-    def __init__(self, checkpoint_dir: str = ".aic/checkpoints"):
-        self.checkpoint_dir = Path(checkpoint_dir)
+    def __init__(self, checkpoint_dir: str | None = None):
+        # M2: default must be resolved to an ABSOLUTE path anchored at the
+        # process CWD at construction time — a relative default silently
+        # creates duplicate checkpoint dirs when the backend is spawned with
+        # a different working directory.
+        base = Path(checkpoint_dir) if checkpoint_dir else Path(".aic/checkpoints")
+        self.checkpoint_dir = base.resolve()
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     def create_checkpoint(
@@ -39,11 +44,16 @@ class CheckpointService:
             tool_results_summary=tool_results_summary or [],
         )
         
-        # Save to disk
+        # M1: atomic write — tmp file + os.replace so a crash mid-write never
+        # leaves a truncated checkpoint at the final path.
         checkpoint_path = self.checkpoint_dir / f"{checkpoint_id}.json"
-        with open(checkpoint_path, "w", encoding="utf-8") as f:
+        tmp_path = checkpoint_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(checkpoint.to_dict(), f, indent=2)
-        
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, checkpoint_path)
+
         return checkpoint
     
     def load_checkpoint(self, checkpoint_id: str) -> Optional[PlanCheckpoint]:
@@ -64,7 +74,10 @@ class CheckpointService:
             try:
                 with open(ckpt_file, "r") as f:
                     data = json.load(f)
-                if data.get("task_id") == task_id or task_id in ckpt_file.name:
+                # L1: exact match on the stored task_plan.task_id (or legacy
+                # substring match) — bare substring matched task_1 vs task_12.
+                tp = data.get("task_plan") or {}
+                if tp.get("task_id") == task_id or (tp.get("task_id") is None and task_id in ckpt_file.name):
                     checkpoints.append((ckpt_file, PlanCheckpoint.from_dict(data)))
             except (OSError, IOError, json.JSONDecodeError) as e:
                 logger.warning(f"Failed to load checkpoint {ckpt_file.name}: {e}")
