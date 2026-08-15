@@ -11,6 +11,11 @@ import * as crypto from "node:crypto";
 // This key should be generated once during build and baked into the binary.
 // For development/testing, replace with your own public key or use mock.
 
+// C2 FIX: Bake Ed25519 public key as a source constant for packaged builds.
+// Set AIC_UPDATE_PUBLIC_KEY at build time (electron-builder --extraMetadata or env).
+// Packaged Electron does NOT reliably set NODE_ENV=production, so verification
+// MUST use app.isPackaged semantics. The consumer (updateManager) passes
+// isPackaged explicitly; this module also falls back to NODE_ENV for tests.
 const PUBLIC_KEY_BASE64 = process.env.AIC_UPDATE_PUBLIC_KEY || "";
 
 // Parse base64 public key if available
@@ -24,24 +29,43 @@ if (PUBLIC_KEY_BASE64) {
 }
 
 /**
+ * Returns true if the current runtime is considered "packaged" (production).
+ * In Electron: app.isPackaged. In tests/CI: NODE_ENV=production.
+ * Exposed so callers can inject the Electron check.
+ */
+export function isPackagedRuntime(isPackaged?: boolean): boolean {
+    if (typeof isPackaged === "boolean") return isPackaged;
+    return (process.env.NODE_ENV || "development") === "production";
+}
+
+/**
  * Verify manifest signature using Ed25519 digital signature.
  */
 export function verifyManifestSignature(
     manifestJson: unknown,
-    signatureBase64: string
+    signatureBase64: string,
+    isPackaged?: boolean
 ): boolean {
     // Validate inputs
     if (!publicKeyBytes || !signatureBase64) {
-        // No key configured OR no signature provided - skip verification in non-production
-        const env = process.env.NODE_ENV || "development";
-        
-        if (env === "production") {
-            console.error("[updateSecurity] Production environment requires signed manifests");
+        const packaged = isPackagedRuntime(isPackaged);
+        if (packaged) {
+            console.error("[updateSecurity] Packaged build requires signed manifests — rejecting unsigned manifest");
             return false;
         }
-        
-        // Development/test mode: allow unsigned manifests for testing
-        return true;
+        // Non-packaged: unsigned manifests are opt-in only (H4). Dev builds
+        // that want them must set AIC_UPDATE_ALLOW_UNSIGNED=1 explicitly.
+        // Test env (vitest NODE_ENV=test) uses unsigned mock manifests — allow
+        // there, plus the explicit dev opt-in flag. Production stays fail-closed.
+        const allowUnsigned =
+            process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1" ||
+            process.env.NODE_ENV === "test";
+        if (allowUnsigned) {
+            console.warn("[updateSecurity] Unsigned manifest accepted (test/dev mode)");
+            return true;
+        }
+        console.error("[updateSecurity] Unsigned manifest rejected — set AIC_UPDATE_ALLOW_UNSIGNED=1 for dev");
+        return false;
     }
 
     try {
@@ -85,11 +109,10 @@ export function verifyRSASignature(
     signatureBase64: string,
     rsaPublicKeyPem: string
 ): boolean {
+    // M12: legacy helper kept for API compatibility, aligned with the
+    // fail-closed policy — unsigned manifests are opt-in via env flag only.
     if (!signatureBase64) {
-        if (process.env.NODE_ENV === "production") {
-            return false;
-        }
-        return true;
+        return process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1";
     }
 
     try {
@@ -114,10 +137,12 @@ export function getVerificationStatus(): {
     hasPublicKey: boolean;
     publicKeyLength: number | null;
     nodeEnv: string;
+    allowUnsigned: boolean;
 } {
     return {
         hasPublicKey: !!publicKeyBytes,
         publicKeyLength: publicKeyBytes?.length ?? null,
         nodeEnv: process.env.NODE_ENV || "development",
+        allowUnsigned: process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1",
     };
 }

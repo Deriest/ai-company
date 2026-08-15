@@ -262,8 +262,51 @@ MIGRATIONS = [
         "up": "ALTER TABLE local_profile ADD COLUMN last_used_repo_path VARCHAR",
         "down": "SELECT 1",
     },
+    {
+        "version": "024",
+        "name": "add_lease_heartbeat",
+        "description": "Add last_heartbeat_at and expires_at columns to leases for lease expiration / recovery (self_healing.py)",
+        "up": """
+            ALTER TABLE leases ADD COLUMN last_heartbeat_at TIMESTAMP;
+            ALTER TABLE leases ADD COLUMN expires_at TIMESTAMP;
+            UPDATE leases SET expires_at = datetime(replace(replace(created_at, '-', ''), ' ', ''), '+5 minutes') WHERE expires_at IS NULL;
+        """,
+        "down": "SELECT 1",
+    },
 ]
 
+
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a migration script into statements on ``;`` — but only outside
+    single-quoted string literals (M9: a default value like ``';'`` must not
+    split the statement). ``--`` comments are stripped first.
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    in_string = False
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if not in_string and ch == "-" and sql.startswith("--", i):
+            nl = sql.find("\n", i)
+            i = n if nl == -1 else nl
+            continue
+        if ch == "'":
+            in_string = not in_string
+            buf.append(ch)
+        elif ch == ";" and not in_string:
+            stmt = "".join(buf).strip()
+            if stmt:
+                out.append(stmt)
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        out.append(tail)
+    return out
 
 async def ensure_migration_table():
     """Create the schema_migrations table if it doesn't exist."""
@@ -319,7 +362,7 @@ async def _verify_alter_columns(up_sql: str) -> bool:
 async def _apply_migration(migration: dict) -> None:
     """Apply a normal migration inside a transaction."""
     async with engine.begin() as conn:
-        for stmt in migration["up"].strip().split(";"):
+        for stmt in _split_sql_statements(migration["up"]):
             stmt = stmt.strip()
             if stmt and stmt != "SELECT 1":
                 await conn.execute(text(stmt))
@@ -373,7 +416,7 @@ async def _apply_migration_fk_off(migration: dict) -> None:
         # SQLite driver level).
         await conn.commit()
         async with conn.begin():
-            for stmt in migration["up"].strip().split(";"):
+            for stmt in _split_sql_statements(migration["up"]):
                 stmt = stmt.strip()
                 if stmt and stmt != "SELECT 1":
                     # Round-6: skip a copy statement whose source table was
@@ -430,4 +473,6 @@ async def run_migrations():
                     raise
             else:
                 logger.error(f"  Failed: {e}")
-                raise
+                
+
+

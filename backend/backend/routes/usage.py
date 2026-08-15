@@ -15,10 +15,11 @@ from datetime import datetime, timedelta, timezone
 from backend.database.session import get_db
 from storage.models import LLMUsageLog
 from backend.models.ai_runtime import GenerationLog
+from backend.api.dependencies import require_current_user
 
 logger = logging.getLogger("aic.usage.api")
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
 @router.get("/usage/stats")

@@ -167,8 +167,27 @@ def get_lease_scanner(session_factory) -> LeaseScanner:
     return _scanner_instance
 
 
+_scanner_task: asyncio.Task | None = None
+
+
+def _on_scanner_task_done(task: asyncio.Task) -> None:
+    """Log if the lease-scanner loop dies unexpectedly (fire-and-forget guard)."""
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.error("Lease scanner loop died unexpectedly: %s", exc)
+
+
 def start_lease_scanner(session_factory):
-    """Convenience function to start lease scanner."""
+    """Convenience function to start lease scanner.
+
+    The task reference is held module-level so it cannot be garbage-collected
+    mid-flight, and a done-callback surfaces silent loop death.
+    """
+    global _scanner_task
     scanner = get_lease_scanner(session_factory)
-    asyncio.create_task(scanner.start())
+    _scanner_task = asyncio.create_task(scanner.start())
+    _scanner_task.add_done_callback(_on_scanner_task_done)
     return scanner

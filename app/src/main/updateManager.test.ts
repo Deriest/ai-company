@@ -19,7 +19,10 @@ vi.mock("electron", () => {
     app: {
       getVersion: () => "0.0.0",
       getPath: () => "/tmp/fake-userData",
-      isPackaged: true,
+      // NOTE: false on purpose — these tests exercise the update state machine
+      // with unsigned mock manifests. Signature enforcement for packaged
+      // builds has its own dedicated test below.
+      isPackaged: false,
       exit: vi.fn(),
       quit: vi.fn(),
       relaunch: vi.fn(),

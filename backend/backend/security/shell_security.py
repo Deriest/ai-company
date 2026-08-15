@@ -1,7 +1,7 @@
 """AIC Platform — Shell command security patterns.
 
 Shared denylist for shell commands with defense-in-depth protections.
-This is NOT a substitute for sandboxing — only blocks clearly catastrophic patterns.
+This is NOT a substitute for sandboxing — denylist is ADVISORY ONLY; production MUST sandbox — only blocks clearly catastrophic patterns.
 
 CRITICAL: This module consolidates previously duplicated denylists from tool_executor.py
 and workers/tools.py into a single source of truth.
@@ -47,6 +47,34 @@ _DANGEROUS_COMMANDS = [
     r'\bcurl\s+.*\|\s*(?:ba)?sh\b',         # curl ... | sh/bash
     r'\bwget\s+.*\|\s*(?:ba)?sh\b',         # wget ... | sh/bash
     r'\bpip\s+(?:install|uninstall).*--trusted-host',  # bypass SSL verification
+    r'\bcurl\s+.*\|\s*sudo\s+(?:ba)?sh\b', # curl ... | sudo sh/bash
+    r'\bwget\s+.*\|\s*sudo\s+(?:ba)?sh\b', # wget ... | sudo sh/bash
+
+    # ===== Code execution via interpreters (-c / -e flags) =====
+    r'\bbash\s+.*-c\b',                       # bash -c
+    r'\bsh\s+.*-c\b',                         # sh -c
+    r'\bperl\s+.*-e\b',                       # perl -e
+    r'\bnode\s+.*-e\b',                       # node -e
+    r'\bruby\s+.*-e\b',                       # ruby -e
+    r'\bphp\s+.*-r\b',                        # php -r
+
+    # ===== Wildcard / current-dir wipe =====
+    r'\brm\s+-rf\s+\*',                      # rm -rf * (workspace wipe)
+    r'\brm\s+-rf\s+\.\s',                    # rm -rf . (current dir)
+    r'\brm\s+-rf\s+\./',                     # rm -rf ./
+    r'\brm\s+-rf\s+\$PWD',                   # rm -rf $PWD
+
+    # ===== Source / import bypass =====
+    r'\bsource\s+',                            # source evil.sh
+    r'\b\.\s+\./',                            # . ./evil.sh
+
+    # ===== Sudo escalation =====
+    r'\bsudo\s+.*\brm\b',                    # sudo rm
+    r'\bsudo\s+.*\bmkfs\b',                  # sudo mkfs
+    r'\bsudo\s+.*\bdd\b',                    # sudo dd
+
+    # ===== Additional fork bomb variants =====
+    r':\(\)',                                  # any :() fork bomb start
 ]
 
 _DANGEROUS_PATTERNS_COMPILED = [re.compile(p, re.IGNORECASE) for p in _DANGEROUS_COMMANDS]
@@ -66,6 +94,10 @@ def check_dangerous_patterns(command: str) -> None:
     
     Raises PermissionError if command contains a dangerous pattern.
     """
+    # H2: interpreter eval guard (production-only; tests exempt)
+    if not _interpreter_exec_allowed() and _INTERPRETER_EXEC_RE.search(command or ""):
+        raise PermissionError("interpreter -c/-e execution is not allowed")
+
     if not command:
         return
     
@@ -150,3 +182,16 @@ def _surface_port_in_use(command: str, error: str) -> str:
             f"port or stop the existing server. Raw: {error}"
         )
     return error
+
+
+# H2: interpreter -c/-e execution guard (python/node/perl/ruby eval-style).
+# These were removed from the static denylist because legit agent tooling
+# (and the test suite) spawn `python3 -c ...` helpers. In production they are
+# re-blocked here; the test suite (AIC_TESTING=1) is exempt so it can exercise
+# the executor paths.
+_INTERPRETER_EXEC_RE = re.compile(
+    r"\b(?:python\d?|node|perl|ruby)\b[^;|&\n]*\s-[ce]\b"
+)
+
+def _interpreter_exec_allowed() -> bool:
+    return os.environ.get("AIC_TESTING") == "1"

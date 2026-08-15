@@ -13,12 +13,19 @@ class Role(str, Enum):
 
 
 def require_roles(*allowed_roles: Role):
-    """Authorization decorator requiring user has one of allowed roles."""
+    """Authorization decorator requiring user has one of allowed roles.
+
+    Wired to require_current_user so the JWT is validated first; on single-user
+    desktop every authenticated caller has Role.USER. Sensitive routers (backup,
+    provider config) should depend on require_roles(Role.ADMIN) once multi-user
+    lands — the seam is kept here so wiring is a one-line change per router.
+    """
     from fastapi import Depends, HTTPException, status, Request
-    
+    from backend.api.dependencies import require_current_user
+
     async def role_checker(
         request: Request,
-        current_user: Optional[str] = None,
+        current_user: str = Depends(require_current_user),
     ) -> str:
         # Placeholder - in production this checks database for user roles
         if not current_user:

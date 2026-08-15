@@ -103,7 +103,7 @@ class RAGService:
             db.add(chunk)
 
         doc.status = "ready"
-        from backend.services.embedding_provider import get_embedding_provider; doc.embedding_model = get_embedding_provider()
+        from backend.services.embedding_provider import get_embedding_provider; doc.embedding_model = await asyncio.to_thread(get_embedding_provider, )
         await db.commit()
         await db.refresh(doc)
         return doc

@@ -68,9 +68,24 @@ class Settings:
 
     # JWT — consumed by auth/security.py (create_access_token / decode).
     # Kept compatible: read both new AIC_JWT_SECRET and legacy SECRET_KEY names.
+    # Fail-closed: if no env var is set, only allow the hardcoded fallback when
+    # running under tests (AIC_TESTING / PYTEST_CURRENT_TEST). In production
+    # the Electron main process always injects AIC_JWT_SECRET.
+    _DEV_FALLBACK_SECRET = "dev-local-only-aic-ade-please-set-AIC_JWT_SECRET-in-prod-0000"
+
     @property
     def SECRET_KEY(self) -> str:
-        return os.getenv("AIC_JWT_SECRET") or os.getenv("SECRET_KEY") or "dev-local-only-aic-ade-please-set-AIC_JWT_SECRET-in-prod-0000"
+        env_secret = os.getenv("AIC_JWT_SECRET") or os.getenv("SECRET_KEY") or ""
+        if env_secret:
+            return env_secret
+        # No env secret — only allow fallback in test mode
+        if os.getenv("AIC_TESTING") == "1" or os.getenv("PYTEST_CURRENT_TEST"):
+            return self._DEV_FALLBACK_SECRET
+        raise RuntimeError(
+            "FATAL: AIC_JWT_SECRET / SECRET_KEY is not set. "
+            "The Electron main process must inject AIC_JWT_SECRET at launch. "
+            "Refusing to start with the insecure dev fallback."
+        )
 
     @property
     def ALGORITHM(self) -> str:
@@ -83,6 +98,13 @@ class Settings:
 
     # Desktop identity — per-install random credential in AIC_IDENTITY_FILE.
     # Electron writes identity.json; tests may override via env.
+    def _warn_default_identity(self, field: str) -> None:
+        import logging as _logging
+        _logging.getLogger("aic.config").warning(
+            "Using default identity %s='%s' — no AIC_IDENTITY_FILE / env override found. "
+            "This should only happen in tests.", field, "admin" if field=="username" else "admin123"
+        )
+
     @property
     def IDENTITY_USERNAME(self) -> str:
         if os.getenv("AIC_IDENTITY_USERNAME"):
@@ -96,6 +118,7 @@ class Settings:
                     return d["username"]
             except Exception:
                 pass
+        self._warn_default_identity("username")
         return "admin"
 
     @property
@@ -111,6 +134,7 @@ class Settings:
                     return d["password"]
             except Exception:
                 pass
+        self._warn_default_identity("password")
         return "admin123"
 
     

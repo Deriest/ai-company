@@ -40,6 +40,7 @@ class ConversationPin(Base):
 # resolve. Message persistence is intentionally canonicalized in storage.models.
 class Conversation(Base):
     __tablename__ = "conversations"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(String, primary_key=True, default=generate_uuid)
     title = Column(String, nullable=False, default="New Conversation")

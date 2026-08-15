@@ -21,7 +21,7 @@ os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
 # fallback). Tests generate a fresh secret per session so the suite runs
 # hermetically without touching any real secret. MUST be set before
 # backend.config is imported.
-os.environ.setdefault("AIC_JWT_SECRET", secrets.token_hex(32))
+os.environ["AIC_JWT_SECRET"] = secrets.token_hex(32)
 # Enable the deterministic test flag so the auth fail-open (and the
 # localhost Host-header allowlist for httpx ASGITransport "test") applies
 # during the test run but never at runtime. Read by backend/api/dependencies.py

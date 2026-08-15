@@ -419,14 +419,27 @@ export class UpdateManager {
         .then((v) => String(v))
         .catch(() => "");
       
-      // Verify cryptographic signature before parsing
+      // Verify cryptographic signature before parsing — C2 FIX: enforce in
+      // packaged builds (Packaged Electron does not reliably set NODE_ENV,
+      // so pass app.isPackaged explicitly).
+      const _isPackaged = (() => {
+        try {
+          return (app as unknown as { isPackaged?: boolean })?.isPackaged ?? undefined;
+        } catch {
+          return undefined;
+        }
+      })();
       if (signature) {
-        const sigValid = verifyManifestSignature(raw, signature);
+        const sigValid = verifyManifestSignature(raw, signature, _isPackaged);
         if (!sigValid) {
           throw new Error("Manifest signature verification failed - possible MITM attack");
         }
       } else {
-        // No signature provided - log warning in production
+        // No signature provided — fatal in packaged builds (fail-closed)
+        const sigValid = verifyManifestSignature(raw, "", _isPackaged);
+        if (!sigValid) {
+          throw new Error("Manifest signature verification failed — packaged build requires a signed manifest");
+        }
         const status = getVerificationStatus();
         if (status.nodeEnv === "production") {
           console.warn(

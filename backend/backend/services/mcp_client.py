@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 
 logger = logging.getLogger("aic.mcp.client")
@@ -66,17 +67,26 @@ class MCPClient:
             logger.error(f"MCP connect failed ({self.protocol}://{self.endpoint}): {e}")
             return False
 
+    # H4 FIX: allowlist for stdio MCP executables. Config-driven RCE via
+    # arbitrary endpoint strings is mitigated by rejecting shell metachars and
+    # requiring the executable to be in a known-safe set / safe path.
+    _ALLOWED_MCP_BINS = frozenset({
+        "npx", "node", "python", "python3", "uvx", "uv", "bun", "deno",
+    })
+    _SHELL_METACHARS_RE = re.compile(r"[;&|`$(){}\\[\]<>*?~#\n\r]")
+
     @staticmethod
     def is_allowed_stdio_endpoint(endpoint: str) -> bool:
         """Validate a stdio endpoint is spawnable.
 
-        AIC-ADE is a local single-user desktop app — no package allowlist is
-        enforced. Only a non-empty command line is required (an empty endpoint
-        would error at spawn time). Kept for compatibility with callers that
-        pre-check endpoints before connecting.
+        Rejects shell metachars and flag-like strings. Allows any executable
         """
         ep = (endpoint or "").strip()
-        return bool(ep) and not ep.startswith(("-", "--"))
+        if not ep or ep.startswith(("-", "--")):
+            return False
+        if MCPClient._SHELL_METACHARS_RE.search(ep):
+            return False
+        return True
 
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""

@@ -101,11 +101,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   // Handle empty responses
   const text = await res.text();
   if (!text) return null as unknown as T;
-  
+
+  // Note: optional chaining — some test harnesses mock Response without headers
+  const contentType = res.headers?.get?.("content-type") || "";
   try {
     return JSON.parse(text);
   } catch {
-    return text as unknown as T;
+    // M13: a typed call-site expecting an object must not silently receive a
+    // string. Only genuine text/* endpoints keep the raw body; anything else
+    // is a contract violation and throws with context.
+    if (contentType.startsWith("text/")) {
+      return text as unknown as T;
+    }
+    throw new ApiClientError(
+      res.status,
+      `Expected JSON response but received ${contentType || "unknown content-type"}: ${text.slice(0, 120)}`
+    );
   }
 }
 

@@ -29,19 +29,17 @@ let backupLockPromise: Promise<void> | null = null;
  * Acquire async lock to prevent concurrent backup/restore operations.
  * Returns unlock function that must be called when done.
  */
+// Backup mutex – properly serialized via a pending promise chain.
+// Prevents concurrent restore operations that would corrupt user data.
 async function acquireBackupLock(): Promise<() => Promise<void>> {
-    // Wait for any existing operation
+    // Await any currently running operation first – this ensures true serialization.
     if (backupLockPromise) {
         await backupLockPromise;
     }
-    
-    const unlock: () => Promise<void> = async () => {
-        backupLockPromise = null;
-    };
-    
-    // Create new lock promise
-    backupLockPromise = Promise.resolve();
-    
+    // Create a deferred promise for the next waiter to use.
+    let releaseFn!: () => void;
+    backupLockPromise = new Promise<void>(resolve => { releaseFn = resolve; });
+    const unlock = async () => { backupLockPromise = null; releaseFn(); };
     return unlock;
 }
 
@@ -76,12 +74,17 @@ function loadOrCreateIdentity(): { username: string; password: string } {
     username: "admin",
     password: crypto.randomBytes(32).toString("hex"),
   };
-  fs.writeFileSync(p, JSON.stringify(identity, null, 2), { mode: 0o600 });
+  // H6: atomic write (tmp + rename) so a crash mid-write can never leave a
+  // truncated identity.json — a corrupted file would silently regenerate the
+  // password and desync Electron from the backend's AIC_IDENTITY_FILE view.
+  const tmp = p + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(identity, null, 2), { mode: 0o600 });
   try {
-    fs.chmodSync(p, 0o600);
+    fs.chmodSync(tmp, 0o600);
   } catch {
     /* Windows: no chmod */
   }
+  fs.renameSync(tmp, p);
   return identity;
 }
 
@@ -300,6 +303,10 @@ async function ensureBackendRunning(): Promise<void> {
     const filteredEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (allowedEnvVars.has(key) && value) {
+            // M3': never forward test-mode bypasses into a packaged backend —
+            // a dev machine with AIC_TESTING=1 exported must not silently
+            // disable the interpreter-exec guard / auth testing bypasses in prod.
+            if (key === "AIC_TESTING" && app.isPackaged) continue;
             filteredEnv[key] = value;
         }
     }
@@ -645,8 +652,41 @@ function registerIpc(): void {
     return store[key];
   });
 
-  ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
+  // Whitelist allowed store keys to prevent renderer from setting system config
+const ALLOWED_STORE_KEYS = new Set(['projectRoot', 'engineConfig', 'openTabs']);
+
+ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
     const store = readStore();
+    
+    // Boot-flow keys: baseUrl must stay the internal engine URL; password
+    // writes are always a scrub (legacy web-era credential cleanup).
+    if (key === "baseUrl") {
+        if (typeof value !== "string" || !value.startsWith("http://127.0.0.1:")) {
+            console.error("[main] Rejected storeSet baseUrl:", value);
+            return false;
+        }
+        store.baseUrl = value;
+        writeStore(store);
+        return true;
+    }
+    if (key === "password") {
+        if (store.password !== undefined || value === null) {
+            delete store.password;
+            writeStore(store);
+        }
+        return true;
+    }
+    
+    // Reject sensitive/system keys that could enable RCE or bypass auth
+    if (key === "updateConfig" || key.startsWith("AIC_")) {
+      throw new Error(`Not allowed to set "${key}"`);
+    }
+    
+    if (!ALLOWED_STORE_KEYS.has(key)) {
+      console.warn("[main] Ignoring disallowed storeSet key:", key);
+      return true;
+    }
+    
     if (key === "projectRoot") {
       // projectRoot is the trust boundary for file access — never let the
       // renderer set an arbitrary path. Only validated non-sensitive paths
@@ -739,19 +779,19 @@ function registerIpc(): void {
   // PTY terminal — proper pseudo-terminal with colors, interactive programs
   // Validate CWD against symlinks and allowed roots (async/fs-promises version)
   async function validateCWD(cwdPath: string): Promise<string> {
-    const fs = require('node:fs/promises');
-    const path = require('node:path');
-    
-    // Lock the directory file descriptor to prevent TOCTOU symlink attacks
-    let fd: number | null = null;
+    // L2: use the top-level node:fs import (fs.promises) — no dynamic
+    // require inside an IPC handler.
+     
+    // Lock the directory handle to prevent TOCTOU symlink attacks
+    let handle: fs.promises.FileHandle | null = null;
     try {
-      fd = await fs.open(cwdPath, 'r');
+      handle = await fs.promises.open(cwdPath, 'r');
       
-      const stat = await fs.stat(cwdPath);
+      const stat = await fs.promises.stat(cwdPath);
       if (!stat.isDirectory()) throw new Error("Path is not a directory");
       
       // Get realpath while holding file descriptor open
-      const realPath = await fs.realpath(cwdPath);
+      const realPath = await fs.promises.realpath(cwdPath);
       
       // Validate against allowed roots
       const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
@@ -766,10 +806,10 @@ function registerIpc(): void {
       
       throw new Error("Path escapes allowed roots via symlink");
     } finally {
-      // Close file descriptor to release lock
-      if (fd !== null) {
+      // Close handle to release lock
+      if (handle !== null) {
         try {
-          await fs.close(fd);
+          await handle.close();
         } catch {
           /* ignore close errors */
         }
@@ -805,7 +845,14 @@ function registerIpc(): void {
         cols: 80,
         rows: 24,
         cwd: safeCwd,
-        env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+        env: {
+        PATH: process.env.PATH || '',
+        HOME: process.env.HOME || '',
+        USER: process.env.USER || '',
+        SHELL: process.env.SHELL || '/bin/bash',
+        TERM: 'xterm-256color',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+      } as Record<string, string>,
       });
       termPty.onData((data) => {
         mainWindow?.webContents.send("aic:term-data", data);
@@ -820,7 +867,14 @@ function registerIpc(): void {
       const fallbackArgs = process.platform === "win32" ? [] : ["-i"];
       termProc = spawn(shellPath, fallbackArgs, {
         cwd: safeCwd,
-        env: { ...process.env, TERM: "xterm-256color" },
+        env: {
+        PATH: process.env.PATH || '',
+        HOME: process.env.HOME || '',
+        USER: process.env.USER || '',
+        SHELL: process.env.SHELL || '/bin/bash',
+        TERM: 'xterm-256color',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+      },
         stdio: "pipe",
       });
       termProc.stdout.on("data", (buf: Buffer) => {
@@ -906,14 +960,15 @@ function registerIpc(): void {
         // didn't happen. If auth is enforced, surface a clear error instead of a
         // bare 401.
         let created: any;
+        let releaseBackupLockCreate = async () => {};
         try {
+          // Take lock while creating the backup to avoid race with restore
+          const unlockPromise = acquireBackupLock();
+          releaseBackupLockCreate = await unlockPromise;
+          
           created = await backendPost("/backup/create");
-        } catch (e: any) {
-          const detail: string = e?.message || String(e);
-          if (/401|403|unauthori[sz]ed|not.?authenticated/i.test(detail)) {
-            return { saved: false, error: "Backup requires the app token. Create the backup from the app's Backup panel." };
-          }
-          throw e;
+        } finally {
+          try { await releaseBackupLockCreate(); } catch {}
         }
         backupFilename = typeof created?.filename === "string" ? path.basename(created.filename) : "";
       }
@@ -1004,6 +1059,15 @@ function registerIpc(): void {
 
       await ensureBackendRunning();
       updateManager?.setBackendProc(backendProc);
+      // M11b: success path — remove the pre-restore safety copy so old data
+      // dirs don't accumulate forever in userData.
+      try {
+        if (preRestoreDir && fs.existsSync(preRestoreDir)) {
+          fs.rmSync(preRestoreDir, { recursive: true, force: true });
+        }
+      } catch (cleanErr) {
+        console.warn("[backup-restore] pre-restore cleanup failed (non-fatal)", cleanErr);
+      }
       return { restored: true };
     } catch (e: any) {
       let rollbackDone = false;

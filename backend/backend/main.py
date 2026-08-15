@@ -184,7 +184,7 @@ async def lifespan(app: FastAPI):
 
     # Validate embedding provider
     from backend.services.embedding_provider import validate_embedding_provider
-    # P1 #7: validate_embedding_provider() runs a sync httpx probe (Ollama
+    # P1 #7: await asyncio.to_thread(validate_embedding_provider, ) runs a sync httpx probe (Ollama
     # detect) — run it in a thread so startup never blocks the async loop.
     validation = await asyncio.to_thread(validate_embedding_provider)
     logger.info(f"Embedding provider: {validation['provider']} (production_ready={validation['production_ready']})")
@@ -398,11 +398,16 @@ async def localhost_only_middleware(request: Request, call_next):
        where a hostile page's hostname resolves to 127.0.0.1 with an
        attacker-controlled Host header).
     """
-    client_host = request.client.host if request.client else ""
-    # Allow localhost, 127.0.0.1, ::1, and Electron internal. The httpx
-    # ASGITransport client host "testclient" is only permitted in test mode so
-    # it cannot be used to bypass the localhost-only guard at runtime.
-    allowed_client_hosts = {"127.0.0.1", "localhost", "::1", ""}
+    client_host = request.client.host if request.client else None
+    if client_host is None:
+        # No client info — reject unless in test mode (ASGI test transport)
+        if not _test_mode_enabled():
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Access denied: desktop-only server"},
+            )
+        client_host = "testclient"
+    allowed_client_hosts = {"127.0.0.1", "localhost", "::1"}
     if _test_mode_enabled():
         allowed_client_hosts.add("testclient")
     if client_host not in allowed_client_hosts:

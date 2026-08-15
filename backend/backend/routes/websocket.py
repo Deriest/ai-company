@@ -8,6 +8,7 @@ Features:
 - Auto-cleanup of dead connections
 """
 import json
+import os
 import logging
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -190,6 +191,11 @@ async def websocket_endpoint(
         else:
             await websocket.close(code=4001, reason="Invalid token")
             return
+    elif os.environ.get("AIC_WS_REQUIRE_TOKEN", "") == "1":
+        # Strict mode: localhost is not an identity — a valid token is
+        # mandatory for every connection (consistent with HTTP deps).
+        await websocket.close(code=4001, reason="Token required")
+        return
     elif not _is_localhost(websocket):
         # Require auth for non-localhost connections
         await websocket.close(code=4001, reason="Token required")
@@ -202,6 +208,11 @@ async def websocket_endpoint(
     try:
         while True:
             data = await websocket.receive_text()
+            # M4: bound payload size — an unauthenticated/misbehaving client
+            # must not be able to feed unbounded JSON into the parser.
+            if len(data) > 1_000_000:
+                await websocket.close(code=4009, reason="message too large")
+                break
             msg = json.loads(data) if data.startswith("{") else {"text": data}
 
             # Handle subscription commands

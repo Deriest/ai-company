@@ -57,7 +57,9 @@ async def init_db():
     import backend.models.mcp
     import backend.models.local_profile
 
-    # Create ALL tables on the same engine (checkfirst=True skips existing)
+    # H7: Create ALL tables on the same engine (checkfirst=True skips existing).
+    # StorageBase owns canonical users/conversations tables; backend.models.schema
+    # tables use extend_existing to avoid duplicate-table conflicts.
     # Storage tables first (includes conversations with user_id)
     async with engine.begin() as conn:
         await conn.run_sync(StorageBase.metadata.create_all)

@@ -38,6 +38,39 @@ from backend.security.shell_security import (
 )
 from backend.services.path_utils import resolve_workspace_path
 
+class _OutputOverflow(Exception):
+    """Raised when a subprocess emits more output than the executor will retain."""
+
+
+async def _read_output_with_cap(proc, cap: int = 1_000_000, kill_at: int = 4_000_000) -> bytes:
+    """Drain proc.stdout with a memory cap.
+
+    M5: ``communicate()`` buffers everything — ``yes`` for 600s is ~GBs of RAM.
+    Read incrementally; past the retention cap keep draining (discarding), and
+    hard-kill the process group once it exceeds kill_at.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await proc.stdout.read(65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total <= cap:
+            chunks.append(chunk)
+        if total > kill_at:
+            await _kill_process_group(proc)
+            raise _OutputOverflow(f"output exceeded {kill_at} bytes")
+    return b"".join(chunks)
+
+
+def _clamp_timeout(v, default=60, lo=1, hi=600):
+    try:
+        n = int(v)
+    except Exception:
+        return default
+    return max(lo, min(hi, n))
+
 logger = logging.getLogger("aic.tool_executor")
 
 # ── Minimal permission set for unknown/undefined workers ───────────────
@@ -416,6 +449,7 @@ class WorkerToolExecutor:
         returning immediately (no pipe-hold hang), kills the whole process
         group on timeout, and surfaces port-in-use failures explicitly.
         """
+        timeout = _clamp_timeout(timeout)
         if not await self.check_tool_permission("run_shell"):
             return ToolResult.error_result("run_shell", "Permission denied")
         
@@ -449,13 +483,28 @@ class WorkerToolExecutor:
                     tool="run_shell",
                     success=True,
                     output="Started in background (detached). Command keeps running independently.",
-                    metadata={"background": True, "exit_code": 0},
+                    metadata={"background": True, "exit_code": proc.returncode},
                 )
             
             try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                stdout = await asyncio.wait_for(_read_output_with_cap(proc), timeout=timeout)
+                await asyncio.wait_for(proc.wait(), timeout=5)
                 output = stdout.decode("utf-8", errors="replace") if stdout else ""
                 exit_code = proc.returncode or 0
+            except _OutputOverflow as oe:
+                return ToolResult(
+                    tool="run_shell",
+                    success=False,
+                    output="",
+                    error=f"Command output too large: {oe}",
+                    metadata={"background": False},
+                )
+            except asyncio.CancelledError:
+                # CancelledError derives from BaseException: without this handler
+                # the cancel propagates and leaves an orphaned subprocess behind
+                # (workers/tools.py already handles this — mirror it here).
+                await _kill_process_group(proc)
+                raise
             except asyncio.TimeoutError:
                 await _kill_process_group(proc)
                 return ToolResult(
@@ -489,18 +538,23 @@ class WorkerToolExecutor:
                 return ToolResult.error_result("explore", f"Not a directory: {path}")
             
             tree = []
-            
+            MAX_NODES = 2000
+            state = {"count": 0}
+
             def _walk(dir_path: str, prefix: str, depth: int):
-                if depth > max_depth:
+                if depth > max_depth or state["count"] >= MAX_NODES:
                     return
                 try:
                     entries = sorted(os.listdir(dir_path))
                 except PermissionError:
                     return
-                
+
                 for entry in entries:
+                    if state["count"] >= MAX_NODES:
+                        return
                     if entry.startswith("."):
                         continue
+                    state["count"] += 1
                     full = os.path.join(dir_path, entry)
                     if os.path.isdir(full):
                         tree.append(f"{prefix}{entry}/")
@@ -521,16 +575,36 @@ class WorkerToolExecutor:
         try:
             full_path = self._resolve_path(path)
             import re
-            
+
             matches = []
-            regex = re.compile(pattern, re.IGNORECASE)
-            
+            try:
+                regex = re.compile(pattern, re.IGNORECASE)
+            except re.error as e:
+                return ToolResult.error_result("search", f"Invalid regex: {e}")
+
+            # M6 budgets: bound work so an LLM-supplied pathological regex or a
+            # huge tree cannot pin the executor (ReDoS / runaway scan).
+            MAX_FILES = 500
+            MAX_FILE_BYTES = 2_000_000
+            MAX_LINES_PER_FILE = 50_000
+
+            files_scanned = 0
+            budget_exhausted = False
             for root, dirs, files in os.walk(full_path):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
                 for fn in files:
+                    if files_scanned >= MAX_FILES:
+                        budget_exhausted = True
+                        break
+                    files_scanned += 1
                     fp = os.path.join(root, fn)
                     try:
+                        if os.path.getsize(fp) > MAX_FILE_BYTES:
+                            continue
                         with open(fp, "r", encoding="utf-8", errors="replace") as f:
                             for line_no, line in enumerate(f, 1):
+                                if line_no > MAX_LINES_PER_FILE:
+                                    break
                                 if regex.search(line):
                                     matches.append({
                                         "file": os.path.relpath(fp, full_path),
@@ -542,12 +616,13 @@ class WorkerToolExecutor:
                         continue
                     
                     if len(matches) >= 100:
+                        budget_exhausted = True
                         break
-                if len(matches) >= 100:
+                if budget_exhausted:
                     break
             
             output = "\n".join(f"{m['file']}:{m['line']}: {m['content']}" for m in matches[:50])
-            return ToolResult.success_result("search", output, {"total_matches": len(matches)})
+            return ToolResult.success_result("search", output, {"total_matches": len(matches), "files_scanned": files_scanned})
         except Exception as e:
             return ToolResult.error_result("search", str(e))
     

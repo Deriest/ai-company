@@ -209,7 +209,18 @@ export function useBoot(opts: UseBootOptions): BootState {
       // fallback), not from a stored token.
       let restoredToken: string | null = null;
       try {
-        const identity = (await window.aic?.getIdentity?.()) ?? DESKTOP_IDENTITY;
+        // M13b: DESKTOP_IDENTITY (admin/admin123) is a NON-Electron dev
+        // fallback only. If it is ever used inside Electron the preload
+        // bridge is broken — fail loudly instead of silently authing with a
+        // hardcoded credential.
+        let identity = await window.aic?.getIdentity?.();
+        if (!identity) {
+          console.warn(
+            "[boot] window.aic.getIdentity unavailable — using dev DESKTOP_IDENTITY (admin/admin123). " +
+            "In a packaged app this indicates a broken preload bridge."
+          );
+          identity = DESKTOP_IDENTITY;
+        }
         const res = await api.login(identity.username, identity.password);
         restoredToken = res.access_token;
         setToken(restoredToken);
