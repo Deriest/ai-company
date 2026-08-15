@@ -32,6 +32,18 @@ vi.mock("electron", () => {
   };
 });
 
+// C1: mock signature verification — mock manifests (version 2.0.0, sha AA) are
+// not signed with the real release key. Without this, the now-baked public
+// key plus the real latest.json.sig on raw.githubusercontent.com would cause
+// every mock manifest to fail verification (genuine sig ≠ mock manifest hash).
+vi.mock("../shared/updateSecurity", async () => {
+  const actual = await vi.importActual<typeof import("../shared/updateSecurity")>("../shared/updateSecurity");
+  return {
+    ...actual,
+    verifyManifestSignature: vi.fn(() => true),
+  };
+});
+
 const CURRENT_VERSION = "0.1.0";
 
 function makeManifest(overrides: Record<string, unknown> = {}) {
