@@ -12,6 +12,7 @@ Test Strategy:
 
 import asyncio
 import logging
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
@@ -24,7 +25,7 @@ async def test_dispatcher_failure_isolation():
     
     # Import the dispatcher module
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from backend.dispatcher.engine import DispatcherEngine
+    from dispatcher.engine import DispatcherEngine
     
     logger.info("Testing dispatcher failure isolation (Phase 2)...")
     
@@ -78,6 +79,8 @@ async def test_dispatcher_failure_isolation():
                 
                 if failed_nids:
                     logger.info(f"Detected failures: {failed_nids}, continuing...")
+                    # With 'continue', we still track all results including failures
+                    grouped_results.extend(local_results)
                     continue  # This is the fix - continues instead of breaks
                     
                 grouped_results.extend(local_results)

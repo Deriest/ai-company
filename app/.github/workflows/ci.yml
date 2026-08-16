@@ -125,7 +125,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run frontend tests
-        run: npm test || true
+        run: npm test
 
       - name: Run backend tests
-        run: pytest || true
+        run: pytest

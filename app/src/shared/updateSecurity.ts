@@ -94,7 +94,7 @@ export function verifyManifestSignature(
             key: {
                 kty: "OKP",
                 crv: "Ed25519",
-                x: Buffer.from(publicKeyBytes).toString("base64"),
+                x: publicKeyBytes.toString("base64url"),
             },
             format: "jwk",
         });

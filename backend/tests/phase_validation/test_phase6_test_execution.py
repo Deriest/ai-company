@@ -60,7 +60,7 @@ addopts = "-v"
         print(f"Language: {result.language}")
         
         # Should succeed (exit code 0) for valid python syntax
-        assert result.language in ["python", None"], f"Expected python or None, got {result.language}"
+        assert result.language in ["python", None], f"Expected python or None, got {result.language}"
         assert result.framework == "pytest", f"Expected pytest, got {result.framework}"
         
         print("✓ Python project detected and analyzed")
