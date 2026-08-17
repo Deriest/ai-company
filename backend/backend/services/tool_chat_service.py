@@ -120,29 +120,14 @@ def _parse_tool_calls(content: str) -> list[tuple[str, dict]]:
     # Format 2: <tool_call>...</tool_call>
     for match in TOOL_XML_PATTERN.finditer(content):
         xml_body = match.group(1).strip()
-        parsed = None
         try:
             parsed = json.loads(xml_body)
-        except json.JSONDecodeError:
-            # Variant seen in the wild (v2.6.21 screenshot): the LLM emits
-            # <tool_call>name:{"args": ...}</tool_call> — name-colon-JSON
-            # instead of a pure JSON object. Retry by splitting on first ':'.
-            m = re.match(r'^(\w+):(\{.*\})$', xml_body, re.DOTALL)
-            if m:
-                try:
-                    body = json.loads(m.group(2))
-                    if isinstance(body, dict) and not any(
-                        k in body for k in ("args", "arguments", "parameters")
-                    ):
-                        body = {"args": body}  # body IS the args payload itself
-                    parsed = {"name": m.group(1), **body}
-                except json.JSONDecodeError:
-                    parsed = None
-        if isinstance(parsed, dict):
             tool_type = parsed.get("name") or parsed.get("tool") or parsed.get("type", "")
             tool_args = parsed.get("args") or parsed.get("arguments") or parsed.get("parameters") or {}
             if tool_type:
                 results.append((tool_type, tool_args))
+        except json.JSONDecodeError:
+            pass
 
     # Format 3: {"tool": "type", "args": {...}}
     for tool_type, args_str in TOOL_JSON_PATTERN.findall(content):
@@ -249,6 +234,7 @@ class ToolAwareChatService:
 
         # Track modified files across the conversation
         all_modified_files = []
+        all_todos = []
         max_tool_rounds = 10  # Prevent infinite tool loops
 
         for round_num in range(max_tool_rounds):
@@ -315,7 +301,7 @@ class ToolAwareChatService:
                 elif tool_type == "write_file":
                     tc = await executor.write_file(args.get("path", ""), args.get("content", ""))
                 elif tool_type == "shell":
-                    tc = await executor.run_shell(args.get("command", ""), max(1, min(600, int(args.get("timeout", 60) or 60))))
+                    tc = await executor.shell(args.get("command", ""), args.get("timeout", 60))
                 elif tool_type == "explore":
                     tc = await executor.explore(args.get("path", "."), args.get("max_depth", 3))
                 elif tool_type == "search":

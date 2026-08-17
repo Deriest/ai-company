@@ -143,23 +143,8 @@ const boot = useBoot({
     }
   }, [boot.bootPhase, profile]);
 
-  // Unified gate — no flash: show one splash until BOTH boot is ready
-  // and the profile has settled. boot gate wins; then profile; then app.
-  const bootNotReady = boot.bootPhase !== "ready";
-  if (loading || bootNotReady) {
-    // Boot is still warming → BootSplash (not onboarding) even if profile is null.
-    if (bootNotReady) {
-      return (
-        <BootSplash
-          phase={boot.bootPhase}
-          detail={boot.bootDetail}
-          backendStatus={boot.backendStatus}
-          onRetry={boot.retryBoot}
-        />
-      );
-    }
-    // Boot ready but profile fetch still pending — keep a single Loading gate,
-    // never flash OnboardingFlow for an already-onboarded user.
+  // Loading
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading…</div>
@@ -167,7 +152,21 @@ const boot = useBoot({
     );
   }
 
-  // First launch — onboarding (only after boot ready + profile settled)
+  // Boot gate — block every screen until the local engine is healthy. On a
+  // hard engine error the splash becomes an error panel with Retry/Open log
+  // instead of a dead-end spinner.
+  if (boot.bootPhase !== "ready") {
+    return (
+      <BootSplash
+        phase={boot.bootPhase}
+        detail={boot.bootDetail}
+        backendStatus={boot.backendStatus}
+        onRetry={boot.retryBoot}
+      />
+    );
+  }
+
+  // First launch — onboarding
   if (!profile || !profile.onboardingCompleted) {
     return <OnboardingFlow onComplete={handleOnboardingComplete} />;
   }
@@ -180,7 +179,10 @@ const boot = useBoot({
       case "overview":
       case "live":  // unified with office
         return <WorkspaceView onNavigate={(v) => setView(v as View)} projectRoot={projectRoot} projectName={projectName} showFileTree={showFileTree} onToggleFileTree={() => setShowFileTree(p => !p)} />;
-      // Note: hermes/chat cases removed - ChatView mounted conditionally below (line 243)
+      case "hermes":
+      case "chat":
+        return null;
+      // live route unified with workspace/office above
 
       case "skills":
         return <SkillsView />;
@@ -239,23 +241,16 @@ const boot = useBoot({
             {/* Keep Command Center mounted while navigating so streaming state and
                 the active conversation cannot disappear with the menu view. */}
             <div className={view === "hermes" || view === "chat" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-              {/*
-                Chat is also wrapped in a per-view boundary: a render error
-                while streaming / rendering a task must not take down the whole
-                app. The compact fallback now shows the actual error detail.
-              */}
-              <ErrorBoundary resetKey={view} compact label="Chat failed to render">
-                <ChatView
-                  health={boot.health}
-                  currentProvider={boot.currentProvider}
-                  view={view}
-                  newSessionSignal={newSessionSignal}
-                  projectRoot={projectRoot}
-                  projectName={projectName}
-                  projectRefreshKey={projectRefreshKey}
-                  onProjectChange={handleProjectChange}
-                />
-              </ErrorBoundary>
+              <ChatView
+                health={boot.health}
+                currentProvider={boot.currentProvider}
+                view={view}
+                newSessionSignal={newSessionSignal}
+                projectRoot={projectRoot}
+                projectName={projectName}
+                projectRefreshKey={projectRefreshKey}
+                onProjectChange={handleProjectChange}
+              />
             </div>
             <div className={view === "hermes" || view === "chat" ? "hidden" : "flex flex-1 min-h-0 flex-col"}>
               {/* Per-view boundary: a render error in one view shows a

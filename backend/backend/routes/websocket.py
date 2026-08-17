@@ -8,7 +8,6 @@ Features:
 - Auto-cleanup of dead connections
 """
 import json
-import os
 import logging
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -86,13 +85,13 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, channel: str, user_id: str | None = None):
         await websocket.accept()
         self.connections[channel].append(websocket)
-
+        
         # Track this WS's subscriptions to enable proper cleanup (P4 fix)
         ws_id = self._get_ws_id(websocket)
         if ws_id not in self.ws_channels:
             self.ws_channels[ws_id] = set()
         self.ws_channels[ws_id].add(channel)
-
+        
         if user_id:
             self.user_channels[user_id].add(channel)
         logger.info(f"WebSocket connected: channel={channel} user={user_id or 'anonymous'}")
@@ -191,11 +190,6 @@ async def websocket_endpoint(
         else:
             await websocket.close(code=4001, reason="Invalid token")
             return
-    elif os.environ.get("AIC_WS_REQUIRE_TOKEN", "") == "1":
-        # Strict mode: localhost is not an identity — a valid token is
-        # mandatory for every connection (consistent with HTTP deps).
-        await websocket.close(code=4001, reason="Token required")
-        return
     elif not _is_localhost(websocket):
         # Require auth for non-localhost connections
         await websocket.close(code=4001, reason="Token required")
@@ -208,11 +202,6 @@ async def websocket_endpoint(
     try:
         while True:
             data = await websocket.receive_text()
-            # M4: bound payload size — an unauthenticated/misbehaving client
-            # must not be able to feed unbounded JSON into the parser.
-            if len(data) > 1_000_000:
-                await websocket.close(code=4009, reason="message too large")
-                break
             msg = json.loads(data) if data.startswith("{") else {"text": data}
 
             # Handle subscription commands

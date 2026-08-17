@@ -8,7 +8,7 @@ from typing import List, Optional
 import json
 
 from backend.database.session import get_db
-from backend.api.dependencies import require_current_user, validate_ownership
+from backend.api.dependencies import require_current_user
 from storage.models import Conversation, Message
 from backend.models.conversation import (
     Attachment,
@@ -17,12 +17,12 @@ from backend.models.conversation import (
 from backend.schemas.conversation_schemas import (
     BaseModel,
     ConversationCreate, ConversationUpdate, ConversationResponse,
-    MessageCreate, MessageResponse, AttachmentResponse,
+    MessageCreate, MessageUpdate, MessageResponse, AttachmentResponse,
     SearchResultItem, ImportConversationPayload, ExportConversationPayload,
 )
 from backend.services.search_service import (
     index_conversation_fts, index_message_fts,
-    remove_fts_by_conversation,
+    remove_fts_by_conversation, init_fts5,
 )
 from backend.services.attachment_store import (
     save_attachment, delete_attachment, read_attachment, decode_data_url,
@@ -306,13 +306,7 @@ async def update_conversation(id: str, payload: ConversationUpdate, db: AsyncSes
 
 
 @router.delete("/conversations/{id}")
-async def delete_conversation(id: str, db: AsyncSession = Depends(get_db), user: str = Depends(require_current_user)):
-    # H1 FIX: Verify user owns this conversation before allowing delete
-    try:
-        await validate_ownership(db, id, "conversation", user)
-    except HTTPException:
-        raise  # Re-raise ownership violations (403)
-
+async def delete_conversation(id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Conversation).where(Conversation.id == id))
     conv = res.scalars().first()
     if not conv:
@@ -322,72 +316,72 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db), user:
     # Also engineering_plans/task_graphs/dispatch_sessions ← engineering_briefs
     # Delete in reverse dependency order to avoid foreign key violations
     await db.execute(text("""
-        DELETE FROM lessons_learned
+        DELETE FROM lessons_learned 
         WHERE report_id IN (
             SELECT id FROM engineering_reports WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
                 )
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM engineering_reports
+        DELETE FROM engineering_reports 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM dispatch_sessions
+        DELETE FROM dispatch_sessions 
         WHERE graph_id IN (
-            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id
+            SELECT tg.id FROM task_graphs tg JOIN engineering_plans ep ON tg.plan_id=ep.id 
             WHERE ep.brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
                 )
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM task_graphs
+        DELETE FROM task_graphs 
         WHERE plan_id IN (
             SELECT id FROM engineering_plans WHERE brief_id IN (
                 SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                    SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                    SELECT id FROM discovery_sessions WHERE conversation_id = :cid
                 )
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM engineering_plans
+        DELETE FROM engineering_plans 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM planning_sessions
+        DELETE FROM planning_sessions 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM verification_sessions
+        DELETE FROM verification_sessions 
         WHERE brief_id IN (
             SELECT id FROM engineering_briefs WHERE discovery_session_id IN (
-                SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+                SELECT id FROM discovery_sessions WHERE conversation_id = :cid
             )
         )
     """), {"cid": id})
     await db.execute(text("""
-        DELETE FROM engineering_briefs
+        DELETE FROM engineering_briefs 
         WHERE discovery_session_id IN (
-            SELECT id FROM discovery_sessions WHERE task_conversation_ref = :cid
+            SELECT id FROM discovery_sessions WHERE conversation_id = :cid
         )
     """), {"cid": id})
     # Attachment cleanup + files
@@ -400,7 +394,7 @@ async def delete_conversation(id: str, db: AsyncSession = Depends(get_db), user:
     await db.execute(text(
         "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = :cid)"
     ), {"cid": id})
-    await db.execute(text("DELETE FROM discovery_sessions WHERE task_conversation_ref = :cid"), {"cid": id})
+    await db.execute(text("DELETE FROM discovery_sessions WHERE conversation_id = :cid"), {"cid": id})
     await db.delete(conv)
     await db.commit()
     for att_id in att_ids:

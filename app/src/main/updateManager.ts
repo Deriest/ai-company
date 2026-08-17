@@ -409,37 +409,21 @@ export class UpdateManager {
     try {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
       
-      // Fetch manifest + signature side-by-side. The manifest MUST go through
-      // the injected io.fetchJson seam (so tests can mock it) — and through the
-      // hardened transport (https-only, size cap, redirect cap). The raw
-      // global `fetch` previously used here bypassed both, which is why the
-      // injected seam never took effect and the transport guardrails were dead.
-      const raw = await this.io.fetchJson(url);
-      const signature = await requestRaw(`${url}.sig`, 30000, MAX_MANIFEST_BYTES, "signature")
-        .then((v) => String(v))
-        .catch(() => "");
+      // Fetch manifest and signature side-by-side
+      const fetchOptions: RequestInit = { headers: { 'Accept': 'application/json' } };
+      const [raw, signature] = await Promise.all([
+        fetch(url, fetchOptions).then(r => r.json()),
+        fetch(`${url}.sig`, { headers: { 'Accept': 'text/plain' } }).then(r => r.text()).catch(() => ""),
+      ]);
       
-      // Verify cryptographic signature before parsing — C2 FIX: enforce in
-      // packaged builds (Packaged Electron does not reliably set NODE_ENV,
-      // so pass app.isPackaged explicitly).
-      const _isPackaged = (() => {
-        try {
-          return (app as unknown as { isPackaged?: boolean })?.isPackaged ?? undefined;
-        } catch {
-          return undefined;
-        }
-      })();
+      // Verify cryptographic signature before parsing
       if (signature) {
-        const sigValid = verifyManifestSignature(raw, signature, _isPackaged);
+        const sigValid = verifyManifestSignature(raw, signature);
         if (!sigValid) {
           throw new Error("Manifest signature verification failed - possible MITM attack");
         }
       } else {
-        // No signature provided — fatal in packaged builds (fail-closed)
-        const sigValid = verifyManifestSignature(raw, "", _isPackaged);
-        if (!sigValid) {
-          throw new Error("Manifest signature verification failed — packaged build requires a signed manifest");
-        }
+        // No signature provided - log warning in production
         const status = getVerificationStatus();
         if (status.nodeEnv === "production") {
           console.warn(
@@ -581,34 +565,9 @@ export class UpdateManager {
         });
 
         this.setState({ status: "verifying", progress: 100 });
-
-        // M5: enforce the manifest-declared size before trusting the file.
-        // SHA256 below is the real integrity gate, but a size mismatch is a
-        // cheap early reject (truncated download, wrong asset, or a manifest
-        // whose `size` disagrees with the served bytes) — fail here instead of
-        // hashing a bogus file.
-        if (artifact.size && artifact.size > 0) {
-          let actualSize = 0;
-          try {
-            actualSize = fs.statSync(tempDest).size;
-          } catch {
-            actualSize = 0;
-          }
-          if (actualSize !== artifact.size) {
-            try { fs.unlinkSync(tempDest); } catch { /* best effort */ }
-            this.setState({
-              status: "error",
-              error: `Downloaded size ${actualSize} bytes does not match manifest size ${artifact.size} bytes`,
-              downloadPath: undefined,
-            });
-            return this.getState();
-          }
-        }
-
         const hash = await this.io.sha256File(tempDest);
         const expected = (artifact.sha256 || "").toLowerCase();
         // sha256 is REQUIRED by parseManifest — never skip verification.
-        // Ensure both hashes are compared in lowercase to avoid case-sensitivity issues.
         if (!expected || hash.toLowerCase() !== expected) {
           fs.unlinkSync(tempDest);
           this.setState({

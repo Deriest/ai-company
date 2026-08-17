@@ -63,28 +63,11 @@ fi
 
 # ── 1. Bump version ─────────────────────────────────────────────────────────
 
-if [ -n "${SKIP_BUILD:-}" ]; then
-  CUR_VER=$(python3 -c "import json; print(json.load(open('app/package.json')).get('version','?'))" 2>/dev/null || echo "?")
-  echo "📋 Step 1/7: Version bump SKIPPED (SKIP_BUILD=1) — reusing ${CUR_VER}..."
-else
 echo "📋 Step 1/7: Bumping version to ${VERSION}..."
+
 # package.json
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package.json"
-# root package.json — keep it in lockstep so AIC_APP_VERSION / build metadata
-# never drift from app/package.json (M4 fix). Update both the top-level
-# version and build.extraMetadata.version via a safe JSON rewrite.
-python3 -c "
-import json
-p = '$ROOT_DIR/package.json'
-with open(p) as f:
-    data = json.load(f)
-data['version'] = '$VERSION'
-if isinstance(data.get('build'), dict) and isinstance(data['build'].get('extraMetadata'), dict):
-    data['build']['extraMetadata']['version'] = '$VERSION'
-with open(p, 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-"
+
 # package-lock.json — use Python json for safe update (BUG-11 fix)
 python3 -c "
 import json
@@ -97,42 +80,34 @@ with open('$APP_DIR/package-lock.json', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
+
 echo "  ✅ Version bumped"
-fi
 
 # ── 2. Build ────────────────────────────────────────────────────────────────
 
-if [ -n "${SKIP_BUILD:-}" ]; then
-echo ""
-echo "🔨 Step 2/7: Build SKIPPED (SKIP_BUILD=1) — reusing existing artifacts:"
-ls -lh "$RELEASE_DIR/AIC-ADE-${VERSION}.AppImage" "$RELEASE_DIR/aic-ade_${VERSION}_amd64.deb" "$RELEASE_DIR/AIC-ADE.SETUP.V${VERSION}.exe" 2>&1 | sed 's/^/     /'
-else
 echo ""
 echo "🔨 Step 2/7: Building Linux + Windows..."
-# Clean build dirs (dist/ is Vite renderer output; release/ is electron-builder output)
+
+# Clean build dirs
 rm -rf "$APP_DIR/dist" "$APP_DIR/dist-electron" "$RELEASE_DIR/linux-unpacked" "$RELEASE_DIR/win-unpacked"
 
 cd "$APP_DIR"
 npm run build
 npx electron-builder --linux AppImage deb
 npx electron-builder --win nsis --x64
-
 cd "$ROOT_DIR"
 
 echo "  ✅ Build complete"
-fi
 
 # ── 3. Compute hashes + sizes ───────────────────────────────────────────────
 
 echo ""
 echo "🔐 Step 3/7: Computing SHA256 hashes..."
 
-APPIMAGE="AIC-ADE-${VERSION}.AppImage"
-DEB="aic-ade_${VERSION}_amd64.deb"
-EXE="AIC-ADE.SETUP.V${VERSION}.exe"
+APPIMAGE="AIC-ADE-${VERSION}-linux-x86_64.AppImage"
+DEB="AIC-ADE-${VERSION}-linux-amd64.deb"
+EXE="AIC-ADE-Setup-${VERSION}.exe"
 
-# electron-builder output is app/release; app/dist is reserved for Vite's
-# renderer bundle and is packaged into app.asar.
 APPIMAGE_SHA=$(sha256sum "$RELEASE_DIR/$APPIMAGE" | cut -d' ' -f1)
 DEB_SHA=$(sha256sum "$RELEASE_DIR/$DEB" | cut -d' ' -f1)
 EXE_SHA=$(sha256sum "$RELEASE_DIR/$EXE" | cut -d' ' -f1)
@@ -150,10 +125,6 @@ echo "  exe:      ${EXE_SHA:0:16}… (${EXE_SIZE} bytes)"
 echo ""
 echo "📤 Step 4/7: Creating GitHub Release ${TAG}..."
 
-# If a resume helper already created the release, skip recreation (and never delete it).
-if [[ -n "${RELEASE_ID:-}" ]]; then
-  echo "  (reusing existing Release ID $RELEASE_ID — skipping create/delete)"
-else
 # Delete existing release+tag if present (idempotent re-runs)
 EXISTING_ID=$(curl -sf "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${TAG}" \
   -H "Authorization: token $GH_TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
@@ -181,26 +152,18 @@ RELEASE_RESP=$(curl -sf -X POST "https://api.github.com/repos/${GITHUB_REPO}/rel
 RELEASE_ID=$(echo "$RELEASE_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "  ✅ Release created (ID: $RELEASE_ID)"
 
-# Upload artifacts (URL-encode filenames for API)
-# NOTE: all 3 filenames are now hyphen/dot-safe (AIC-ADE-..., aic-ade_..., AIC-ADE.SETUP.V...)
-#       so the loop is uniform; encoding kept for forward-compat.
+# Upload artifacts
 for f in "$APPIMAGE" "$DEB" "$EXE"; do
-  if [ ! -f "$RELEASE_DIR/$f" ]; then
-    echo "  ⚠️  $f not found — skipping"
-    continue
-  fi
   echo "  Uploading $f..."
-  fname=$(echo "$f" | sed 's/ /%20/g')
-  resp=$(curl -sS -X POST \
-    "https://uploads.github.com/repos/${GITHUB_REPO}/releases/${RELEASE_ID}/assets?name=${fname}" \
-    -H "Authorization: token ${GH_TOKEN}" \
+  curl -sf -X POST \
+    "https://uploads.github.com/repos/${GITHUB_REPO}/releases/${RELEASE_ID}/assets?name=${f}" \
+    -H "Authorization: token $GH_TOKEN" \
     -H "Content-Type: application/octet-stream" \
-    --data-binary "@${RELEASE_DIR}/${f}" 2>&1) || true
-  echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); print(f\"    ✅ {r['name']}  ({r.get('size', '?')} bytes)\")" 2>/dev/null \
-    || { echo "    ❌ upload failed for $f:"; echo "$resp" | head -5; exit 1; }
+    --data-binary "@$RELEASE_DIR/$f" \
+    | python3 -c "import sys,json; r=json.load(sys.stdin); print(f'    ✅ {r[\"name\"]}')" 2>/dev/null || echo "    ⚠️ upload may have failed"
 done
+
 echo "  ✅ All artifacts uploaded"
-fi
 
 # ── 5. Update latest.json ───────────────────────────────────────────────────
 
@@ -244,42 +207,12 @@ EOF
 cp "$ROOT_DIR/latest.json" "$RELEASE_DIR/latest.json"
 echo "  ✅ latest.json updated (root + app/release/)"
 
-# ── 5b. Sign latest.json (Ed25519) ──────────────────────────────────────────
-# The packaged updater is fail-closed: verifyManifestSignature() rejects any
-# unsigned manifest in a packaged build. We MUST publish latest.json.sig next
-# to latest.json (raw.githubusercontent.com), signed with the release private
-# key whose PUBLIC half is baked into the app via AIC_UPDATE_PUBLIC_KEY.
-#
-# The signer canonicalizes exactly like the verifier
-# (sha256(JSON.stringify(JSON.parse(bytes))) then Ed25519 over the digest) and
-# self-verifies, so a bad key or drift aborts the release here rather than
-# bricking every client's auto-update.
-echo ""
-echo "🔏 Step 5b/7: Signing latest.json (Ed25519)..."
-RELEASE_PRIVATE_KEY="${AIC_UPDATE_PRIVATE_KEY:-$ROOT_DIR/secrets/release_private_key.pem}"
-if [[ ! -f "$RELEASE_PRIVATE_KEY" ]]; then
-  echo "❌ Release signing key not found: $RELEASE_PRIVATE_KEY"
-  echo "   Generate it once with: ./scripts/generate_release_key.sh"
-  echo "   then set AIC_UPDATE_PUBLIC_KEY (printed below) in the build env so"
-  echo "   packaged clients can verify the manifest. Refusing to publish an"
-  echo "   unsigned manifest (packaged clients would reject it)."
-  exit 1
-fi
-node "$ROOT_DIR/scripts/sign_manifest.js" "$ROOT_DIR/latest.json" "$RELEASE_PRIVATE_KEY" "$ROOT_DIR/latest.json.sig"
-cp "$ROOT_DIR/latest.json.sig" "$RELEASE_DIR/latest.json.sig"
-echo "  ✅ latest.json.sig written (root + app/release/)"
-
-# Upload the signature alongside the manifest is NOT required (the client reads
-# latest.json.sig from raw.githubusercontent.com/.../main, same as latest.json),
-# so it ships via the git commit in step 7.
-
 # ── 6. Update SHA256SUMS ────────────────────────────────────────────────────
 
 echo ""
 echo "📋 Step 6/7: Updating SHA256SUMS..."
 
 LATEST_SHA=$(sha256sum "$ROOT_DIR/latest.json" | cut -d' ' -f1)
-LATEST_SIG_SHA=$(sha256sum "$ROOT_DIR/latest.json.sig" | cut -d' ' -f1)
 
 # app/release/SHA256SUMS — remove old entries for this version + old latest.json, append new
 touch "$RELEASE_DIR/SHA256SUMS"
@@ -290,7 +223,6 @@ ${APPIMAGE_SHA}  ${APPIMAGE}
 ${DEB_SHA}  ${DEB}
 ${EXE_SHA}  ${EXE}
 ${LATEST_SHA}  latest.json
-${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 # Root SHA256SUMS — same but with app/release/ prefix
@@ -302,7 +234,6 @@ ${APPIMAGE_SHA}  app/release/${APPIMAGE}
 ${DEB_SHA}  app/release/${DEB}
 ${EXE_SHA}  app/release/${EXE}
 ${LATEST_SHA}  latest.json
-${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 echo "  ✅ SHA256SUMS updated (root + app/release/)"

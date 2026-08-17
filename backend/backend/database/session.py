@@ -12,16 +12,7 @@ DATABASE_URL = settings.DATABASE_URL
 
 # All application routes use this engine. Keep SQLite writes cooperative while
 # streaming chat and dashboard requests run concurrently.
-# Configure connection pool for SQLite (single-writer optimization)
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args={"timeout": 30},
-    pool_size=5,          # Keep small for SQLite WAL mode
-    max_overflow=10,      # Allow temporary scaling during spikes
-    pool_pre_ping=True,   # Detect stale connections
-    pool_recycle=3600,    # Recycle connections hourly
-)
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args={"timeout": 30})
 
 
 @event.listens_for(engine.sync_engine, "connect")
@@ -47,11 +38,17 @@ async def get_db():
 
 async def init_db():
     # Import all models
+    import storage.models
     from storage.models import Base as StorageBase
+    import backend.models.schema
+    import backend.models.conversation
+    import backend.models.ai_runtime
+    import backend.models.orchestration
+    import backend.models.jobs
+    import backend.models.mcp
+    import backend.models.local_profile
 
-    # H7: Create ALL tables on the same engine (checkfirst=True skips existing).
-    # StorageBase owns canonical users/conversations tables; backend.models.schema
-    # tables use extend_existing to avoid duplicate-table conflicts.
+    # Create ALL tables on the same engine (checkfirst=True skips existing)
     # Storage tables first (includes conversations with user_id)
     async with engine.begin() as conn:
         await conn.run_sync(StorageBase.metadata.create_all)
@@ -91,15 +88,5 @@ async def init_db():
             if db_path.exists():
                 os.chmod(db_path, 0o600)  # Owner read/write only
                 logger.info(f"Set database permissions to 0o600 for {db_path}")
-    except OSError as e:
-        # Specific error logging with actionable message
-        logger.error(
-            f"Failed to set database file permissions to 0o600: {e}. "
-            "Database may be accessible to other users on system. "
-            "Consider manual chmod for sensitive applications."
-        )
     except Exception as e:
-        # Log any other unexpected errors specifically
-        logger.error(
-            f"Unexpected error setting database permissions: {type(e).__name__}: {str(e)}"
-        )
+        logger.warning(f"Could not set DB permissions: {e} - continuing anyway")

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 class ModelCapabilities(BaseModel):
     contextWindow: int
@@ -54,7 +54,7 @@ class ProviderCreate(BaseModel):
     version: Optional[str] = "1.0"
     healthNotes: Optional[List[str]] = []
     models: Optional[List[Any]] = []
-
+    
 class ProviderUpdate(BaseModel):
     name: Optional[str] = None
     endpoint: Optional[str] = None

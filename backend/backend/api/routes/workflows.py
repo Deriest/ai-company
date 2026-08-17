@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from typing import Optional, List
+import json
 
 from backend.database.session import get_db
-from backend.api.dependencies import require_current_user
 
-router = APIRouter(dependencies=[Depends(require_current_user)])
+router = APIRouter()
 
 from backend.services.orchestrator_service import orchestrator_service, MalformedDefinitionError
+from backend.models.orchestration import WorkflowDefinition, Checkpoint
 
 
 # ── Workflow Definition Endpoints ─────────────────────────────

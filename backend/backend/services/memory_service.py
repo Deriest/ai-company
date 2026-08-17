@@ -43,8 +43,7 @@ class MemoryService:
             existing.value = value
             existing.importance = importance
             existing.category = category or existing.category
-            # M3: SQL-side increment — immune to concurrent lost-updates
-            existing.access_count = MemoryEntry.access_count + 1
+            existing.access_count += 1
             existing.accessed_at = datetime.datetime.now(datetime.timezone.utc)
             if expires_at:
                 existing.expires_at = expires_at

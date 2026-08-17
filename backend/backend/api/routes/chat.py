@@ -29,7 +29,7 @@ from backend.services.chat_service import chat_service
 from backend.services.worker_runtime_service import worker_runtime_service
 from conversation.engine import (
     ConversationEngine,
-    INTENT_CHAT, INTENT_TASK_REQUEST,
+    INTENT_CHAT, INTENT_QUESTION, INTENT_TASK_REQUEST,
     INTENT_TASK_CONFIRM, INTENT_STATUS, INTENT_APPROVAL,
     LLMUnavailableError,
 )
@@ -479,10 +479,10 @@ async def chat_execute_endpoint(
     _auth: str = Depends(require_current_user),
 ):
     """Execute a task request with full pipeline visibility.
-
+    
     Streams: intent detection, discovery, planning, task graph,
     worker execution (with real tools), verification.
-
+    
     Use this for 'build' mode — user sees everything the AI company does.
     """
     from shared.intent_patterns import classify_intent
@@ -490,13 +490,8 @@ async def chat_execute_endpoint(
     from storage.models import Conversation
 
     user_content = payload.messages[-1].content if payload.messages else ""
-
-    # Sanitize user input to prevent XSS and ensure safe database storage
-    from backend.middleware.input_sanitizer import sanitize_input
-    sanitized_content = sanitize_input(user_content)
-
-    intent = classify_intent(sanitized_content)
-    logger.info(f"[EXECUTE] intent={intent} content={sanitized_content[:50]}")
+    intent = classify_intent(user_content)
+    logger.info(f"[EXECUTE] intent={intent} content={user_content[:50]}")
 
     # Only task_request goes through full pipeline
     # QA-E2E FIX: multimodal requests (attachments present) must always go
@@ -1044,7 +1039,7 @@ async def chat_execute_endpoint(
                                 )
                             except Exception as e:
                                 logger.debug(f"Chat agent completed broadcast failed: {e}")
-
+                            
                             yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'iterations': event.get('iterations', 0)})}\n\n"
                             deliverables = event.get("deliverables")
                             if deliverables:

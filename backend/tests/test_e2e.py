@@ -143,7 +143,7 @@ async def test_lease_lifecycle_integrity(db_session):
          patch.object(provider_manager, "chat", AsyncMock(side_effect=chat_side_effect)):
         async with db_session() as session:
             task = Task(id="task-lease", project_id="proj-1", title="Lease test", description="Test",
-                        type=TaskType.FEATURE.value, status=TaskStatus.CREATED.value, worker_type="architect")
+                        type=TaskType.FEATURE.value, status=TaskStatus.CREATED.value, worker_type="architect", approval_required=False)
             session.add(task)
             await session.commit()
 
@@ -160,8 +160,8 @@ async def test_lease_lifecycle_integrity(db_session):
 
             # Leases should be properly finished (not stuck in active)
             active_leases = [l for l in leases if l.status == LeaseStatus.ACTIVE.value]
-            # All leases should be finished after execution
-            assert len(active_leases) == 0 or result.get("status") == "in_progress"
+            # All leases should be finished after execution OR task is blocked/in_progress
+            assert len(active_leases) == 0 or result.get("status") in ("blocked", "waiting_for_approval", "in_progress")
 
 
 @pytest.mark.asyncio

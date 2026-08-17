@@ -37,7 +37,7 @@ async def get_discovery_session(
 
     return {
         "id": ds.id,
-        "conversation_id": ds.task_conversation_ref,
+        "conversation_id": ds.conversation_id,
         "status": ds.status,
         "round_number": ds.round_number,
         "questions_asked": ds.questions_asked,
@@ -130,7 +130,7 @@ async def get_discovery_for_conversation(
     """Get all discovery sessions for a conversation."""
     result = await session.execute(
         select(DiscoverySession)
-        .where(DiscoverySession.task_conversation_ref == conversation_id)
+        .where(DiscoverySession.conversation_id == conversation_id)
         .order_by(DiscoverySession.created_at.desc())
     )
     sessions = result.scalars().all()

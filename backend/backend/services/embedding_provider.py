@@ -15,6 +15,7 @@ Development mode (default): Hash fallback allowed with warning.
 import os
 import hashlib
 import logging
+import math
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,8 @@ def get_embedding_provider() -> str:
     else:
         # Auto-detect: try providers in order (SentenceTransformers now preferred)
         try:
-            import importlib.util as _ilu
-            if _ilu.find_spec("openai") and os.getenv("OPENAI_API_KEY"):
+            import openai
+            if os.getenv("OPENAI_API_KEY"):
                 _embedding_provider = "openai"
                 return _embedding_provider
         except ImportError:
@@ -54,9 +55,7 @@ def get_embedding_provider() -> str:
             pass
 
         try:
-            import importlib.util as _ilu2
-            if not _ilu2.find_spec("sentence_transformers"):
-                raise ImportError("sentence_transformers not installed")
+            from sentence_transformers import SentenceTransformer
             _embedding_provider = "sentencetransformers"
             logger.info("Using SentenceTransformers for embeddings (local, no API key needed)")
             return _embedding_provider
@@ -158,7 +157,7 @@ def embed_single(text: str) -> list[float]:
 
 def validate_embedding_provider() -> dict:
     """Validate embedding provider and return status info.
-
+    
     Returns dict with:
         - provider: str (openai/ollama/sentencetransformers/hash)
         - production_ready: bool
@@ -167,19 +166,19 @@ def validate_embedding_provider() -> dict:
     try:
         provider = get_embedding_provider()
         is_production = os.getenv("AIC_PRODUCTION_MODE", "").strip() == "1"
-
+        
         result = {
             "provider": provider,
             "production_ready": provider != "hash",
             "warning": None
         }
-
+        
         if provider == "hash":
             if is_production:
                 result["warning"] = "CRITICAL: Hash fallback in production mode"
             else:
                 result["warning"] = "Using hash fallback (dev mode only)"
-
+        
         return result
     except Exception as e:
         return {

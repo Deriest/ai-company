@@ -15,20 +15,28 @@ Security layers:
 5. MCP access control based on shell capability
 """
 import os
+import json
+import time
+import uuid
 import asyncio
-import shlex
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Any, Dict, List, Set
+from jose import jwt
+from urllib.parse import unquote
 
 from backend.services.path_utils import resolve_workspace_path
 from backend.security.shell_security import (
     check_dangerous_patterns,
+    _denylisted_shell_command,
     _close_proc_pipes,
     _BG_TOKEN_RE,
     _kill_process_group,
     _surface_port_in_use,
 )
+from backend.services.path_utils import resolve_workspace_path
 
 class _OutputOverflow(Exception):
     """Raised when a subprocess emits more output than the executor will retain."""
@@ -54,38 +62,6 @@ async def _read_output_with_cap(proc, cap: int = 1_000_000, kill_at: int = 4_000
             await _kill_process_group(proc)
             raise _OutputOverflow(f"output exceeded {kill_at} bytes")
     return b"".join(chunks)
-
-
-_SHELL_BUILTINS = frozenset({
-    "alias", "bg", "break", "cd", "command", "continue", "declare", "dirs",
-    "disown", "echo", "enable", "eval", "exec", "exit", "export", "fc", "fg",
-    "getopts", "hash", "help", "history", "jobs", "let", "local", "logout",
-    "popd", "printf", "pushd", "pwd", "read", "readarray", "readonly", "return",
-    "set", "shift", "shopt", "source", "suspend", "test", "times", "trap",
-    "type", "typeset", "ulimit", "umask", "unalias", "unset", "wait",
-})
-
-
-def _has_shell_metacharacters(command: str) -> bool:
-    """True when a command needs actual shell parsing.
-
-    Pipes, redirects, globs, substitutions, backgrounding, `FOO=bar cmd`
-    env-var prefixes, and shell builtins (``exit``, ``cd``, ``export``, …)
-    require a shell; a plain argv-safe external command does not. Quotes are
-    intentionally excluded — shlex.split handles quoting safely for the
-    argv-array path.
-    """
-    if not command:
-        return True
-    cmd = command.strip()
-    head = cmd.split(None, 1)[0] if cmd else ""
-    # Env-var assignment prefix (`FOO=bar cmd`) is shell syntax.
-    if "=" in head:
-        return True
-    # Shell builtins have no external binary → must run through a shell.
-    if head in _SHELL_BUILTINS:
-        return True
-    return any(ch in cmd for ch in "|&;<>$`~*?[]{}()")
 
 
 def _clamp_timeout(v, default=60, lo=1, hi=600):
@@ -118,28 +94,28 @@ WORKER_PERMISSIONS: Dict[str, Set[str]] = {
     "devops": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "deployment": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "debugger": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
-
+    
     # QA/testers with full access for testing
     "qa": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "testing": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},  # legacy alias
     "performance": {"read_file", "explore", "search"},  # perf review (read-only)
-
+    
     # Sprinter/crafter - coding-focused workers
     "sprinter": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},
     "crafter": {"run_shell", "write_file", "read_file", "explore", "search", "mcp_call"},  # legacy alias
-
+    
     # Read-only/docs-writers (NO shell, limited write scope)
     "research": {"read_file", "explore", "search"},
     "pm": {"read_file", "write_file_docs", "explore", "search"},  # docs-scoped write
     "architect": {"read_file", "write_file_docs", "explore", "search"},  # docs-scoped write
     "designer": {"read_file", "write_file_docs", "explore", "search"},  # docs-scoped write
     "documentation": {"read_file", "write_file_docs", "explore", "search"},  # docs-scoped write
-
+    
     # Governance/read-only
     "hermes": {"read_file", "explore", "search", "git_status"},
     "rex": {"read_file", "explore", "search", "git_status"},  # compliance gatekeeper
     "security": {"read_file", "explore", "search"},  # security review (read-only)
-
+    
     # Planning/tiered workers
     "thinker": {"read_file", "explore", "search", "mcp_call"},  # can call MCP but not shell directly
     "planner": {"read_file", "explore", "search"},
@@ -172,22 +148,22 @@ def check_permission(
 ) -> bool:
     """Check if worker has permission to execute a specific tool."""
     allowed_plugins = set(allowed_plugin_tools or [])
-
+    
     if tool_name in allowed_plugins:
         return True
-
+    
     permissions = _get_default_permissions(worker_type)
-
+    
     # Normalize aliases
     normalized_tool = tool_name
     if normalized_tool == "shell":
         normalized_tool = "run_shell"
     elif normalized_tool in ("list_dir", "list_directory"):
         normalized_tool = "explore"
-
+    
     if tool_name.startswith("mcp_"):
         return "mcp_call" in permissions or "mcp_call" in allowed_plugins
-
+    
     return normalized_tool in permissions
 
 
@@ -195,7 +171,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
     """Get available tool definitions for a specific worker type."""
     permissions = _get_default_permissions(worker_type)
     tools = []
-
+    
     # Base read-only tools (available to everyone)
     tools.append({
         "type": "function",
@@ -213,7 +189,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
             },
         },
     })
-
+    
     tools.append({
         "type": "function",
         "function": {
@@ -230,7 +206,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
             },
         },
     })
-
+    
     tools.append({
         "type": "function",
         "function": {
@@ -247,13 +223,13 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
             },
         },
     })
-
+    
     if "git_status" in permissions:
         tools.append({"type": "function", "function": {"name": "git_status", "description": "Get git status"}})
-
+    
     # Write tools
     write_scope = "full" if "write_file" in permissions else "docs" if "write_file_docs" in permissions else None
-
+    
     if write_scope:
         desc = "Write code/file" if write_scope == "full" else "Write documentation only"
         tools.append({
@@ -272,7 +248,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
                 },
             },
         })
-
+    
     # Shell/MCP for capable workers
     if "run_shell" in permissions:
         tools.append({
@@ -305,7 +281,7 @@ def get_tools_for_worker(worker_type: str) -> List[Dict[str, Any]]:
                 },
             },
         })
-
+    
     return tools
 
 
@@ -321,14 +297,14 @@ class ToolResult:
     error: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
-
+    
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-
+    
     @classmethod
     def success_result(cls, tool: str, output: str, data: Optional[Dict] = None) -> "ToolResult":
         return cls(tool=tool, success=True, output=output, data=data)
-
+    
     @classmethod
     def error_result(cls, tool: str, error: str) -> "ToolResult":
         return cls(tool=tool, success=False, error=error)
@@ -339,11 +315,11 @@ class ToolResult:
 
 class WorkerToolExecutor:
     """Executes tools with path safety and permission enforcement.
-
+    
     This is the primary execution engine that agents use to interact with
     the filesystem, run commands, and perform operations on the workspace.
     """
-
+    
     def __init__(
         self,
         workspace_root: str,
@@ -351,7 +327,7 @@ class WorkerToolExecutor:
         write_scope: str = "full",
     ):
         """Initialize executor.
-
+        
         Args:
             workspace_root: Root directory for safe path resolution
             permission_checker: Optional callable(type, tool_name) → bool
@@ -361,11 +337,11 @@ class WorkerToolExecutor:
         self._permission_checker = permission_checker
         self._write_scope = write_scope
         self._call_counter = 0
-
+    
     def _next_id(self) -> str:
         self._call_counter += 1
         return f"tc_{self._call_counter:04d}"
-
+    
     def _resolve_path(self, path: str) -> str:
         """Resolve user-supplied path inside workspace, blocking traversal.
 
@@ -373,7 +349,7 @@ class WorkerToolExecutor:
         copy can't drift. Raises ValueError on any escape attempt.
         """
         return resolve_workspace_path(self.workspace_root, path)
-
+    
     async def check_tool_permission(self, tool_name: str) -> bool:
         """Check if current worker can execute this tool.
 
@@ -386,32 +362,32 @@ class WorkerToolExecutor:
         if self._permission_checker:
             return self._permission_checker(tool_name)
         return True
-
+    
     async def read_file(self, path: str, offset: int = 0, limit: int = 2000) -> ToolResult:
         """Read file with path safety checks."""
         if not await self.check_tool_permission("read_file"):
             return ToolResult.error_result("read_file", "Permission denied")
-
+        
         try:
             full_path = self._resolve_path(path)
-
+            
             # Safety check
             if not os.path.exists(full_path):
                 return ToolResult.error_result("read_file", f"File not found: {path}")
-
+            
             if not os.path.isfile(full_path):
                 return ToolResult.error_result("read_file", "Path is not a file")
-
+            
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-
+            
             # Apply offset/limit (line-based)
             lines = content.split("\n")
             if offset > 0:
                 lines = lines[offset:]
             if limit > 0:
                 lines = lines[:limit]
-
+            
             return ToolResult.success_result(
                 "read_file",
                 "\n".join(lines),
@@ -419,44 +395,45 @@ class WorkerToolExecutor:
             )
         except Exception as e:
             return ToolResult.error_result("read_file", str(e))
-
+    
     async def write_file(self, path: str, content: str, create_dirs: bool = True) -> ToolResult:
         """Write file with docs-scoped enforcement."""
         if not await self.check_tool_permission("write_file"):
             return ToolResult.error_result("write_file", "Permission denied")
-
+        
         # Validate doc scope
         if self._write_scope == "docs":
             import posixpath
             norm = posixpath.normpath(path.strip().replace("\\", "/"))
             if norm.startswith("..") or norm.startswith("/"):
                 return ToolResult.error_result("write_file", "Path traversal not allowed")
-
+            
             parts = [p for p in norm.split("/") if p not in ("", ".")]
             if any(p == ".." for p in parts):
                 return ToolResult.error_result("write_file", "Path traversal not allowed")
-
-            allowed_doc_names = {"readme", "license", "changelog", "contributing", "architecture",
+            
+            stem_lower = os.path.splitext(path)[0].lower()
+            allowed_doc_names = {"readme", "license", "changelog", "contributing", "architecture", 
                                "design", "prd", "research", "qa_report", "test_report",
                                "security_audit", "performance_report"}
             exts = ("md", "markdown", "txt", "rst", "adoc")
-
+            
             basename = os.path.basename(path).lower()
             if not any(basename == n or basename.endswith(f".{ext}") for n in allowed_doc_names for ext in exts):
                 return ToolResult.error_result(
-                    "write_file",
+                    "write_file", 
                     "Docs-scoped: Only .md/.txt/doc files allowed"
                 )
-
+        
         try:
             full_path = self._resolve_path(path)
-
+            
             if create_dirs:
                 os.makedirs(os.path.dirname(full_path) or ".", exist_ok=True)
-
+            
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
-
+            
             return ToolResult.success_result(
                 "write_file",
                 f"Wrote {len(content)} bytes",
@@ -464,7 +441,7 @@ class WorkerToolExecutor:
             )
         except Exception as e:
             return ToolResult.error_result("write_file", str(e))
-
+    
     async def run_shell(self, command: str, timeout: int = 60) -> ToolResult:
         """Execute shell command with security checks.
 
@@ -475,41 +452,24 @@ class WorkerToolExecutor:
         timeout = _clamp_timeout(timeout)
         if not await self.check_tool_permission("run_shell"):
             return ToolResult.error_result("run_shell", "Permission denied")
-
+        
         # Dangerous pattern check
         try:
             check_dangerous_patterns(command)
         except PermissionError:
             return ToolResult.error_result("run_shell", "Command contains dangerous patterns")
-
+        
         is_background = bool(_BG_TOKEN_RE.search(command or ""))
         proc = None
         try:
-            # Prefer argv-array execution (create_subprocess_exec) for simple
-            # commands so shell metacharacters are never interpreted. Only
-            # fall back to a shell for compound commands that genuinely need
-            # pipes/redirects/substitutions — the blocklist remains an advisory
-            # guardrail here, not a security boundary (single-user local trust).
-            simple_argv = shlex.split(command or "")
-            needs_shell = _has_shell_metacharacters(command or "")
-            if simple_argv and not needs_shell:
-                proc = await asyncio.create_subprocess_exec(
-                    simple_argv[0],
-                    *simple_argv[1:],
-                    stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
-                    cwd=self.workspace_root,
-                    start_new_session=True,
-                )
-            else:
-                proc = await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
-                    cwd=self.workspace_root,
-                    start_new_session=True,
-                )
-
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL if is_background else asyncio.subprocess.STDOUT,
+                cwd=self.workspace_root,
+                start_new_session=True,
+            )
+            
             if is_background:
                 # Detached: the shell exits immediately after backgrounding the
                 # real command (DEVNULL means no pipe fds to inherit). Reap the
@@ -525,7 +485,7 @@ class WorkerToolExecutor:
                     output="Started in background (detached). Command keeps running independently.",
                     metadata={"background": True, "exit_code": proc.returncode},
                 )
-
+            
             try:
                 stdout = await asyncio.wait_for(_read_output_with_cap(proc), timeout=timeout)
                 await asyncio.wait_for(proc.wait(), timeout=5)
@@ -554,7 +514,7 @@ class WorkerToolExecutor:
                     error=f"Command timed out after {timeout}s",
                     metadata={"background": False},
                 )
-
+            
             output = _surface_port_in_use(command, output)
             return ToolResult(
                 tool="run_shell",
@@ -565,18 +525,18 @@ class WorkerToolExecutor:
             )
         except Exception as e:
             return ToolResult.error_result("run_shell", _surface_port_in_use(command, str(e)))
-
+    
     async def explore(self, path: str = ".", max_depth: int = 3) -> ToolResult:
         """List directory contents."""
         if not await self.check_tool_permission("explore"):
             return ToolResult.error_result("explore", "Permission denied")
-
+        
         try:
             full_path = self._resolve_path(path)
-
+            
             if not os.path.isdir(full_path):
                 return ToolResult.error_result("explore", f"Not a directory: {path}")
-
+            
             tree = []
             MAX_NODES = 2000
             state = {"count": 0}
@@ -601,17 +561,17 @@ class WorkerToolExecutor:
                         _walk(full, prefix + "  ", depth + 1)
                     else:
                         tree.append(f"{prefix}{entry}")
-
+            
             _walk(full_path, "", 0)
             return ToolResult.success_result("explore", "\n".join(tree[:500]))
         except Exception as e:
             return ToolResult.error_result("explore", str(e))
-
+    
     async def search(self, pattern: str, path: str = ".") -> ToolResult:
         """Search files with regex."""
         if not await self.check_tool_permission("search"):
             return ToolResult.error_result("search", "Permission denied")
-
+        
         try:
             full_path = self._resolve_path(path)
             import re
@@ -654,25 +614,25 @@ class WorkerToolExecutor:
                     except (PermissionError, UnicodeDecodeError) as e:
                         logger.debug(f"Skipping unreadable file {fp}: {e}")
                         continue
-
+                    
                     if len(matches) >= 100:
                         budget_exhausted = True
                         break
                 if budget_exhausted:
                     break
-
+            
             output = "\n".join(f"{m['file']}:{m['line']}: {m['content']}" for m in matches[:50])
             return ToolResult.success_result("search", output, {"total_matches": len(matches), "files_scanned": files_scanned})
         except Exception as e:
             return ToolResult.error_result("search", str(e))
-
+    
     async def git_status(self) -> ToolResult:
         """Get git status via shell."""
         return await self.run_shell("git status --porcelain")
-
+    
     async def mcp_call(self, tool: str, arguments: Optional[Dict] = None) -> ToolResult:
         """MCP tool call stub - actual implementation requires MCP server connection."""
         if not await self.check_tool_permission("mcp_call"):
             return ToolResult.error_result("mcp_call", "Permission denied")
-
+        
         return ToolResult.success_result("mcp_call", f"MCP tool '{tool}' called with {arguments or '{}'}")

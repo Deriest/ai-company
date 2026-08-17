@@ -1,6 +1,6 @@
 """Plugin management routes — install, list, update, uninstall, resolve."""
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -99,6 +99,7 @@ async def uninstall_plugin_endpoint(
 async def plugin_context_endpoint(plugin_id: str, db: AsyncSession = Depends(get_db)):
     """Get the adapted context for a plugin (tools, instructions, etc.)."""
     from storage.models import PluginEntry
+    from sqlalchemy import select
     result = await db.execute(select(PluginEntry).where(PluginEntry.plugin_id == plugin_id))
     entry = result.scalar_one_or_none()
     if not entry:

@@ -6,7 +6,6 @@ existing-project repository structure inspection.
 """
 from pathlib import Path
 import os
-import re
 import zipfile
 import io
 import logging
@@ -35,26 +34,10 @@ ZIP_EXCLUDES = {
 }
 
 
-_TASK_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
-
-def _validate_task_id(task_id: str) -> None:
-    """Reject path traversal / separator injection via task_id."""
-    if not isinstance(task_id, str) or not task_id.strip():
-        raise ValueError("Invalid task_id: must be non-empty string")
-    if "/" in task_id or "\\" in task_id or ".." in task_id:
-        raise ValueError(f"Invalid task_id: path separators not allowed: {task_id!r}")
-    if not _TASK_ID_RE.match(task_id):
-        raise ValueError(f"Invalid task_id: must match [A-Za-z0-9_-]{{1,128}}: {task_id!r}")
-
 def get_task_workspace_dir(task_id: str) -> Path:
     """Return physical workspace directory for a task."""
-    _validate_task_id(task_id)
     wdir = _workspace_base() / task_id
     wdir.mkdir(parents=True, exist_ok=True)
-    try:
-        wdir.resolve().relative_to(_workspace_base().resolve())
-    except ValueError:
-        raise ValueError(f"Invalid task_id: escapes workspace root: {task_id!r}")
     return wdir
 
 

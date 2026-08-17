@@ -1,7 +1,7 @@
 """AIC Platform — Autonomous Execution Intelligence API Routes."""
 
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -29,17 +29,19 @@ let backupLockPromise: Promise<void> | null = null;
  * Acquire async lock to prevent concurrent backup/restore operations.
  * Returns unlock function that must be called when done.
  */
-// Backup mutex – properly serialized via a pending promise chain.
-// Prevents concurrent restore operations that would corrupt user data.
 async function acquireBackupLock(): Promise<() => Promise<void>> {
-    // Await any currently running operation first – this ensures true serialization.
+    // Wait for any existing operation
     if (backupLockPromise) {
         await backupLockPromise;
     }
-    // Create a deferred promise for the next waiter to use.
-    let releaseFn!: () => void;
-    backupLockPromise = new Promise<void>(resolve => { releaseFn = resolve; });
-    const unlock = async () => { backupLockPromise = null; releaseFn(); };
+    
+    const unlock: () => Promise<void> = async () => {
+        backupLockPromise = null;
+    };
+    
+    // Create new lock promise
+    backupLockPromise = Promise.resolve();
+    
     return unlock;
 }
 
@@ -74,17 +76,12 @@ function loadOrCreateIdentity(): { username: string; password: string } {
     username: "admin",
     password: crypto.randomBytes(32).toString("hex"),
   };
-  // H6: atomic write (tmp + rename) so a crash mid-write can never leave a
-  // truncated identity.json — a corrupted file would silently regenerate the
-  // password and desync Electron from the backend's AIC_IDENTITY_FILE view.
-  const tmp = p + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(identity, null, 2), { mode: 0o600 });
+  fs.writeFileSync(p, JSON.stringify(identity, null, 2), { mode: 0o600 });
   try {
-    fs.chmodSync(tmp, 0o600);
+    fs.chmodSync(p, 0o600);
   } catch {
     /* Windows: no chmod */
   }
-  fs.renameSync(tmp, p);
   return identity;
 }
 
@@ -303,37 +300,20 @@ async function ensureBackendRunning(): Promise<void> {
     const filteredEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (allowedEnvVars.has(key) && value) {
-            // M3': never forward test-mode bypasses into a packaged backend —
-            // a dev machine with AIC_TESTING=1 exported must not silently
-            // disable the interpreter-exec guard / auth testing bypasses in prod.
-            if (key === "AIC_TESTING" && app.isPackaged) continue;
             filteredEnv[key] = value;
         }
     }
     
-    /* local-first desktop (Electron single-user, localhost-only): no remote
-     * JWT surface, so don't block install on a missing env. Prefer explicit
-     * AIC_JWT_SECRET; otherwise persist a per-install secret so the backend
-     * signing key survives restarts. */
-    function loadOrCreateJwtSecret(): string {
-      if (process.env.AIC_JWT_SECRET && process.env.AIC_JWT_SECRET.trim()) {
-        return process.env.AIC_JWT_SECRET;
-      }
-      const p = path.join(appDataDir(), "jwt-secret");
-      if (fs.existsSync(p)) {
-        try {
-          const v = fs.readFileSync(p, "utf8").trim();
-          if (v) return v;
-        } catch { /* regenerate */ }
-      }
-      const secret = crypto.randomBytes(32).toString("hex");
-      fs.writeFileSync(p, secret, { mode: 0o600 });
-      try { fs.chmodSync(p, 0o600); } catch { /* Windows */ }
-      return secret;
+    // CRITICAL: AIC_JWT_SECRET must be provided in production
+    // Never auto-generate - requires explicit security configuration
+    if (!process.env.AIC_JWT_SECRET) {
+        throw new Error(
+            "AIC_JWT_SECRET environment variable is required for production security.\n" +
+            "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n" +
+            "Then set: export AIC_JWT_SECRET=<your_generated_secret>"
+        );
     }
-    const jwtSecret = loadOrCreateJwtSecret();
-    // keep the env bridge so code that reads process.env.AIC_JWT_SECRET works
-    if (!process.env.AIC_JWT_SECRET) process.env.AIC_JWT_SECRET = jwtSecret;
+    const jwtSecret = process.env.AIC_JWT_SECRET!;  // Type assertion since we validated above
     
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
@@ -343,7 +323,6 @@ async function ensureBackendRunning(): Promise<void> {
         AIC_DATA_DIR: appDataDir(),
         AIC_IDENTITY_FILE: path.join(appDataDir(), "identity.json"),
         AIC_JWT_SECRET: jwtSecret,  // Required for backend JWT authentication  // Provide secret for production use
-        AIC_APP_VERSION: app.getVersion(),
         PYTHONPATH: [platformDir, process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
       },
       stdio: "pipe",
@@ -584,20 +563,14 @@ function createWindow(): BrowserWindow {
 
   // CSP: restrict resource loading to self + local engine only
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const isProduction = !isDev;
-    const cspValue = isProduction
-      ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests"
-      : "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-    
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [cspValue],
-        "X-Content-Type-Options": ["nosniff"],
-        "X-Frame-Options": ["DENY"],
-        "X-XSS-Protection": ["1; mode=block"],
-        "Referrer-Policy": ["strict-origin-when-cross-origin"],
-        "Permissions-Policy": ["geolocation=(), microphone=(), camera=()", "fullscreen=()"],
+        "Content-Security-Policy": [
+          isDev
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5174 ws://127.0.0.1:5174; object-src 'none'; frame-src 'none'; base-uri 'none'"
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        ],
       },
     });
   });
@@ -652,41 +625,8 @@ function registerIpc(): void {
     return store[key];
   });
 
-  // Whitelist allowed store keys to prevent renderer from setting system config
-const ALLOWED_STORE_KEYS = new Set(['projectRoot', 'engineConfig', 'openTabs']);
-
-ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
+  ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
     const store = readStore();
-    
-    // Boot-flow keys: baseUrl must stay the internal engine URL; password
-    // writes are always a scrub (legacy web-era credential cleanup).
-    if (key === "baseUrl") {
-        if (typeof value !== "string" || !value.startsWith("http://127.0.0.1:")) {
-            console.error("[main] Rejected storeSet baseUrl:", value);
-            return false;
-        }
-        store.baseUrl = value;
-        writeStore(store);
-        return true;
-    }
-    if (key === "password") {
-        if (store.password !== undefined || value === null) {
-            delete store.password;
-            writeStore(store);
-        }
-        return true;
-    }
-    
-    // Reject sensitive/system keys that could enable RCE or bypass auth
-    if (key === "updateConfig" || key.startsWith("AIC_")) {
-      throw new Error(`Not allowed to set "${key}"`);
-    }
-    
-    if (!ALLOWED_STORE_KEYS.has(key)) {
-      console.warn("[main] Ignoring disallowed storeSet key:", key);
-      return false;
-    }
-    
     if (key === "projectRoot") {
       // projectRoot is the trust boundary for file access — never let the
       // renderer set an arbitrary path. Only validated non-sensitive paths
@@ -779,42 +719,33 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
   // PTY terminal — proper pseudo-terminal with colors, interactive programs
   // Validate CWD against symlinks and allowed roots (async/fs-promises version)
   async function validateCWD(cwdPath: string): Promise<string> {
-    // L2: use the top-level node:fs import (fs.promises) — no dynamic
-    // require inside an IPC handler.
-     
-    // Lock the directory handle to prevent TOCTOU symlink attacks
-    let handle: fs.promises.FileHandle | null = null;
-    try {
-      handle = await fs.promises.open(cwdPath, 'r');
-      
-      const stat = await fs.promises.stat(cwdPath);
-      if (!stat.isDirectory()) throw new Error("Path is not a directory");
-      
-      // Get realpath while holding file descriptor open
-      const realPath = await fs.promises.realpath(cwdPath);
-      
-      // Validate against allowed roots
-      const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
-      if (allowedRoots.length === 0) throw new Error("No valid root configured");
-      
-      for (const root of allowedRoots) {
-        const resolvedRoot = path.resolve(root);
-        if (realPath === resolvedRoot || realPath.startsWith(resolvedRoot + path.sep)) {
-          return realPath;
-        }
-      }
-      
-      throw new Error("Path escapes allowed roots via symlink");
-    } finally {
-      // Close handle to release lock
-      if (handle !== null) {
-        try {
-          await handle.close();
-        } catch {
-          /* ignore close errors */
-        }
+    const fs = require('node:fs/promises');
+    const path = require('node:path');
+    
+    const stat = await fs.stat(cwdPath);
+    if (!stat.isDirectory()) throw new Error("Path is not a directory");
+    
+    // Recursively resolve symlinks asynchronously
+    let resolvedPath = path.resolve(cwdPath);
+    while (true) {
+      try {
+        const realPath = await fs.realpath(resolvedPath);
+        if (realPath === resolvedPath) break;  // No more symlinks
+        resolvedPath = realPath;
+      } catch (e) {
+        break;  // Stop at last resolvable point
       }
     }
+    
+    // Validate against allowed roots
+    const allowedRoots = [projectRoot || appDataDir(), appDataDir()].filter(Boolean);
+    if (allowedRoots.length === 0) throw new Error("No valid root configured");
+    
+    for (const root of allowedRoots) {
+      if (resolvedPath.startsWith(root + path.sep)) return resolvedPath;
+    }
+    
+    throw new Error("Path escapes allowed roots via symlink");
   }
 
   ipcMain.handle("aic:term-start", async (_e, cwd?: string) => {
@@ -845,14 +776,7 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
         cols: 80,
         rows: 24,
         cwd: safeCwd,
-        env: {
-        PATH: process.env.PATH || '',
-        HOME: process.env.HOME || '',
-        USER: process.env.USER || '',
-        SHELL: process.env.SHELL || '/bin/bash',
-        TERM: 'xterm-256color',
-        LANG: process.env.LANG || 'en_US.UTF-8',
-      } as Record<string, string>,
+        env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
       });
       termPty.onData((data) => {
         mainWindow?.webContents.send("aic:term-data", data);
@@ -867,14 +791,7 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
       const fallbackArgs = process.platform === "win32" ? [] : ["-i"];
       termProc = spawn(shellPath, fallbackArgs, {
         cwd: safeCwd,
-        env: {
-        PATH: process.env.PATH || '',
-        HOME: process.env.HOME || '',
-        USER: process.env.USER || '',
-        SHELL: process.env.SHELL || '/bin/bash',
-        TERM: 'xterm-256color',
-        LANG: process.env.LANG || 'en_US.UTF-8',
-      },
+        env: { ...process.env, TERM: "xterm-256color" },
         stdio: "pipe",
       });
       termProc.stdout.on("data", (buf: Buffer) => {
@@ -960,15 +877,14 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
         // didn't happen. If auth is enforced, surface a clear error instead of a
         // bare 401.
         let created: any;
-        let releaseBackupLockCreate = async () => {};
         try {
-          // Take lock while creating the backup to avoid race with restore
-          const unlockPromise = acquireBackupLock();
-          releaseBackupLockCreate = await unlockPromise;
-          
           created = await backendPost("/backup/create");
-        } finally {
-          try { await releaseBackupLockCreate(); } catch {}
+        } catch (e: any) {
+          const detail: string = e?.message || String(e);
+          if (/401|403|unauthori[sz]ed|not.?authenticated/i.test(detail)) {
+            return { saved: false, error: "Backup requires the app token. Create the backup from the app's Backup panel." };
+          }
+          throw e;
         }
         backupFilename = typeof created?.filename === "string" ? path.basename(created.filename) : "";
       }
@@ -991,10 +907,7 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
       fs.copyFileSync(srcFile, res.filePath);
       return { saved: true, path: res.filePath };
     } catch (e: any) {
-      // Log and expose OS-level errors to user
-      const osError = e instanceof Error ? e.message : String(e);
-      console.error("[backup-create-to] OS error:", osError);
-      return { saved: false, error: `Backup save failed: ${osError}` };
+      return { saved: false, error: e?.message || String(e) };
     }
   });
 
@@ -1005,8 +918,7 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
   }> => {
     let releaseBackupLock = async () => {};
     try {
-      const unlockPromise = acquireBackupLock();
-      releaseBackupLock = await unlockPromise;
+        releaseBackupLock = await acquireBackupLock();
     } catch (e) {
         return { restored: false, error: "Failed to acquire lock" };
     }
@@ -1059,15 +971,6 @@ ipcMain.handle("aic:store-set", (_e, key: string, value: unknown) => {
 
       await ensureBackendRunning();
       updateManager?.setBackendProc(backendProc);
-      // M11b: success path — remove the pre-restore safety copy so old data
-      // dirs don't accumulate forever in userData.
-      try {
-        if (preRestoreDir && fs.existsSync(preRestoreDir)) {
-          fs.rmSync(preRestoreDir, { recursive: true, force: true });
-        }
-      } catch (cleanErr) {
-        console.warn("[backup-restore] pre-restore cleanup failed (non-fatal)", cleanErr);
-      }
       return { restored: true };
     } catch (e: any) {
       let rollbackDone = false;

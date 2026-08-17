@@ -7,7 +7,7 @@ Provides:
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("aic.pricing")

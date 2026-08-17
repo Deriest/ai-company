@@ -78,7 +78,7 @@ class DiscoveryEngine:
 
         # Create discovery session
         discovery_session = DiscoverySession(
-            task_conversation_ref=conversation.id,
+            conversation_id=conversation.id,
             user_id=conversation.user_id,
             status=DiscoveryState.NEW_REQUEST.value,
         )

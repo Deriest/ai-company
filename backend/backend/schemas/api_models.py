@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 class ProviderCreate(BaseModel):
     name: str
@@ -18,7 +18,7 @@ class ProviderResponse(BaseModel):
     base_url: str
     api_key: str
     enabled: bool
-
+    
     model_config = {"from_attributes": True}
 
 class WorkerRuntimeUpdate(BaseModel):
@@ -38,7 +38,7 @@ class WorkerRuntimeResponse(BaseModel):
     max_output_tokens: Optional[int]
 
     model_config = {"from_attributes": True}
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 class SettingsUpdate(BaseModel):

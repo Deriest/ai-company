@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from backend.database.session import init_db, AsyncSessionLocal, engine
 from backend.config import settings
+from backend.services.search_service import init_fts5
 from backend.middleware.logging_middleware import logging_middleware
 from backend.middleware.metrics import metrics_middleware, metrics_endpoint
 
@@ -34,35 +35,21 @@ async def lifespan(app: FastAPI):
 
     # SECURITY: if AIC_TESTING=1 is set, the auth dependency in
     # backend/api/dependencies.py fail-opens (missing token == authenticated).
-    # This is a TEST-ONLY escape hatch — NEVER allowed in production!
-    # We enforce this at startup time BEFORE any operations, not just warn.
-    from backend.config import settings as app_settings
-
-    if app_settings.is_testing_mode:
-        raise RuntimeError(
-            "FATAL ERROR: AIC_TESTING=1 detected in production environment. "
-            "Authentication bypass is ACTIVE - this should never happen outside "
-            "of CI/CD test environments. Please unset AIC_TESTING and restart."
+    # This is a TEST-ONLY escape hatch — never set it in production.
+    if os.environ.get("AIC_TESTING") == "1":
+        logger.warning(
+            "AIC_TESTING=1 detected — auth fail-open is ACTIVE; never set this in production"
         )
 
-    logger.info("Production mode verified: authentication enabled")
-
-    # Move DB initialization AFTER security check to prevent partial state on misconfig
     await init_db()
     # Defensive self-heal for existing DBs: seed the workers table (Lease rows
     # FK -> workers.id). Idempotent — safe to run on every startup.
-    # Critical worker seeding - fail startup if workers cannot be registered
     try:
         from backend.database.workers_seed import seed_workers
         async with AsyncSessionLocal() as db:
             await seed_workers(db)
-        logger.info("Worker registry seeded successfully")
     except Exception as e:
-        # Fail closed: critical dependency failed
-        raise RuntimeError(
-            f"Critical worker registration failed at startup: {type(e).__name__}: {str(e)}. "
-            "Application cannot function without registered workers. Please check configuration."
-        )
+        logger.warning(f"Workers seed at startup failed (non-critical): {e}")
     # FIX P8: init_fts5 is already called inside init_db() — removing redundant call.
     # No FTS5 setup needed here; it's idempotent but wastes time initializing twice.
     # if os.environ.get("AIC_TESTING") == "1":
@@ -75,7 +62,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"LLM provider initialized: {config.name} ({config.base_url})")
     else:
         logger.warning("No LLM provider configured (AIC_LLM_BASE_URL not set) — workers will use fallback templates")
-
+    
     # BUG-01 FIX: Register providers from database
     from backend.models.schema import Provider, ProviderModel, WorkerRuntime
     from backend.services.crypto import decrypt as decrypt_api_key
@@ -101,19 +88,18 @@ async def lifespan(app: FastAPI):
                     base_url += "/v1"
                 api_key = decrypt_api_key(p.api_key)
                 if not (api_key or "").strip():
-                    logger.error(f"CRITICAL: Provider {p.name} has invalid/empty API key")
-                    # Fail fast - active provider cannot work without valid credentials
-                    raise ValueError(f"Provider {p.name}: invalid API key - application requires valid LLM credentials")
-
+                    logger.warning(f"Skipping DB provider {p.name}: no usable API key")
+                    continue
+                
                 # Get models for this provider
                 model_result = await db.execute(
                     select(ProviderModel).where(ProviderModel.provider_id == p.id)
                 )
                 provider_models = model_result.scalars().all()
-
+                
                 # R2 FIX: Build models dict from worker_runtime, not first_model
                 models = {}
-
+                
                 # QA-FIX: env AIC_MODEL_* must only be applied to the provider
                 # whose endpoint matches AIC_LLM_BASE_URL — stamping them onto
                 # every DB provider would send a model that doesn't exist on
@@ -122,14 +108,14 @@ async def lifespan(app: FastAPI):
                 for tier, model in _env_models_for_base_url(base_url).items():
                     if model:
                         models[tier] = model
-
+                
                 # Query worker_runtime to get role-specific model assignments
                 # (only fill tiers not already set by env config)
                 worker_result = await db.execute(
                     select(WorkerRuntime).where(WorkerRuntime.provider_id == p.id)
                 )
                 workers = worker_result.scalars().all()
-
+                
                 # Map worker roles to their assigned models
                 for worker in workers:
                     if worker.model_id:
@@ -144,7 +130,7 @@ async def lifespan(app: FastAPI):
                         tier = role_to_tier.get(worker.role)
                         if tier and tier not in models:
                             models[tier] = worker.model_id
-
+                
                 # Fallback: if no worker_runtime models, find a valid non-combo model
                 if not models and provider_models:
                     # Filter out models that are known-bad defaults:
@@ -169,7 +155,7 @@ async def lifespan(app: FastAPI):
                             "crafter": fallback_model,
                             "sprinter": fallback_model,
                         }
-
+                
                 db_config = ProviderConfig(
                     name=p.name,
                     base_url=base_url,
@@ -183,7 +169,7 @@ async def lifespan(app: FastAPI):
 
     # Validate embedding provider
     from backend.services.embedding_provider import validate_embedding_provider
-    # P1 #7: await asyncio.to_thread(validate_embedding_provider, ) runs a sync httpx probe (Ollama
+    # P1 #7: validate_embedding_provider() runs a sync httpx probe (Ollama
     # detect) — run it in a thread so startup never blocks the async loop.
     validation = await asyncio.to_thread(validate_embedding_provider)
     logger.info(f"Embedding provider: {validation['provider']} (production_ready={validation['production_ready']})")
@@ -254,14 +240,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Startup self-heal failed: {e}")
 
-    # PHASE 3: Start lease scanner for automatic lease expiration and recovery
-    try:
-        from backend.services.lease_scanner import start_lease_scanner
-        lease_scanner = start_lease_scanner(AsyncSessionLocal)  # noqa: F841 — keep task ref alive (cycle-3 fix)
-        logger.info("Lease scanner started successfully")
-    except Exception as e:
-        logger.warning(f"Failed to start lease scanner: {e}")
-
     # H5: wire the event recorder to the bus (persists events to DB).
     try:
         from events.recorder import subscribe_recorder
@@ -274,14 +252,6 @@ async def lifespan(app: FastAPI):
     # ── Shutdown ───────────────────────────────────────────────
     from backend.services.heartbeat import stop_heartbeat
     stop_heartbeat()
-    # PHASE 3: Stop lease scanner for graceful shutdown
-    try:
-        from backend.services.lease_scanner import _scanner_instance
-        if _scanner_instance:
-            await _scanner_instance.stop()
-            logger.info("Lease scanner stopped")
-    except Exception as e:
-        logger.warning(f"Failed to stop lease scanner: {e}")
     # H7: stop the background job worker.
     try:
         from backend.services.job_scheduler import job_scheduler
@@ -354,8 +324,7 @@ async def rate_limit_wrapper(request: Request, call_next):
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     # Content Security Policy - restrict sources for scripts, styles, etc.
-    # L1 FIX: Removed 'unsafe-eval' and 'unsafe-inline' from script-src
-    response.headers["content-security-policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+    response.headers["content-security-policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
     # XSS Protection
     response.headers["x-content-type-options"] = "nosniff"
     # Clickjacking protection
@@ -397,16 +366,11 @@ async def localhost_only_middleware(request: Request, call_next):
        where a hostile page's hostname resolves to 127.0.0.1 with an
        attacker-controlled Host header).
     """
-    client_host = request.client.host if request.client else None
-    if client_host is None:
-        # No client info — reject unless in test mode (ASGI test transport)
-        if not _test_mode_enabled():
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Access denied: desktop-only server"},
-            )
-        client_host = "testclient"
-    allowed_client_hosts = {"127.0.0.1", "localhost", "::1"}
+    client_host = request.client.host if request.client else ""
+    # Allow localhost, 127.0.0.1, ::1, and Electron internal. The httpx
+    # ASGITransport client host "testclient" is only permitted in test mode so
+    # it cannot be used to bypass the localhost-only guard at runtime.
+    allowed_client_hosts = {"127.0.0.1", "localhost", "::1", ""}
     if _test_mode_enabled():
         allowed_client_hosts.add("testclient")
     if client_host not in allowed_client_hosts:
@@ -532,8 +496,6 @@ from backend.api.routes.approval_config import router as approval_config_router
 app.include_router(approval_config_router, prefix="")
 from backend.api.routes.provider_manage import router as provider_manage_router
 app.include_router(provider_manage_router, prefix="")
-from backend.api.routes.release import router as release_router
-app.include_router(release_router, prefix="")
 from backend.api.routes.tasks import router as tasks_router
 app.include_router(tasks_router, prefix="")
 

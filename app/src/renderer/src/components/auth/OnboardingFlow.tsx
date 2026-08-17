@@ -3,13 +3,15 @@ import { profileApi, type LocalProfile } from "../../lib/api/profile";
 import { ProviderSetup } from "./ProviderSetup";
 import { GithubTokenField } from "../GithubTokenField";
 import { Card } from "../kit";
+import { OnboardingFlowWorkflows } from "./OnboardingFlowWorkflows";
+import type { WorkflowType } from "../../lib/api/chat";
 
 interface Props {
   onComplete: (profile: LocalProfile) => void;
 }
 
 export function OnboardingFlow({ onComplete }: Props) {
-  const [step, setStep] = useState<"name" | "provider">("name");
+  const [step, setStep] = useState<"name" | "workflows" | "provider">("name");
   const [displayName, setDisplayName] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [error, setError] = useState("");
@@ -23,11 +25,18 @@ export function OnboardingFlow({ onComplete }: Props) {
     try {
       await profileApi.create(name);
       await profileApi.completeOnboarding();
-      setStep("provider");
+      setStep("workflows");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to save profile");
       setSaving(false);
     }
+  };
+
+  // Workflows step done — the preference is already persisted inside the step;
+  // advance to provider configuration.
+  const handleWorkflowsComplete = (_preferred: WorkflowType | null) => {
+    setSaving(true);
+    setStep("provider");
   };
 
   const handleContinue = async () => {
@@ -76,6 +85,11 @@ export function OnboardingFlow({ onComplete }: Props) {
         </div>
       </div>
     );
+  }
+
+  // Workflows step — pick the primary way of working.
+  if (step === "workflows") {
+    return <OnboardingFlowWorkflows displayName={displayName} onComplete={handleWorkflowsComplete} />;
   }
 
   // Provider setup step

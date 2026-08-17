@@ -11,26 +11,7 @@ import * as crypto from "node:crypto";
 // This key should be generated once during build and baked into the binary.
 // For development/testing, replace with your own public key or use mock.
 
-// C2 FIX: Bake Ed25519 public key as a source constant for packaged builds.
-//
-// The main process is compiled with `tsc` (not bundled by vite), so
-// process.env is read at RUNTIME. A packaged Electron app has no
-// AIC_UPDATE_PUBLIC_KEY in its environment, so relying on env alone leaves the
-// key empty and — because verification is fail-closed for packaged builds —
-// bricks auto-update entirely. The key must therefore be baked into the source
-// as BAKED_UPDATE_PUBLIC_KEY below.
-//
-// RELEASE PROCEDURE (one time):
-//   1. ./scripts/generate_release_key.sh            # creates secrets/release_private_key.pem
-//   2. node scripts/sign_manifest.js latest.json secrets/release_private_key.pem
-//      → prints `AIC_UPDATE_PUBLIC_KEY=<base64>` (the raw 32-byte Ed25519 key)
-//   3. paste that base64 value into BAKED_UPDATE_PUBLIC_KEY here and commit.
-//   4. scripts/release.sh signs latest.json on every release automatically.
-//
-// Env still wins when explicitly set (dev/CI overrides); packaged builds fall
-// back to the baked constant.
-const BAKED_UPDATE_PUBLIC_KEY = "fXxYzXuiMkeMi4u7obc7RmJI07Whuvewlkl308ThH+o=";
-const PUBLIC_KEY_BASE64 = process.env.AIC_UPDATE_PUBLIC_KEY || BAKED_UPDATE_PUBLIC_KEY || "";
+const PUBLIC_KEY_BASE64 = process.env.AIC_UPDATE_PUBLIC_KEY || "";
 
 // Parse base64 public key if available
 let publicKeyBytes: Buffer | null = null;
@@ -43,43 +24,20 @@ if (PUBLIC_KEY_BASE64) {
 }
 
 /**
- * Returns true if the current runtime is considered "packaged" (production).
- * In Electron: app.isPackaged. In tests/CI: NODE_ENV=production.
- * Exposed so callers can inject the Electron check.
- */
-export function isPackagedRuntime(isPackaged?: boolean): boolean {
-    if (typeof isPackaged === "boolean") return isPackaged;
-    return (process.env.NODE_ENV || "development") === "production";
-}
-
-/**
  * Verify manifest signature using Ed25519 digital signature.
  */
 export function verifyManifestSignature(
     manifestJson: unknown,
-    signatureBase64: string,
-    isPackaged?: boolean
+    signatureBase64: string
 ): boolean {
     // Validate inputs
     if (!publicKeyBytes || !signatureBase64) {
-        const packaged = isPackagedRuntime(isPackaged);
-        if (packaged) {
-            console.error("[updateSecurity] Packaged build requires signed manifests — rejecting unsigned manifest");
+        // In development mode without key, skip verification
+        if (process.env.NODE_ENV === "production") {
+            console.error("[updateSecurity] No public key configured for signature verification");
             return false;
         }
-        // Non-packaged: unsigned manifests are opt-in only (H4). Dev builds
-        // that want them must set AIC_UPDATE_ALLOW_UNSIGNED=1 explicitly.
-        // Test env (vitest NODE_ENV=test) uses unsigned mock manifests — allow
-        // there, plus the explicit dev opt-in flag. Production stays fail-closed.
-        const allowUnsigned =
-            process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1" ||
-            process.env.NODE_ENV === "test";
-        if (allowUnsigned) {
-            console.warn("[updateSecurity] Unsigned manifest accepted (test/dev mode)");
-            return true;
-        }
-        console.error("[updateSecurity] Unsigned manifest rejected — set AIC_UPDATE_ALLOW_UNSIGNED=1 for dev");
-        return false;
+        return true;
     }
 
     try {
@@ -88,19 +46,19 @@ export function verifyManifestSignature(
         // Create hash of manifest content (SHA256)
         const hash = crypto.createHash("sha256").update(jsonString).digest();
         
-        // Create signature verifier with correct Ed25519 format
-        // Ed25519 keys are raw 32-byte public keys, not PEM-encoded SPKI
+        // Create signature verifier
+        const verifier = crypto.createVerify("SHA256");
+        verifier.update(hash);
+        
+        // Convert public key to proper format
         const pubKeyObj = crypto.createPublicKey({
-            key: {
-                kty: "OKP",
-                crv: "Ed25519",
-                x: publicKeyBytes.toString("base64url"),
-            },
-            format: "jwk",
+            key: publicKeyBytes,
+            format: "pem",
+            type: "spki",
         });
         
         // Verify signature
-        const valid = crypto.verify(null, hash, pubKeyObj, Buffer.from(signatureBase64, "base64"));
+        const valid = verifier.verify(pubKeyObj, signatureBase64, "base64");
         
         if (!valid) {
             console.error(
@@ -123,10 +81,11 @@ export function verifyRSASignature(
     signatureBase64: string,
     rsaPublicKeyPem: string
 ): boolean {
-    // M12: legacy helper kept for API compatibility, aligned with the
-    // fail-closed policy — unsigned manifests are opt-in via env flag only.
     if (!signatureBase64) {
-        return process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1";
+        if (process.env.NODE_ENV === "production") {
+            return false;
+        }
+        return true;
     }
 
     try {
@@ -151,12 +110,10 @@ export function getVerificationStatus(): {
     hasPublicKey: boolean;
     publicKeyLength: number | null;
     nodeEnv: string;
-    allowUnsigned: boolean;
 } {
     return {
         hasPublicKey: !!publicKeyBytes,
         publicKeyLength: publicKeyBytes?.length ?? null,
         nodeEnv: process.env.NODE_ENV || "development",
-        allowUnsigned: process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1",
     };
 }

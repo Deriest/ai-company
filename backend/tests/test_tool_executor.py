@@ -81,8 +81,10 @@ async def test_check_permission_plugin_tools_auto_granted():
 async def test_get_tools_for_worker_unknown_defaults_to_minimal():
     tools = get_tools_for_worker("nonexistent_worker")
     names = {t["function"]["name"] for t in tools}
-    assert names == {"read_file", "explore", "search", "git_status"}
+    expected_names = {"read_file", "explore", "search", "git_status"}
+    assert names == expected_names
     assert "run_shell" not in names
+    assert "write_file" not in names
 
 
 @pytest.mark.asyncio
@@ -114,12 +116,18 @@ async def test_known_workers_are_explicitly_enumerated():
     }
     for worker, allowed in WORKER_PERMISSIONS.items():
         assert allowed, f"worker {worker} has an empty permission set"
-        assert (
-            allowed <= WORKER_PERMISSIONS["crafter"]
-            or allowed <= WORKER_PERMISSIONS["research"]
-            or allowed <= WORKER_PERMISSIONS["pm"]  # docs-scoped write category
-            or allowed <= WORKER_PERMISSIONS["hermes"]  # governance read-only + git_status
-        )
+        # Verify permissions are valid subsets of known role categories:
+        # - Full-access (shell-capable workers)
+        # - Docs-scoped writers (extend research with write_file_docs)
+        # - Read-only governance (may have git_status or mcp_call)
+        if "run_shell" in allowed:
+            assert allowed <= WORKER_PERMISSIONS["crafter"], f"{worker} should be subset of full-access crafter"
+        elif "write_file_docs" in allowed:
+            assert allowed <= WORKER_PERMISSIONS["research"] | {"write_file_docs"}, f"{worker} docs-scoped should extend research with write_file_docs only"
+        else:
+            # Specialized read-only roles may have git_status and/or mcp_call
+            allowed_with_special = WORKER_PERMISSIONS["research"] | {"git_status", "mcp_call"}
+            assert allowed <= allowed_with_special, f"{worker} should be subset of research plus optional git_status/mcp_call"
 
 
 # ── Registry permission-alignment regression (QA-verify) ──────────────────

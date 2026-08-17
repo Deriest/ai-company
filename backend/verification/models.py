@@ -41,18 +41,13 @@ class VerificationReport:
     blocking_issues: list[str] = field(default_factory=list)
     overall_status: str = "pending"  # passed, failed, partial
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    
-    # Test execution results (from test_runner)
-    test_results: list[dict] = field(default_factory=list)
-    test_exit_code: int = -1  # From structured TestResult (0 = success)
-    test_coverage_verified: bool = False  # Whether tests actually ran and passed
 
     def __post_init__(self):
         if not self.verification_id:
             self.verification_id = f"VER-{uuid4().hex[:12].upper()}"
 
     def to_dict(self) -> dict:
-        result = {
+        return {
             "verification_id": self.verification_id,
             "brief_id": self.brief_id,
             "requirements_met": [
@@ -76,12 +71,3 @@ class VerificationReport:
             "blocking_issues": self.blocking_issues,
             "created_at": self.created_at.isoformat(),
         }
-        
-        # Add test execution fields if present
-        if self.test_results:
-            result["test_results"] = self.test_results
-        if self.test_exit_code != -1:
-            result["test_exit_code"] = self.test_exit_code
-        result["test_coverage_verified"] = self.test_coverage_verified
-        
-        return result

@@ -6,7 +6,7 @@ Validates request body, query parameters, and path parameters.
 
 import logging
 import json
-from typing import Callable
+from typing import Any, Callable
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -17,14 +17,14 @@ logger = logging.getLogger("aic.validation")
 async def validation_middleware(request: Request, call_next: Callable) -> Response:
     """
     Input validation middleware.
-
+    
     Validates:
     - Request body size
     - Content type for POST/PUT/PATCH
     - Path parameter format
     - Query parameter types
     """
-
+    
     # 2. Check request body size (max 70MB — must accommodate 50MB attachments
     #    × 4/3 base64 expansion + JSON overhead; UI allows 20MB/file, 50MB total)
     if request.method in ("POST", "PUT", "PATCH"):
@@ -43,16 +43,26 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                     )
             except ValueError:
                 pass
-
+    
     # 2. Validate path parameters
     path_params = request.path_params
     for key, value in path_params.items():
         if isinstance(value, str):
-            # M3 FIX: Keep only path-traversal checks (../; /etc/;)
-            # Remove SQL keyword blacklist (drop table, union select, etc.)
+            # F11 FIX: a bare ``--`` anywhere is allowed — skill/plugin IDs
+            # legitimately contain double hyphens (re.sub(r"[^a-z0-9-]+", "-", ...)).
+            # Only reject unambiguous dangerous patterns: path-traversal tokens,
+            # SQL comment/statement markers, and SQL keywords.
+            lower_value = value.lower()
             if (
                 "../" in value
-                or "/etc/" in value
+                or ";" in value
+                or "/*" in value
+                or "*/" in value
+                or value.startswith("--")
+                or any(kw in lower_value for kw in [
+                    "drop table", "delete from", "insert into",
+                    "update set", "union select", "or 1=1", "or true",
+                ])
             ):
                 logger.warning(f"Suspicious path parameter: {key}={value}")
                 return JSONResponse(
@@ -63,7 +73,7 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                         "field": key
                     }
                 )
-
+            
             # Check length
             if len(value) > 1024:
                 return JSONResponse(
@@ -75,7 +85,7 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                         "max_length": 1024
                     }
                 )
-
+    
     # 3. Validate query parameters
     query_params = request.query_params
     for key, value in query_params.items():
@@ -91,7 +101,7 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                         "max_length": 10000
                     }
                 )
-
+    
     # 4. Continue processing
     try:
         response = await call_next(request)
@@ -114,7 +124,7 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
                 ]
             }
         )
-    except Exception:
+    except Exception as e:
         # Let other exceptions pass through
         raise
 
@@ -122,13 +132,13 @@ async def validation_middleware(request: Request, call_next: Callable) -> Respon
 def validate_json_body(body: bytes, max_size: int = 10 * 1024 * 1024) -> tuple[bool, str]:
     """
     Validate JSON request body.
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
     if len(body) > max_size:
         return False, f"Request body too large (max {max_size // (1024*1024)}MB)"
-
+    
     try:
         json.loads(body)
         return True, ""
@@ -139,31 +149,31 @@ def validate_json_body(body: bytes, max_size: int = 10 * 1024 * 1024) -> tuple[b
 def sanitize_string(value: str, max_length: int = 10000) -> str:
     """
     Sanitize string input.
-
+    
     - Strip whitespace
     - Limit length
     - Remove null bytes
     """
     if not isinstance(value, str):
         return value
-
+    
     # Remove null bytes
     value = value.replace("\x00", "")
-
+    
     # Strip whitespace
     value = value.strip()
-
+    
     # Limit length
     if len(value) > max_length:
         value = value[:max_length]
-
+    
     return value
 
 
 def validate_enum_value(value: str, allowed_values: list[str], field_name: str) -> tuple[bool, str]:
     """
     Validate enum value.
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
@@ -180,7 +190,7 @@ def validate_integer_range(
 ) -> tuple[bool, str]:
     """
     Validate integer range.
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
@@ -199,13 +209,13 @@ def validate_string_length(
 ) -> tuple[bool, str]:
     """
     Validate string length.
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
     if not isinstance(value, str):
         return False, f"{field_name} must be a string"
-
+    
     if min_length is not None and len(value) < min_length:
         return False, f"{field_name} must be at least {min_length} characters"
     if max_length is not None and len(value) > max_length:
@@ -216,17 +226,17 @@ def validate_string_length(
 def validate_url(value: str, field_name: str = "url") -> tuple[bool, str]:
     """
     Validate URL format.
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
     if not isinstance(value, str):
         return False, f"{field_name} must be a string"
-
+    
     # FIX P15: Use proper urlparse parsing instead of bare startswith()
     # which incorrectly accepted things like "http://evil.com.evil" or "httpx://bad".
     from urllib.parse import urlparse
-
+    
     try:
         parsed = urlparse(value)
         if parsed.scheme not in ("http", "https"):
@@ -235,27 +245,27 @@ def validate_url(value: str, field_name: str = "url") -> tuple[bool, str]:
             return False, f"{field_name} must include a hostname"
     except Exception:
         return False, f"{field_name} is invalid"
-
+    
     if len(value) > 2048:
         return False, f"{field_name} too long (max 2048 characters)"
-
+    
     return True, ""
 
 
 def validate_email(value: str, field_name: str = "email") -> tuple[bool, str]:
     """
     Validate email format (basic).
-
+    
     Returns:
         tuple: (is_valid, error_message)
     """
     if not isinstance(value, str):
         return False, f"{field_name} must be a string"
-
+    
     if "@" not in value:
         return False, f"{field_name} must contain @"
-
+    
     if "." not in value.split("@")[-1]:
         return False, f"{field_name} must have valid domain"
-
+    
     return True, ""

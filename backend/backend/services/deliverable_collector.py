@@ -1,6 +1,8 @@
 """Collect and package deliverables from agent execution."""
+import os
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 
 from backend.services.content_utils import truncate_content
 
@@ -80,14 +82,9 @@ class DeliverableCollector:
                 {
                     "command": args.get("command", ""),
                     "success": success,
-                    "output": output[:1000] if success else error[:2000],
-                    "status": "failed" if not success else "ok",
+                    "output": output[:1000],
                 }
             )
-            # M2 (cycle-12) + L2 (cycle-14): bound list AND track failed runs
-            # loop cannot grow the summary unboundedly (keep the most recent).
-            if len(self.shell_results) > 200:
-                self.shell_results = self.shell_results[-200:]
             # Check for test results
             if "test" in args.get("command", "").lower() and success:
                 if "passed" in output:

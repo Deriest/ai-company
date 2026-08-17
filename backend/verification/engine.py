@@ -1,10 +1,6 @@
 """Verification Engine — Core Orchestrator.
 
 Verifies that output meets acceptance criteria and quality standards.
-
-Primary pass/fail determination is now based on TEST_EXIT_CODE from structured
-TestResult objects (PHASE 7). Pattern matching serves only as supplementary
-evidence for IMPLEMENTED vs TESTED vs VERIFIED state distinctions.
 """
 
 import logging
@@ -20,7 +16,7 @@ from verification.models import VerificationReport, RequirementCheck, QualitySco
 logger = logging.getLogger("aic.verification")
 
 # ---------------------------------------------------------------------------
-# Patterns used for content-based quality scoring (supplementary only)
+# Patterns used for content-based quality scoring
 # ---------------------------------------------------------------------------
 _TEST_PATTERNS = re.compile(
     r"\btest\b|\bspec\b|\.test\.|\.spec\.|describe\s*\(|it\s*\(|"
@@ -271,12 +267,8 @@ class VerificationEngine:
         self,
         brief_id: str,
         task_results: dict | None = None,
-        test_results: list | None = None,  # Optional structured TestResult objects from test_runner
     ) -> VerificationResult:
         """Verify output against acceptance criteria.
-
-        Primary pass/fail is determined by TEST_EXIT_CODE (if test_results provided).
-        Pattern matching serves only as supplementary evidence.
 
         Walks the full state machine:
             OUTPUT_RECEIVED → ANALYZING_OUTPUT → VERIFYING_REQUIREMENTS →
@@ -286,7 +278,6 @@ class VerificationEngine:
         Args:
             brief_id: Engineering Brief ID
             task_results: Results from dispatcher
-            test_results: Optional structured TestResult objects from test_runner
 
         Returns:
             VerificationResult with report
@@ -298,37 +289,6 @@ class VerificationEngine:
             )
 
         task_results = task_results or {}
-        
-        # Process structured test results from test_runner (PHASE 7)
-        test_results_processed = []
-        test_exit_code = -1
-        test_coverage_verified = False
-        
-        if test_results:
-            for tr in test_results:
-                if hasattr(tr, '__dict__'):
-                    # TestResult object
-                    test_results_processed.append({
-                        "language": tr.language,
-                        "framework": tr.framework,
-                        "exit_code": getattr(tr, "exit_code", -1),
-                        "duration": getattr(tr, "duration", 0.0),
-                        "summary": getattr(tr, "summary", ""),
-                    })
-                    test_exit_code = getattr(tr, "exit_code", -1)
-                    if test_exit_code == 0:
-                        test_coverage_verified = True
-                elif isinstance(tr, dict):
-                    test_results_processed.append(tr)
-                    if tr.get("exit_code") == 0:
-                        test_exit_code = 0
-                        test_coverage_verified = True
-                elif tr == 0:
-                    test_exit_code = 0
-                    test_coverage_verified = True
-                    test_results_processed.append({"exit_code": 0, "summary": "Tests passed"})
-
-        logger.info(f"Test execution: exit_code={test_exit_code}, verified={test_coverage_verified}")
 
         # ── STATE 1: OUTPUT_RECEIVED ────────────────────────────────
         self._transition_state(VerificationState.OUTPUT_RECEIVED)
@@ -519,41 +479,18 @@ class VerificationEngine:
         # ── STATE 5: CHECKING_QUALITY ───────────────────────────────
         self._transition_state(VerificationState.CHECKING_QUALITY)
 
-        # PHASE 7: TEST_EXIT_CODE is primary pass/fail signal
-        # Pattern matching (test_coverage via _score_test_coverage) is SUPPLEMENTARY only
         code_quality = completed_tasks / total_tasks if total_tasks > 0 else 0.0
-        
-        # Primary test signal: exit_code from structured TestResult
-        if test_coverage_verified and test_exit_code == 0:
-            # Tests ran successfully - this is PRIMARY evidence of implementation quality
-            # Set high test coverage score based on verified execution
-            test_coverage = min(1.0, test_coverage_verified and (1.0 if test_exit_code == 0 else 0.5))
-        else:
-            # Fallback to pattern-based detection as supplementary evidence only
-            test_coverage = self._score_test_coverage(task_results)
-        
+        test_coverage = self._score_test_coverage(task_results)
         documentation = self._score_documentation(task_results)
         security = self._score_security(task_results)
 
-        # PHASE 7: Weighted scoring with TEST_EXIT_CODE taking precedence
-        # If tests passed (exit_code==0), verification should PASS regardless of pattern scores
-        if test_coverage_verified and test_exit_code == 0:
-            # Tests provide strong evidence - boost overall significantly
-            test_weight = 0.40  # Increased weight for verified tests
-            overall = (
-                code_quality * 0.25
-                + test_coverage * test_weight
-                + documentation * 0.15
-                + security * 0.20
-            )
-        else:
-            # No verified tests - use traditional weighted average
-            overall = (
-                code_quality * 0.35
-                + test_coverage * 0.25
-                + documentation * 0.15
-                + security * 0.25
-            )
+        # Weighted average: code quality is the most important signal
+        overall = (
+            code_quality * 0.35
+            + test_coverage * 0.25
+            + documentation * 0.15
+            + security * 0.25
+        )
 
         quality_score = QualityScore(
             code_quality=round(code_quality, 4),
@@ -587,32 +524,12 @@ class VerificationEngine:
 
         quality_ok = quality_score.overall >= verification_config.min_quality_score
 
-        # ── PHASE 7: TEST_EXIT_CODE is PRIMARY pass/fail signal ──
-        # Pattern matching (keyword coverage, etc.) is SUPPLEMENTARY only
-        
-        if test_coverage_verified and test_exit_code == 0:
-            # Strong evidence: tests ran and passed
-            # If requirements+acceptance are met AND tests pass → PASS
-            if all_requirements_passed and all_acceptance_passed:
-                overall_status = "passed"
-            elif all_requirements_passed and all_acceptance_passed and quality_ok:
-                overall_status = "passed"
-            else:
-                # Requirements failed but tests passed → partial at best
-                overall_status = "partial"
-        elif test_exit_code != -1 and test_exit_code != 0:
-            # Tests ran but FAILED - this is strong negative evidence
-            overall_status = "failed"
+        if all_requirements_passed and all_acceptance_passed and quality_ok:
+            overall_status = "passed"
+        elif all_requirements_passed and all_acceptance_passed:
+            overall_status = "partial"
         else:
-            # No test execution data - fall back to pattern-based assessment
-            if all_requirements_passed and all_acceptance_passed and quality_ok:
-                overall_status = "passed"
-            elif all_requirements_passed and all_acceptance_passed:
-                overall_status = "partial"
-            else:
-                overall_status = "failed"
-        
-        logger.info(f"Overall status: {overall_status} (tests_verified={test_coverage_verified}, exit_code={test_exit_code})")
+            overall_status = "failed"
 
         # Build context-aware recommendations
         recommendations: list[str] = []
@@ -640,11 +557,6 @@ class VerificationEngine:
 
         blocking_issues: list[str] = []
         if overall_status == "failed":
-            # PHASE 7: Highlight test failures first
-            if not test_coverage_verified or (test_exit_code != -1 and test_exit_code != 0):
-                test_summary = "Tests failed to execute" if test_exit_code == -1 else f"Tests failed with exit code {test_exit_code}"
-                blocking_issues.insert(0, f"{test_summary}")
-            
             failed_reqs = [r for r in requirements_met if r.status != "passed"]
             if failed_reqs:
                 blocking_issues.append(
@@ -673,9 +585,6 @@ class VerificationEngine:
             recommendations=recommendations,
             blocking_issues=blocking_issues,
             overall_status=overall_status,
-            test_results=test_results_processed,  # PHASE 7: Include structured test results
-            test_exit_code=test_exit_code,  # PHASE 7: Primary pass/fail signal
-            test_coverage_verified=test_coverage_verified,  # PHASE 7: Whether tests actually ran
         )
 
         # Persist to database

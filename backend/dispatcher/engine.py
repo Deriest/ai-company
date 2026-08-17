@@ -106,14 +106,8 @@ class DispatcherEngine:
                 status="pending",
             )
 
-        # Select workers for each task (PHASE 4 - Wiring available_workers)
+        # Select workers for each task
         assignments: list[WorkerAssignment] = []
-        
-        # Resolve available_workers from config or context
-        available_workers = getattr(self, '_available_workers', None)
-        if not available_workers and hasattr(dispatcher_config, 'available_workers'):
-            available_workers = dispatcher_config.available_workers
-        
         for node_data in nodes:
             node_id = node_data.get("node_id", "")
             worker_type = node_data.get("worker_type", "backend")
@@ -123,7 +117,6 @@ class DispatcherEngine:
                 node_id=node_id,
                 worker_type=worker_type,
                 task_type=task_type,
-                available_workers=available_workers,  # PHASE 4: Pass available workers
             )
             assignments.append(assignment)
 
@@ -172,6 +165,7 @@ class DispatcherEngine:
         # If any node in a group fails, dispatch FAILS FAST: later dependency
         # groups are marked skipped and are never executed.
         execution_log = []
+        dispatcher_failed = False
         for group_index, group in enumerate(scheduled):
             pending_node_ids = [nid for nid in group if nid in task_results]
             if not pending_node_ids:
@@ -278,22 +272,17 @@ class DispatcherEngine:
 
             failed_node_ids = [nid for nid, status in results if status == "failed"]
             if failed_node_ids:
-                # FAIL-FAST (fail-stop): a failed node means later dependency
-                # groups cannot run. Mark every remaining node as skipped
-                # (never executed) and break out of the group loop.
-                for failed_id in failed_node_ids:
-                    logger.warning(f"Dispatcher node {failed_id} failed; skipping dependent groups")
+                # FAIL-STOP SEMANTICS: when any node in a dependency group fails,
+                # ALL future groups must be skipped (fail-stop semantics per M8 spec).
+                logger.warning(f"Dispatcher nodes {', '.join(failed_node_ids)} failed; triggering fail-stop")
+                
+                # Mark remaining future groups as skipped (fail-stop semantics)
                 for remaining_group in scheduled[group_index + 1:]:
                     for nid in remaining_group:
-                        if nid in task_results:
+                        if nid in task_results and task_results[nid].status == "pending":
                             task_results[nid].status = "skipped"
                             task_results[nid].error = "Skipped: upstream node failed"
-                            task_results[nid].completed_at = datetime.now(timezone.utc)
-                            execution_log.append({
-                                "node_id": nid,
-                                "action": "skipped",
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            })
+                
                 break
 
         # Build dispatch result
@@ -385,12 +374,6 @@ class DispatcherEngine:
         ``session`` defaults to the dispatcher's own session; pass a dedicated
         session when executing a dependency group concurrently so independent
         nodes never share an AsyncSession.
-
-        PHASE 9 HANDOFF SAFETY: Each executor instance creates its own
-        asyncio.Lock() per phase (_run_group in executor.py). This serializes
-        concurrent worker handoff merges into ctx["handoffs"], preventing lost
-        updates when multiple workers write simultaneously. The lock scope is
-        minimal—only covering the critical handoff_dict mutation section.
         """
         from runtime.executor import execute_task
 
@@ -436,9 +419,8 @@ class DispatcherEngine:
         if child_task is None:
             child_task = Task(
                 project_id=project_id,
-                # parent_task_id MUST reference a real tasks.id (FK). The graph
-                # id is tracked in context.graph_id, not here — setting it would
-                # violate the FK and fail the insert for every graph-node child.
+                # parent_task_id intentionally left unset — the graph node is the
+                # source of truth, not a single parent task.
                 title=title,
                 description=description,
                 type=task_type,
@@ -499,7 +481,7 @@ class DispatcherEngine:
                     if ds:
                         parent = (
                             await self.session.execute(
-                                select(Task).where(Task.id == ds.task_conversation_ref).limit(1)
+                                select(Task).where(Task.id == ds.conversation_id).limit(1)
                             )
                         ).scalar_one_or_none()
                         if parent and parent.project_id:

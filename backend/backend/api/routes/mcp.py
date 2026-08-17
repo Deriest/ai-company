@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from sqlalchemy.future import select
+from typing import Optional, List
+import json
 import logging
 
 from backend.database.session import get_db
@@ -11,6 +13,7 @@ router = APIRouter(dependencies=[Depends(require_current_user)])
 logger = logging.getLogger("aic.mcp")
 
 from backend.services.mcp_service import mcp_service
+from backend.models.mcp import MCPRegistry, MCPTool, MCPToolExecution
 
 
 # ── MCP Framework Endpoints ──────────────────────────────────

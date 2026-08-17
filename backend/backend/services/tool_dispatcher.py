@@ -1,12 +1,10 @@
-import logging
 import os
+import glob
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from backend.services.path_utils import resolve_workspace_path
-
-logger = logging.getLogger("aic.tool_dispatcher")
 
 class ToolDispatcher:
     def __init__(self, workspace_dir: str | None = None):
@@ -37,7 +35,7 @@ class ToolDispatcher:
                 res = {"current_time": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())}
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
-
+            
             exec_time = int((time.time() - start_time) * 1000)
             return {"result": res, "error": None, "execution_time_ms": exec_time}
         except Exception as e:
@@ -85,7 +83,7 @@ class ToolDispatcher:
                             rel = os.path.relpath(p, self.workspace_dir)
                             matches.append(rel)
                 except Exception:
-                    logger.debug("tool dispatch step failed", exc_info=True)
+                    pass
         return {"matches": matches}
 
 tool_dispatcher = ToolDispatcher()

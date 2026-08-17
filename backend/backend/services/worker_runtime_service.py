@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func as sqlfunc, case
-from backend.models.schema import WorkerRuntime, WORKER_DEFAULTS
-from backend.models.ai_runtime import WorkerExecution
+from backend.models.schema import WorkerRuntime, Provider, WORKER_DEFAULTS
+from backend.models.ai_runtime import WorkerExecution, GenerationLog
 import datetime
 from typing import Optional
 

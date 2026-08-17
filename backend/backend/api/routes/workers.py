@@ -1,6 +1,6 @@
 """Worker routes — runtime management, worker CRUD, tool execution."""
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -216,6 +216,7 @@ async def execute_tool(payload: ToolExecuteRequest, _auth: str = Depends(require
 # GET /runtime/workforce — Office Floor Live Status
 # ---------------------------------------------------------------------------
 from storage.models import Lease, LeaseStatus, Task
+from sqlalchemy import select, or_, case
 from sqlalchemy import func as sqlfunc
 
 @router.get("/runtime/workforce")
@@ -223,7 +224,8 @@ async def list_workforce(db: AsyncSession = Depends(get_db)):
     """Returns the 15 canonical workers with live lease status for the office floor."""
     # Fetch all canonical agent IDs from registry
     from agents.registry import AGENT_REGISTRY
-
+    from storage.models import Task
+    
     # Query active leases joined with task info so the office floor can show
     # WHAT each busy worker is working on (title, phase, progress).
     active_lease_result = await db.execute(
@@ -248,7 +250,7 @@ async def list_workforce(db: AsyncSession = Depends(get_db)):
                 "taskTitle": row[3] or "",
                 "progress": row[4] or 0,
             }
-
+    
     responses = []
     # Aggregate running executions per tier ONCE (avoid N+1 per agent)
     from backend.models.ai_runtime import WorkerExecution
@@ -289,5 +291,5 @@ async def list_workforce(db: AsyncSession = Depends(get_db)):
             "modelId": model_id,  # configured runtime model, or None if unset
             "isEnabled": True,
         })
-
+    
     return responses

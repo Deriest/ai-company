@@ -21,13 +21,16 @@ os.environ["AIC_DATA_DIR"] = _TEST_DATA_DIR
 # fallback). Tests generate a fresh secret per session so the suite runs
 # hermetically without touching any real secret. MUST be set before
 # backend.config is imported.
-os.environ["AIC_JWT_SECRET"] = secrets.token_hex(32)
+os.environ.setdefault("AIC_JWT_SECRET", secrets.token_hex(32))
 # Enable the deterministic test flag so the auth fail-open (and the
 # localhost Host-header allowlist for httpx ASGITransport "test") applies
 # during the test run but never at runtime. Read by backend/api/dependencies.py
 # and backend/main.py. MUST be set here, before backend.config is imported,
 # so the modules observe it consistently.
 os.environ["AIC_TESTING"] = "1"
+# Identity credentials for auth tests - required by main.py startup check
+os.environ.setdefault("AIC_IDENTITY_USERNAME", "admin")
+os.environ.setdefault("AIC_IDENTITY_PASSWORD", "admin123")
 # Force the LLM provider OFF in the test suite. init_provider_from_env() reads
 # from backend.config.settings (which loads the repo .env), so without this a
 # test creating a task would call the REAL gateway and hang. Pydantic-settings

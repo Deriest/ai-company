@@ -15,8 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
-import time
 
 logger = logging.getLogger("aic.mcp.client")
 
@@ -42,15 +40,13 @@ class MCPClient:
     - sse: Server-Sent Events for streaming (falls back to HTTP for requests)
     """
 
-    def __init__(self, server_id: str, endpoint: str, protocol: str = "stdio", config: dict | None = None):
-        self.server_id = server_id
+    def __init__(self, endpoint: str, protocol: str = "stdio", config: dict | None = None):
         self.endpoint = endpoint
         self.protocol = protocol
         self.config = config or {}
         self._request_id = 0
         self._process: asyncio.subprocess.Process | None = None
         self._connected = False
-        self._last_seen_at = time.time()  # Track last heartbeat for reconnection logic
 
     async def connect(self) -> bool:
         """Establish connection to the MCP server."""
@@ -66,39 +62,17 @@ class MCPClient:
             logger.error(f"MCP connect failed ({self.protocol}://{self.endpoint}): {e}")
             return False
 
-    # H4 FIX: allowlist for stdio MCP executables. Config-driven RCE via
-    # arbitrary endpoint strings is mitigated by rejecting shell metachars and
-    # requiring the executable to be in a known-safe set / safe path.
-    _ALLOWED_MCP_BINS = frozenset({
-        "npx", "node", "python", "python3", "uvx", "uv", "bun", "deno",
-    })
-    _SHELL_METACHARS_RE = re.compile(r"[;&|`$(){}\\[\]<>*?~#\n\r]")
-
     @staticmethod
     def is_allowed_stdio_endpoint(endpoint: str) -> bool:
         """Validate a stdio endpoint is spawnable.
 
-        Rejects shell metachars and flag-like strings. Allows any executable
+        AIC-ADE is a local single-user desktop app — no package allowlist is
+        enforced. Only a non-empty command line is required (an empty endpoint
+        would error at spawn time). Kept for compatibility with callers that
+        pre-check endpoints before connecting.
         """
         ep = (endpoint or "").strip()
-        if not ep or ep.startswith(("-", "--")):
-            return False
-        if MCPClient._SHELL_METACHARS_RE.search(ep):
-            return False
-        # The allowlist was previously defined but never enforced (dead code)
-        # — enforce it now: the first token must be a known-safe binary name,
-        # or an absolute path inside system-safe prefixes.
-        first = ep.split()[0]
-        base = first.rsplit("/", 1)[-1]
-        if base in MCPClient._ALLOWED_MCP_BINS:
-            return True
-        import os as _os
-        real = _os.path.realpath(first)
-        if real.startswith(("/usr/", "/opt/")) and base in MCPClient._ALLOWED_MCP_BINS | {
-            "mcp-server", "mcp", "server",
-        }:
-            return True
-        return False
+        return bool(ep) and not ep.startswith(("-", "--"))
 
     async def _connect_stdio(self) -> bool:
         """Connect via stdio — spawn subprocess."""
@@ -112,11 +86,7 @@ class MCPClient:
             env = None
             if self.config.get("env"):
                 import os
-                # Minimal env: forward only what runtimes need (PATH/HOME/LANG/
-                # TMPDIR), never the full parent environment — AIC secrets
-                # (AIC_JWT_SECRET, API keys) must not leak into MCP servers.
-                keep = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TERM", "SHELL")
-                env = {k: v for k, v in os.environ.items() if k in keep}
+                env = os.environ.copy()
                 env.update(self.config["env"])
 
             self._process = await asyncio.create_subprocess_exec(
@@ -136,8 +106,7 @@ class MCPClient:
                 },
             })
             self._connected = True
-            self._last_seen_at = time.time()
-            logger.info(f"MCP stdio connected: {self.endpoint} (server_id={self.server_id})")
+            logger.info(f"MCP stdio connected: {self.endpoint}")
             return True
         except FileNotFoundError:
             logger.error(f"MCP stdio command not found: {self.endpoint}")
@@ -189,31 +158,6 @@ class MCPClient:
                 self._process.kill()
             self._process = None
         self._connected = False
-        self._last_seen_at = 0
-
-    def _check_process_alive(self) -> bool:
-        """Check if the stdio subprocess is still alive."""
-        if self._process is None:
-            return False
-        return self._process.returncode is None
-
-    async def reconnect_if_dead(self) -> bool:
-        """Reconnect if stdio process died. Returns True if successfully reconnected."""
-        if not self._connected:
-            return False
-
-        if self.protocol == "stdio" and not self._check_process_alive():
-            logger.warning(
-                f"MCP server {self.server_id} process died (PID={self._process.pid if self._process else 'N/A'}), attempting reconnection..."
-            )
-            # Disconnect current stale connection
-            await self.disconnect()
-            # Attempt fresh connection
-            return await self.connect()
-
-        # Update heartbeat
-        self._last_seen_at = time.time()
-        return True
 
     async def list_tools(self) -> list[dict]:
         """Discover available tools from the MCP server.
@@ -373,18 +317,13 @@ class MCPClientPool:
     def __init__(self):
         self._clients: dict[str, MCPClient] = {}  # server_id → client
         self._tool_map: dict[str, tuple[str, str]] = {}  # tool_name → (server_id, tool_name)
-        # Track server connection state for SQLite persistence
-        self._server_state: dict[str, dict] = {}  # server_id -> {last_seen_at, status}
         # QA-E2E FIX: guard pool mutations (connect/disconnect/discover/call)
         # so concurrent access does not race on _clients/_tool_map.
         self._lock = asyncio.Lock()
-        # PHASE 0 FIX: Background watcher for dead stdio processes
-        self._watcher_task = None
-        self._stop_watcher = asyncio.Event()
 
     async def connect_server(self, server_id: str, endpoint: str, protocol: str = "stdio", config: dict | None = None) -> bool:
         """Connect to an MCP server and cache the client."""
-        client = MCPClient(server_id=server_id, endpoint=endpoint, protocol=protocol, config=config)
+        client = MCPClient(endpoint=endpoint, protocol=protocol, config=config)
         connected = await client.connect()
         if connected:
             async with self._lock:
@@ -458,64 +397,6 @@ class MCPClientPool:
 
         raise MCPError(-1, f"Tool '{tool_name}' not found on any MCP server")
 
-    async def start_background_watcher(self):
-        """Start background process watcher that checks stdio connections every 30s."""
-        if self._watcher_task is not None:
-            return  # Already running
-
-        self._stop_watcher.clear()
-        self._watcher_task = asyncio.create_task(self._background_watcher_loop())
-        logger.info("MCP process watcher started")
-
-    async def stop_background_watcher(self):
-        """Stop the background watcher."""
-        if self._watcher_task:
-            self._stop_watcher.set()
-            self._watcher_task.cancel()
-            try:
-                await self._watcher_task
-            except asyncio.CancelledError:
-                pass
-            self._watcher_task = None
-            logger.info("MCP process watcher stopped")
-
-    async def _background_watcher_loop(self):
-        """Background task that monitors stdio subprocesses for death."""
-        while not self._stop_watcher.is_set():
-            try:
-                async with self._lock:
-                    clients = list(self._clients.items())
-
-                for server_id, client in clients:
-                    if client.protocol == "stdio":
-                        reconnected = await client.reconnect_if_dead()
-                        if reconnected:
-                            logger.info(f"MCP server {server_id} reconnected successfully")
-                        elif not client._connected:
-                            logger.error(f"MCP server {server_id} failed to reconnect")
-
-                # Update state timestamps for persistence
-                async with self._lock:
-                    for server_id, client in self._clients.items():
-                        if client._connected:
-                            self._server_state[server_id] = {
-                                "last_seen_at": time.time(),
-                                "status": "connected"
-                            }
-                        else:
-                            self._server_state[server_id] = {
-                                "last_seen_at": time.time(),
-                                "status": "disconnected"
-                            }
-
-                # Wait 30 seconds before next check
-                await asyncio.sleep(30)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.error(f"MCP watcher loop error: {e}")
-                await asyncio.sleep(10)  # Backoff on error
-
     def get_connected_servers(self) -> list[str]:
         """Return list of connected server IDs."""
         return list(self._clients.keys())
@@ -523,66 +404,6 @@ class MCPClientPool:
     def is_connected(self, server_id: str) -> bool:
         """Check if a server is connected."""
         return server_id in self._clients
-
-    def get_server_state(self, server_id: str) -> dict:
-        """Get persisted connection state for a server."""
-        return self._server_state.get(server_id, {"last_seen_at": 0, "status": "unknown"})
-
-    def persist_server_states(self) -> dict:
-        """Return all server states for SQLite persistence.
-
-        Returns: List of dicts with server_id and last_seen_at for DB storage.
-        """
-        async def _get_states():
-            async with self._lock:
-                return [
-                    {"server_id": sid, "last_seen_at": data["last_seen_at"], "status": data["status"]}
-                    for sid, data in self._server_state.items()
-                ]
-
-        # Run in event loop if needed
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import threading
-                result = [None]
-                def run():
-                    result[0] = loop.run_until_complete(_get_states())
-                threading.Thread(target=run).start()
-                return result[0]
-            else:
-                return loop.run_until_complete(_get_states())
-        except RuntimeError:
-            # No event loop - create one
-            return asyncio.run(_get_states())
-
-    def load_server_states(self, states: list[dict]):
-        """Load saved server states from SQLite on startup.
-
-        Args:
-            states: List of dicts with server_id and last_seen_at
-        """
-        async def _load():
-            async with self._lock:
-                for state in states:
-                    server_id = state.get("server_id")
-                    if server_id:
-                        self._server_state[server_id] = {
-                            "last_seen_at": state.get("last_seen_at", 0),
-                            "status": state.get("status", "unknown")
-                        }
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import threading
-                def run():
-                    loop.run_until_complete(_load())
-                threading.Thread(target=run).start()
-            else:
-                loop.run_until_complete(_load())
-        except RuntimeError:
-            asyncio.run(_load())
 
 
 # Module-level pool instance

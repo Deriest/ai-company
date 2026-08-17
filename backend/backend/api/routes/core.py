@@ -1,5 +1,5 @@
 """Core routes — barrel file that combines all sub-modules."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from backend.api.dependencies import require_current_user
 from backend.api.routes.providers import router as providers_router
 from backend.api.routes.conversations import router as conversations_router

@@ -140,15 +140,11 @@ export function useBoot(opts: UseBootOptions): BootState {
         const gracePolls = isRetry ? 8 : 0;   // ~2s for the auto-restart to kick in
         const errorsRequired = isRetry ? 2 : 1;  // consecutive error polls to declare failure
         let consecutiveErrors = 0;
-        
-        let fetchErrorCount = 0;
-        
         for (let i = 0; i < 40; i++) {
           try {
             const st = await window.aic.getBackendStatus();
             lastStatus = st;
             setBackendStatus(st);
-            
             if (st.status === "healthy") break;
             if (st.status === "error") {
               consecutiveErrors += 1;
@@ -166,23 +162,14 @@ export function useBoot(opts: UseBootOptions): BootState {
                 ? "Restarting engine…"
                 : i < 4 ? "Launching local engineering engine…" : "Waiting for engine health…",
             );
-          } catch (err) {
-            fetchErrorCount++;
-            // If multiple fetch failures AND no status received, assume broken IPC
-            if (fetchErrorCount >= 5 && !lastStatus) {
-              setBootPhase("error");
-              setBootDetail("Cannot connect to backend engine - IPC connection failed");
-              return;
-            }
-            // Otherwise keep polling (temporary network glitch)
+          } catch {
+            /* keep polling */
           }
           await new Promise((r) => setTimeout(r, 250));
         }
-        
         if (!lastStatus || lastStatus.status !== "healthy") {
           setBootPhase("error");
-          setBootDetail(lastStatus?.error || 
-            `Local engine did not become healthy within 10 seconds${fetchErrorCount > 0 ? ` (${fetchErrorCount} connection errors)` : ""}`);
+          setBootDetail(lastStatus?.error || "Local engine did not become healthy within 10 seconds");
           return;
         }
       }
@@ -209,18 +196,7 @@ export function useBoot(opts: UseBootOptions): BootState {
       // fallback), not from a stored token.
       let restoredToken: string | null = null;
       try {
-        // M13b: DESKTOP_IDENTITY (admin/admin123) is a NON-Electron dev
-        // fallback only. If it is ever used inside Electron the preload
-        // bridge is broken — fail loudly instead of silently authing with a
-        // hardcoded credential.
-        let identity = await window.aic?.getIdentity?.();
-        if (!identity) {
-          console.warn(
-            "[boot] window.aic.getIdentity unavailable — using dev DESKTOP_IDENTITY (admin/admin123). " +
-            "In a packaged app this indicates a broken preload bridge."
-          );
-          identity = DESKTOP_IDENTITY;
-        }
+        const identity = (await window.aic?.getIdentity?.()) ?? DESKTOP_IDENTITY;
         const res = await api.login(identity.username, identity.password);
         restoredToken = res.access_token;
         setToken(restoredToken);

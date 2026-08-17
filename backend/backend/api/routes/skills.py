@@ -1,5 +1,5 @@
 """Skill management routes — list, toggle, assign, create custom skills."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Depends, HTTPException
 from pathlib import Path
 import asyncio
 import logging
@@ -39,19 +39,14 @@ async def install_github_skill(
     """Install one skill or a package of skills from a public GitHub repo."""
     requested = str(payload.get("repo_url", "")).strip().rstrip("/")
     path_hint = str(payload.get("skill_path", "")).strip().strip("/")
-    # H3: constrain owner/repo to GitHub's real charset and forbid a leading '-'
-    # so the value can never be interpreted as a git option even if the '--'
-    # guard below were ever removed.
-    match = re.fullmatch(r"https://github\.com/([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/([A-Za-z0-9](?:[A-Za-z0-9._-]*?)?)(?:\.git)?(?:/tree/[^/]+(?:/(.*))?)?", requested)
+    match = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/tree/[^/]+(?:/(.*))?)?", requested)
     if not match:
         raise HTTPException(status_code=400, detail="Use a GitHub repository or folder URL")
     repo_url = f"https://github.com/{match.group(1)}/{match.group(2)}.git"
     skill_path = path_hint or (match.group(3) or "")
     temp_dir = Path(tempfile.mkdtemp(prefix="aic-skill-"))
     try:
-        # H3: '--' terminates option parsing; -c disables repo-provided config
-        # (hooks/aliases) so a hostile repo can't execute code during clone.
-        result = await asyncio.to_thread(subprocess.run, ["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--no-tags", "--", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
+        result = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", repo_url, str(temp_dir / "repo")], capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             logger.warning("Skill install failed (repo=%s): clone exited %s: %s",
                            repo_url, result.returncode, result.stderr[-300:])
@@ -100,7 +95,7 @@ async def install_github_skill(
             else:
                 entry = SkillEntry(skill_id=skill_id, name=parsed_name, description=metadata.get("description", ""), category=metadata.get("category", "github"), source="github", instructions=instructions, assigned_workers=[], is_enabled=True); db.add(entry)
             installed.append(entry)
-        if not installed:
+        if not installed: 
             logger.warning("Skill install failed (repo=%s): no usable skills found", repo_url)
             raise HTTPException(status_code=400, detail="No usable skills found")
         await db.commit()

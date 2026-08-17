@@ -5,10 +5,10 @@ Manages MCP server registry, tool discovery, tool execution,
 and permission system for dynamic tool loading.
 """
 
+import time
 import json
 import datetime
 import logging
-import time
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -390,66 +390,6 @@ class MCPService:
                 "requires_approval": t.requires_approval,
             })
         return schemas
-
-    # ── Server State Persistence (PHASE 0 FIX #3) ───────────────────────
-
-    @staticmethod
-    async def get_all_server_states(db: AsyncSession) -> list[dict]:
-        """Retrieve persisted connection state for all servers."""
-        try:
-            from backend.services.mcp_client import mcp_pool
-            states = mcp_pool.persist_server_states()
-            return states
-        except Exception as e:
-            logger.error(f"Failed to get server states: {e}")
-            return []
-
-    @staticmethod
-    async def restore_server_connection(
-        db: AsyncSession,
-        server_id: str,
-        endpoint: str,
-        protocol: str,
-        config: dict = None,
-    ) -> bool:
-        """Restore a server connection after restart using saved state.
-
-        This is called on startup to reconnect servers that were active before.
-
-        Args:
-            db: Database session
-            server_id: Unique server identifier
-            endpoint: Server endpoint (stdio command or HTTP URL)
-            protocol: Transport protocol (stdio/http/sse)
-            config: Optional server configuration
-
-        Returns:
-            True if reconnection successful
-        """
-        try:
-            from backend.services.mcp_client import mcp_pool
-            connected = await mcp_pool.connect_server(server_id, endpoint, protocol, config)
-            if connected:
-                logger.info(f"Restored MCP server {server_id} connection")
-                return True
-            else:
-                logger.warning(f"Failed to restore MCP server {server_id} connection")
-                return False
-        except Exception as e:
-            logger.error(f"Error restoring MCP server {server_id}: {e}")
-            return False
-
-    @staticmethod
-    async def start_mcp_watcher():
-        """Start the background process watcher for stdio servers."""
-        from backend.services.mcp_client import mcp_pool
-        mcp_pool.start_background_watcher()
-
-    @staticmethod
-    async def stop_mcp_watcher():
-        """Stop the background process watcher."""
-        from backend.services.mcp_client import mcp_pool
-        await mcp_pool.stop_background_watcher()
 
 
 mcp_service = MCPService()

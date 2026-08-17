@@ -15,7 +15,7 @@ Integrity rules:
 - Smart Triage guardrails enforce minimum safety levels (security, DB schema, architecture).
 - Events form causal chain via parent_event_id and metadata.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import asyncio
 import os
 import logging
@@ -29,7 +29,6 @@ from storage.models import (
 )
 from workers.base import WORKER_REGISTRY
 from workflow.triage import perform_smart_triage, ExecutionLevel
-from backend.config import DB_LOCK_RETRY_ATTEMPTS, ADAPTIVE_TIMEOUT_MULTIPLIERS, DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES
 
 logger = logging.getLogger("aic.runtime")
 
@@ -48,15 +47,8 @@ def _utcnow():
 # The retry logic lives in the shared storage.lock_retry module so other
 # subsystems (llm/provider, observability/audit) reuse the same backoff policy.
 async def _commit_with_lock_retry(
-    session: AsyncSession, reapply=None, attempts: int = None
+    session: AsyncSession, reapply=None, attempts: int = 12
 ) -> None:
-    """Commit with lock retry using configurable parameters.
-    
-    Uses constants from backend.config.constants to allow runtime overrides.
-    Default values match the centralized constants for consistency.
-    """
-    if attempts is None:
-        attempts = DB_LOCK_RETRY_ATTEMPTS
     """Commit *session*, retrying on the transient SQLite "database is locked"
     OperationalError. Only the locked condition is retried and re-raised by
     type; any other error propagates immediately. Backoff is 0.05s * attempt.
@@ -122,25 +114,7 @@ def _adaptive_worker_timeout(worker_type: str, base_timeout: int = 120) -> int:
         _wcfg = get_model_config(worker_type)
         _base = int(_wcfg.get("timeout") or base_timeout)
         _tier = str(_wcfg.get("tier") or "crafter").lower()
-        
-        # Known tier multipliers - fail safe for unknown tiers
-        tier_multipliers = {
-            "thinker": 2.5,
-            "crafter": 2.5, 
-            "sprinter": 1.5
-        }
-        
-        # Fail fast if tier cannot be determined - don't guess
-        if _tier not in tier_multipliers:
-            logger.warning(
-                f"Unknown worker tier '{_tier}' for worker_type='{worker_type}'. "
-                f"Using conservative default multiplier (1.5x). "
-                f"Known tiers: {', '.join(tier_multipliers.keys())}"
-            )
-            _mult = 1.5  # Conservative safe default
-        else:
-            _mult = tier_multipliers[_tier]
-        
+        _mult = {"thinker": 2.5, "crafter": 2.5, "sprinter": 1.5}.get(_tier, 2.0)
         return max(_base, int(_base * _mult))
     except Exception:
         return base_timeout
@@ -236,10 +210,6 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
     verification_failed = False
     fallback_used = False
     prev_event_target = f"task:{task.id}"
-    
-    # PHASE 9: Per-phase lock for handoff merging to prevent race conditions
-    # when concurrent workers merge their handoff data into shared state.
-    phase_handoff_lock = asyncio.Lock()
 
     while not is_terminal(phase):
         # 2. Check Adaptive Phase Skipping
@@ -327,9 +297,6 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                         "event_target": f"worker:{wtype}:{phase}:{task.id}"
                     }
 
-                # Use configurable timeout from constants (default 30 minutes)
-                lease_timeout_minutes = int(os.getenv("AIC_WORKER_LEASE_TIMEOUT_MINUTES", str(DEFAULT_WORKER_LEASE_TIMEOUT_MINUTES)))
-                
                 lease = Lease(
                     task_id=task.id,
                     worker_id=f"worker-{wtype}",
@@ -338,8 +305,6 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                     phase=phase,
                     status=LeaseStatus.ACTIVE.value,
                     created_at=_utcnow(),
-                    last_heartbeat_at=_utcnow(),  # PHASE 3: Track initial heartbeat timestamp when lease issued
-                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=lease_timeout_minutes),  # Configurable TTL (default {lease_timeout_minutes} min)
                 )
                 worker_session.add(lease)
 
@@ -812,16 +777,10 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 # task.context. Last-writer-wins per phase key is accepted.
                 handoff = meta.get("handoff")
                 if handoff is not None:
-                    # PHASE 9: Lock-protected handoff merge to prevent race conditions
-                    # Serialize updates to ctx["handoffs"] dict using per-phase lock
-                    async with phase_handoff_lock:
-                        # Defensive copy: create a fresh dict before mutation to avoid
-                        # partial state during concurrent merges (rare but possible)
-                        merged_handoff = {phase: handoff}
-                        handoffs_dict.update(merged_handoff)
-                        ctx["handoffs"] = handoffs_dict
-                        task.context = ctx
-                        flag_modified(task, 'context')
+                    handoffs_dict[phase] = handoff
+                    ctx["handoffs"] = handoffs_dict
+                    task.context = ctx
+                    flag_modified(task, 'context')
             except Exception as merge_err:
                 logger.error(f"Failed to merge worker {wtype} result: {merge_err}")
                 phase_results[wtype] = {"success": False, "error": f"Merge error: {merge_err}"}
@@ -976,7 +935,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
                 await session.commit()
                 return {
                     "success": False,
-                    "status": "in_progress",
+                    "status": "waiting_for_approval",
                     "phases": phases_done,
                     "results": results,
                     "waiting_for_approval": True,
@@ -1100,6 +1059,7 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
         await session.commit()
         return {
             "success": False,
+            "status": "blocked",
             "phases": phases_done,
             "results": results,
             "verification_failed": verification_failed,
@@ -1169,4 +1129,4 @@ async def execute_task(session: AsyncSession, task: Task) -> dict:
     await session.commit()
 
     logger.info(f"Task {task.id[:8]} completed (level={execution_level}) — {phases_done} phases done")
-    return {"success": True, "phases": phases_done, "results": results, "fallback_used": False, "execution_level": execution_level}
+    return {"success": True, "status": "completed", "phases": phases_done, "results": results, "fallback_used": False, "execution_level": execution_level}

@@ -5,6 +5,7 @@ and regression test suite generation for Python and TypeScript/JavaScript codeba
 """
 
 import ast
+import json
 import logging
 import os
 import re

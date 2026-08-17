@@ -2,6 +2,7 @@ import httpx
 import time
 import json
 import logging
+import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
@@ -81,15 +82,15 @@ def _lookup_models_dev(model_id: str) -> int | None:
 
 def _iter_nested_dicts(obj: dict | list, depth: int = 0, max_depth: int = 5) -> dict:
     """Recursively flatten nested dict/list structures into a flat dict.
-
+    
     Used to find context window values buried in nested metadata structures
     from various provider endpoints (vLLM, LM Studio, Ollama-compat, etc).
     """
     if depth > max_depth:
         return {}
-
+    
     result = {}
-
+    
     if isinstance(obj, dict):
         for key, value in obj.items():
             result[key] = value
@@ -101,45 +102,45 @@ def _iter_nested_dicts(obj: dict | list, depth: int = 0, max_depth: int = 5) -> 
             if isinstance(item, (dict, list)):
                 nested = _iter_nested_dicts(item, depth + 1, max_depth)
                 result.update(nested)
-
+    
     return result
 
 
 def _probe_context_from_metadata(raw_meta: dict) -> int | None:
     """Probe context window from raw model metadata.
-
+    
     Many OpenAI-compatible servers expose context window in their /models endpoint:
     - vLLM: max_model_len
     - LM Studio: context_length, max_context_length
     - LiteLLM: max_tokens (context, not output)
     - Ollama-compat: context_window, contextWindow
     - Standard: capabilities.contextWindow, limit.context
-
+    
     Returns None if no context found, allowing waterfall to continue.
     """
     if not raw_meta or not isinstance(raw_meta, dict):
         return None
-
+    
     # Flatten nested structures to find context keys at any level
     flat = _iter_nested_dicts(raw_meta)
-
+    
     # Priority-ordered list of context keys (most specific first)
     context_keys = [
         "context_window",
-        "contextWindow",
+        "contextWindow", 
         "context_length",
         "max_context_length",
         "max_model_len",
         "model_length",
     ]
-
+    
     for key in context_keys:
         if key in flat:
             val = flat[key]
             if isinstance(val, int) and val > 0:
                 logger.debug(f"Probed context from metadata key '{key}': {val}")
                 return val
-
+    
     # Check for max_tokens but be careful - could be output limit, not context
     # Only trust if it's reasonably large (> 32K suggests context, not output)
     if "max_tokens" in flat:
@@ -147,19 +148,19 @@ def _probe_context_from_metadata(raw_meta: dict) -> int | None:
         if isinstance(val, int) and val > 32000:
             logger.debug(f"Probed context from metadata key 'max_tokens': {val}")
             return val
-
+    
     return None
 
 def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
     """Infer model capabilities including context window using waterfall detection.
-
+    
     Context window waterfall (implemented here for probe layer, others in fetch_models):
     1. Probe endpoint (this function via _probe_context_from_metadata)
     2. models.dev lookup (fallback for unknown models)
     3. Hardcoded catalog (imported from model_catalog)
     4. Pattern family (model-family knowledge)
     5. Fallback 256K (changed from 8192 to match Hermes)
-
+    
     Note: User override and persistent cache are handled at the database layer,
     not here. This function focuses on probe + waterfall for fresh detections.
     """
@@ -192,14 +193,14 @@ def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
 
     context_window = None
     context_source = "probe"
-
+    
     # ── Layer 1: Probe endpoint metadata (highest priority) ──
     probed = _probe_context_from_metadata(raw_meta)
     if probed:
         context_window = probed
         context_source = "probe"
         logger.info(f"Context for {model_id}: {context_window} (source: probe)")
-
+    
     # ── Layer 2: Hardcoded catalog (verified production values) ──
     # Catalog wins over models.dev: models.dev is community-maintained and can
     # under/over-report (e.g. qwen3-coder-next 262K on models.dev vs 1M verified,
@@ -265,11 +266,11 @@ def infer_capabilities(model_id: str, raw_meta: dict) -> dict:
         elif "nemotron" in norm_id: context_window = 128000
         elif "ling-" in norm_id: context_window = 128000
         elif is_small: context_window = 32000
-
+        
         if context_window:
             context_source = "pattern"
             logger.info(f"Context for {model_id}: {context_window} (source: pattern)")
-
+    
     # ── Layer 5: Fallback 256K (changed from 8192 to match Hermes) ──
     if not context_window:
         context_window = 256000
@@ -392,7 +393,7 @@ class ProviderClient:
                 raise
         latency_ms = int((time.perf_counter() - start) * 1000)
         data = response.json()
-
+        
         models = data.get("data", [])
         if not isinstance(models, list):
             # Try some non-standard wrappers
@@ -402,7 +403,7 @@ class ProviderClient:
                 models = data["models"]
             else:
                 models = []
-
+                
         normalized = []
         for m in models:
             if not isinstance(m, dict):
@@ -410,9 +411,9 @@ class ProviderClient:
             model_id = str(m.get("id", ""))
             if not model_id:
                 continue
-
+                
             caps = infer_capabilities(model_id, m)
-
+            
             normalized.append({
                 "model_id": model_id,
                 "display_name": m.get("name", m.get("display_name", model_id)),
@@ -420,7 +421,7 @@ class ProviderClient:
                 "raw_metadata": m,
                 **caps
             })
-
+            
         logger.info(json.dumps({
             "event": "fetch_models",
             "latency_ms": latency_ms,

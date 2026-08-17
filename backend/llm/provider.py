@@ -24,7 +24,6 @@ import asyncio
 import httpx
 
 from runtime.adaptive import AdaptiveRuntimeProfile, adaptive_runtime, capabilities_from_metadata
-from backend.config import HTTP_TIMEOUT_MS
 
 logger = logging.getLogger("aic.llm")
 
@@ -209,16 +208,16 @@ class UsageTracker:
             except OperationalError as exc:
                 msg = str(exc.orig) if exc.orig is not None else str(exc)
                 if "locked" not in msg.lower():
-                    logger.warning(f"Failed to persist LLM usage after {attempt} retries: {exc}")
+                    logger.debug(f"Failed to persist LLM usage: {exc}")
                     return
                 if attempt == 6:
-                    logger.error(
+                    logger.warning(
                         f"Failed to persist LLM usage after {attempt} retries (write locked): {msg}"
                     )
                     return
                 await asyncio.sleep(0.05 * attempt)
             except Exception as e:
-                logger.error(f"Failed to persist LLM usage: {type(e).__name__}: {str(e)}")
+                logger.debug(f"Failed to persist LLM usage: {e}")
                 return
 
     def summary(self, since: datetime | None = None) -> dict:
@@ -291,7 +290,7 @@ class LLMProvider:
         self.client = httpx.AsyncClient(
             base_url=config.base_url.rstrip("/"),
             headers=headers,
-            timeout=config.timeout or (HTTP_TIMEOUT_MS // 1000),
+            timeout=config.timeout,
         )
         # Concurrency control: created lazily on the running loop (see _sem).
         self.__sem: asyncio.Semaphore | None = None

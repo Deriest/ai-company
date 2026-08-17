@@ -105,7 +105,7 @@ async def login(request: Request, body: LoginRequest, response: Response):
     # P5 FIX: Check lockout before attempting authentication
     client_key = _client_key(request)
     await _check_lockout(client_key)
-
+    
     # Timing-safe comparison: plaintext `!=` leaks the correct length/prefix via
     # short-circuit timing. compare_digest runs in constant time regardless of
     # how many bytes match. Both sides are the per-install random hex credential,

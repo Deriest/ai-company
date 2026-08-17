@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from sqlalchemy.future import select
+from typing import Optional, List
+import json
 
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user
@@ -8,6 +10,7 @@ from backend.api.dependencies import require_current_user
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
 from backend.services.job_scheduler import job_scheduler
+from backend.models.jobs import Job, JobLog
 
 
 # ── Job Scheduler Endpoints ──────────────────────────────────

@@ -9,7 +9,6 @@ This is the core API that enables workers to actually DO things:
 
 Not just chat.
 """
-import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +31,7 @@ async def run_agent(
     _auth: str = Depends(require_current_user),
 ):
     """Run an AI agent with real tool execution.
-
+    
     Body:
         worker_type: str — agent type (backend, frontend, qa, architect, etc.)
         prompt: str — task description
@@ -45,39 +44,17 @@ async def run_agent(
     system_prompt = payload.get("system_prompt", "")
     model_tier = payload.get("model_tier", "crafter")
     workspace = payload.get("workspace", ".")
-
+    
     if not prompt:
         logger.warning("Agent run rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
-
-    # H2 FIX: Validate workspace path to prevent arbitrary directory access
-    try:
-        from backend.config import settings
-        safe_base = str(settings.DATA_DIR / "workspaces")
-        os.makedirs(safe_base, exist_ok=True)
-
-        if not os.path.isabs(workspace):
-            workspace = os.path.join(safe_base, workspace.lstrip("./"))
-
-        from backend.services.path_utils import resolve_workspace_path
-        resolved = resolve_workspace_path(safe_base, workspace.lstrip("/"))
-
-        real_safe_base = os.path.realpath(safe_base)
-        if not os.path.realpath(resolved).startswith(real_safe_base + os.sep):
-            raise ValueError(f"Workspace path escapes allowed base: {workspace}")
-
-        workspace = resolved
-
-    except (ValueError, OSError) as e:
-        logger.error("Invalid workspace path: %s - %s", workspace, str(e))
-        raise HTTPException(status_code=400, detail=f"Invalid workspace path: {e}")
-
+    
     from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AGENT_RUN_QUEUE_TIMEOUT, AgentRunner
     runner = AgentRunner(workspace_root=workspace)
     logger.info(
         "Agent run started: worker_type=%s model_tier=%s", worker_type, model_tier,
     )
-
+    
     async def event_stream():
         try:
             # QA-R5 FIX: cap concurrent agent runs — same shared semaphore as
@@ -112,7 +89,7 @@ async def run_agent(
             # message fixed and friendly.
             logger.error("Agent run failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'error': 'Agent execution failed. Please try again.'})}\n\n"
-
+    
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
@@ -123,7 +100,7 @@ async def run_agent_sync(
     _auth: str = Depends(require_current_user),
 ):
     """Run agent synchronously (wait for completion).
-
+    
     Same parameters as /agent/run but returns final result.
     """
     worker_type = payload.get("worker_type", "backend")
@@ -131,33 +108,11 @@ async def run_agent_sync(
     system_prompt = payload.get("system_prompt", "")
     model_tier = payload.get("model_tier", "crafter")
     workspace = payload.get("workspace", ".")
-
+    
     if not prompt:
         logger.warning("Agent run-sync rejected: prompt is empty (worker_type=%s)", worker_type)
         raise HTTPException(status_code=400, detail="Prompt is required")
-
-    # H2 FIX: Validate workspace path to prevent arbitrary directory access
-    try:
-        from backend.config import settings
-        safe_base = str(settings.DATA_DIR / "workspaces")
-        os.makedirs(safe_base, exist_ok=True)
-
-        if not os.path.isabs(workspace):
-            workspace = os.path.join(safe_base, workspace.lstrip("./"))
-
-        from backend.services.path_utils import resolve_workspace_path
-        resolved = resolve_workspace_path(safe_base, workspace.lstrip("/"))
-
-        real_safe_base = os.path.realpath(safe_base)
-        if not os.path.realpath(resolved).startswith(real_safe_base + os.sep):
-            raise ValueError(f"Workspace path escapes allowed base: {workspace}")
-
-        workspace = resolved
-
-    except (ValueError, OSError) as e:
-        logger.error("Invalid workspace path: %s - %s", workspace, str(e))
-        raise HTTPException(status_code=400, detail=f"Invalid workspace path: {e}")
-
+    
     from backend.services.agent_runner import AGENT_RUN_SEMAPHORE, AGENT_RUN_QUEUE_TIMEOUT, run_worker_with_tools
     logger.info(
         "Agent run-sync started: worker_type=%s model_tier=%s", worker_type, model_tier,

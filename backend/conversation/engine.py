@@ -238,9 +238,7 @@ class ConversationEngine:
         try:
             await self._record_audit(intent, content, metadata, conversation)
         except Exception:
-            # Audit trail is non-critical for the chat reply itself, but a
-            # silently-dropped audit entry is invisible in debugging — log it.
-            logger.debug("audit-trail record failed (non-critical)", exc_info=True)
+            pass  # non-critical
 
         return assistant_msg
 

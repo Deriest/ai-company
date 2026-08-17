@@ -8,6 +8,8 @@ Provides endpoints for the frontend to:
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from typing import List, Optional
+from datetime import datetime
 
 from backend.database.session import get_db
 from backend.api.dependencies import require_current_user

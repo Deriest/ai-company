@@ -8,7 +8,7 @@ from enum import Enum as PyEnum
 from uuid import uuid4
 
 from sqlalchemy import (
-    text, Column, String, Text, Integer, Boolean, DateTime, ForeignKey, JSON,
+    Column, String, Text, Integer, Boolean, DateTime, ForeignKey, JSON,
     Float, Index, UniqueConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -21,19 +21,11 @@ def _uuid() -> str:
     return uuid4().hex
 
 
-
-
-
 class Base(DeclarativeBase):
     pass
 
 
-class DatabaseVersion(Base):
-    __tablename__ = 'db_version'
-    
-    version = Column(Integer, primary_key=True, default=1)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
+# ── Enums ──────────────────────────────────────────────
 
 class Role(str, PyEnum):
     OWNER = "owner"
@@ -287,7 +279,6 @@ class Lease(Base):
     __table_args__ = (
         # Composite index for heartbeat queries that detect stale ACTIVE leases.
         Index("ix_lease_status_created", "status", "created_at"),
-        Index("ix_lease_expires", "status", "expires_at"),
     )
     id = Column(String, primary_key=True, default=_uuid)
     task_id = Column(String, ForeignKey("tasks.id"), nullable=False, index=True)
@@ -300,8 +291,6 @@ class Lease(Base):
     exit_code = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
-    last_heartbeat_at = Column(DateTime, nullable=True)
-    expires_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
 
     task = relationship("Task", back_populates="leases")
@@ -369,11 +358,7 @@ class DiscoverySession(Base):
     # enforcement ON and stalled every batch task at the discovery stage. The
     # column is kept NOT NULL but unconstrained (it semantically references a
     # task, not a conversation).
-    # FIX: Rename conversation_id to task_conversation_ref for clarity
-    # This column semantically references a Task ID (for discovery sessions),
-    # NOT a Conversation ID. The name was misleading and caused schema confusion.
-    # Keep the column name but add explicit comment clarifying its purpose.
-    task_conversation_ref = Column(String, nullable=False, index=True)  # References task.id in discovery_sessions
+    conversation_id = Column(String, nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String(32), nullable=False, default="new_request", index=True)
     round_number = Column(Integer, default=0)
@@ -712,25 +697,6 @@ class LLMUsageLog(Base):
 class MemoryEntry(Base):
     """Multi-scope memory entry (conversation, project, user, workspace)."""
     __tablename__ = "memory_entries"
-    # H1 (cycle-11): a UNIQUE index over (scope, key, coalesced scope_id) is
-    # required to make the upsert in memory_service.store() race-safe. The
-    # plain unique below uses COALESCE so NULL scope_id shares one bucket.
-    __table_args__ = (
-        # H1 (cycle-11): partial UNIQUE index over ACTIVE rows only — makes the
-        # upsert in memory_service.store() race-safe, while still allowing the
-        # supersede flow (old row is_active=0 keeps its key, new active row
-        # takes over). COALESCE puts NULL scope_id in one bucket.
-        Index(
-            "uq_memory_scope_key",
-            "scope",
-            "key",
-            text("COALESCE(scope_id, '')"),
-            text("COALESCE(project_id, '')"),
-            unique=True,
-            sqlite_where=text("is_active = 1"),
-            postgresql_where=text("is_active = 1"),
-        ),
-    )
     
     id = Column(String, primary_key=True, default=_uuid)
     scope = Column(String, nullable=False, index=True)  # session, conversation, workspace, project, user

@@ -1,0 +1,2535 @@
+{
+  "timestamp": "2026-08-17T03:29:11.747893",
+  "app_title": "AIC-ADE Backend",
+  "total_routes": 186,
+  "options_skipped": 0,
+  "routes_tested": 186,
+  "passed": 3,
+  "failed": 183,
+  "pass_rate": 1.61,
+  "public_endpoints_checked": [
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "status_code": 200
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "status_code": 200
+    },
+    {
+      "method": "GET",
+      "path": "/readiness",
+      "status_code": 200
+    }
+  ],
+  "failures": [
+    {
+      "path": "/auth/me",
+      "method": "GET",
+      "actual_status_code": 401,
+      "expected_status_codes": [
+        200
+      ],
+      "response_detail": "Missing token"
+    },
+    {
+      "path": "/api/delivery/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'total_reports': 0, 'total_lessons': 0, 'outcomes': {}}"
+    },
+    {
+      "path": "/api/autonomy/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'total_anomalies': 0, 'total_recoveries': 0, 'total_healings': 0, 'success_rate': 0.0}"
+    },
+    {
+      "path": "/conversations/search",
+      "method": "GET",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "query",
+            "q"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/presets",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'name': 'Memory (MCP)', 'endpoint': 'npx -y @modelcontextprotocol/server-memory', 'protocol': 'std"
+    },
+    {
+      "path": "/release/manifest/{version}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'manifest': {'version': '1', 'name': 'AIC ADE Platform', 'description': 'AI Code Development Enviro"
+    },
+    {
+      "path": "/release/latest-manifest",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'manifest': {'version': 'v2.4.89', 'name': 'AIC ADE Platform', 'description': 'AI Code Development "
+    },
+    {
+      "path": "/memory",
+      "method": "GET",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "query",
+            "scope"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/release/public-key",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'key': '-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAozTXRNCCTCO445Q38P1yGzDXmEF0RVHDW0NJ+0pn3vY=\\n-"
+    },
+    {
+      "path": "/api/usage/pricing",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'pricing': [{'provider': 'openai', 'model_id': 'gpt-4o', 'prompt_price_per_1k': 0.005, 'completion_"
+    },
+    {
+      "path": "/backup/list",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'filename': 'aic-backup-20260817-032907.zip', 'size': 23411, 'created_at': '2026-08-16T20:29:08.09"
+    },
+    {
+      "path": "/auth/login",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        200
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers/test-ephemeral",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/tools/execute",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/folders",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/chat/stream",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers/{id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/conversations/import",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/messages/{id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/conversations/{id}/messages",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/conversations",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/chat/execute",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/orchestration/approvals/{approval_id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/workflows",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/chat/cancel",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/servers/{server_id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/servers/{server_id}/discover",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/workers/{id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/rag/context",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/rag/retrieve",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/servers",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/memory/compress",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/skills/install-github",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/skills/{skill_id}/toggle",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers/config",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/release/sign",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/backup/restore",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/backup/validate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/memory",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/rag/documents",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/tasks",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/jobs",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/profile",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/triggers",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/skills",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/orchestration/sessions",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/executions/{execution_id}/approve",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/profile",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/mcp/tools/{tool_id}/execute",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/conversations/{id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/chat/regenerate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/hooks",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/chat",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/runtime/workers/{role}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/workflows/{wf_id}/instantiate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers/test-connection",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/projects/{project_id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/agent/run-sync",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations/batch",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/messages",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/messages/stream",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/stream",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/context/decisions",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/plugins/install",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/skills/{skill_id}/assign",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/projects",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/providers/{provider_id}/config",
+      "method": "PUT",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/agent/run",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations/{conversation_id}",
+      "method": "PUT",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/approval-config",
+      "method": "PUT",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/context/knowledge",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/dispatcher/dispatch",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/delivery/deliver",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/autonomy/handle",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/plugins/{plugin_id}",
+      "method": "PATCH",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/discovery/{session_id}/respond",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/taskgraph/generate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/planning/generate",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/context/assemble",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/autonomy/detect",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/context/search",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/verification/verify",
+      "method": "POST",
+      "actual_status_code": 422,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": [
+        {
+          "type": "missing",
+          "loc": [
+            "body"
+          ],
+          "msg": "Field required",
+          "input": null
+        }
+      ]
+    },
+    {
+      "path": "/api/conversations",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': 'attach-conv-1', 'title': 'Attachment Test', 'project_id': None, 'status': 'active', 'messag"
+    },
+    {
+      "path": "/api/verification/{verification_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Verification not found"
+    },
+    {
+      "path": "/api/discovery/{session_id}/brief",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Brief not found"
+    },
+    {
+      "path": "/api/context/sources",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': 'sources', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventio"
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/messages",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/discovery/conversation/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/context/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': 'stats', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions"
+    },
+    {
+      "path": "/api/context/{project_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'project_id': '1', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions': {"
+    },
+    {
+      "path": "/api/planning/{plan_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Plan not found"
+    },
+    {
+      "path": "/api/discovery/{session_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Discovery session not found"
+    },
+    {
+      "path": "/api/taskgraph/plan/{plan_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No graph found for this plan"
+    },
+    {
+      "path": "/api/taskgraph/{graph_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Task Graph not found"
+    },
+    {
+      "path": "/api/conversations/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/api/dispatcher/{execution_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Execution not found"
+    },
+    {
+      "path": "/api/planning/brief/{brief_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No plan found for this brief"
+    },
+    {
+      "path": "/api/delivery/brief/{brief_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No report found for this brief"
+    },
+    {
+      "path": "/api/delivery/{report_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Engineering Report not found"
+    },
+    {
+      "path": "/providers",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/conversations/{id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/providers/{id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Provider not found"
+    },
+    {
+      "path": "/providers/{id}/fetch-models",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Provider not found"
+    },
+    {
+      "path": "/providers/{id}/test",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Provider not found"
+    },
+    {
+      "path": "/conversations/{id}/duplicate",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/conversations/{id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/tags",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/folders",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/folders/{id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Folder not found"
+    },
+    {
+      "path": "/conversations/{id}/export",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/conversations/{id}/messages",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/messages/{id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Message not found"
+    },
+    {
+      "path": "/attachments/{attachment_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Attachment not found"
+    },
+    {
+      "path": "/artifacts/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/conversations",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': 'attach-conv-1', 'title': 'Attachment Test', 'folder_id': None, 'project_id': None, 'is_arch"
+    },
+    {
+      "path": "/orchestration/sessions",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Session not found"
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/execute",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Session 1 not found"
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/cancel",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Session 1 not found"
+    },
+    {
+      "path": "/orchestration/tasks/{task_id}/approval",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Task 1 not found"
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/resume",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Session 1 not found"
+    },
+    {
+      "path": "/workers",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': '3ec6f9e9-459d-4c42-a723-a1ec07856300', 'role': 'crafter', 'providerId': '', 'modelId': '', "
+    },
+    {
+      "path": "/jobs",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/workflows",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/orchestration/sessions/{session_id}/checkpoints",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/jobs/{job_id}/cancel",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Job 1 not found"
+    },
+    {
+      "path": "/mcp/servers",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/jobs/{job_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Job not found"
+    },
+    {
+      "path": "/jobs/{job_id}/resume",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Job 1 not found"
+    },
+    {
+      "path": "/workflows/{wf_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Workflow not found"
+    },
+    {
+      "path": "/mcp/tools",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/runtime/workers",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': '3ec6f9e9-459d-4c42-a723-a1ec07856300', 'role': 'crafter', 'label': 'Crafter', 'description'"
+    },
+    {
+      "path": "/mcp/executions",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/runtime/workforce",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': 'architect', 'name': 'Atlas', 'role': 'Architect', 'department': 'Engineering', 'tier': 'thi"
+    },
+    {
+      "path": "/mcp/servers/{server_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Server 1 not found"
+    },
+    {
+      "path": "/mcp/servers/{server_id}/disconnect",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'disconnected', 'server_id': '1'}"
+    },
+    {
+      "path": "/jobs/{job_id}/pause",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Job 1 not found"
+    },
+    {
+      "path": "/mcp/tools/schema",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/mcp/servers/{server_id}/connect",
+      "method": "POST",
+      "actual_status_code": 400,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Server 1 not found"
+    },
+    {
+      "path": "/memory/{entry_id}",
+      "method": "DELETE",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'ok'}"
+    },
+    {
+      "path": "/rag/documents",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/hooks",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/notifications/{notif_id}/read",
+      "method": "PATCH",
+      "actual_status_code": -1,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "'NoneType' object has no attribute 'id'"
+    },
+    {
+      "path": "/profile",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No profile \u2014 first launch"
+    },
+    {
+      "path": "/hooks/{hook_id}",
+      "method": "DELETE",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'ok'}"
+    },
+    {
+      "path": "/triggers/{trigger_id}",
+      "method": "DELETE",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'ok'}"
+    },
+    {
+      "path": "/api/pipeline/active",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/pipeline/task/{task_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Task not found"
+    },
+    {
+      "path": "/skills/{skill_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Skill '1' not found"
+    },
+    {
+      "path": "/plugins/{plugin_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Plugin '1' not found"
+    },
+    {
+      "path": "/plugins/{plugin_id}/update",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Plugin '1' not found"
+    },
+    {
+      "path": "/projects",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/projects/{project_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Project not found"
+    },
+    {
+      "path": "/projects/{project_id}/activate",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Project not found"
+    },
+    {
+      "path": "/providers/config",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'base_url': '', 'api_key': '', 'provider_name': 'default', 'thinker': '', 'crafter': '', 'sprinter'"
+    },
+    {
+      "path": "/notifications",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/memory/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'total_entries': 0, 'avg_importance': 0.0, 'total_accesses': 0}"
+    },
+    {
+      "path": "/projects/{project_id}",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Project not found"
+    },
+    {
+      "path": "/profile/complete-onboarding",
+      "method": "POST",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "No profile"
+    },
+    {
+      "path": "/notifications/read-all",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'ok'}"
+    },
+    {
+      "path": "/plugins",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/workers/{worker_type}/plugins",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/skills",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "[{'id': 'aba34075bb044c58bb99bc7355a7bdfa', 'skill_id': 'taste', 'name': 'Anti-AI-Slop Taste', 'desc"
+    },
+    {
+      "path": "/plugins/{plugin_id}/context",
+      "method": "GET",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Plugin '1' not found"
+    },
+    {
+      "path": "/providers/health",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/approval-config",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'mode': 'semi', 'scope': {'verifications': True, 'lint_type_checks': True, 'unit_tests': True, 'bui"
+    },
+    {
+      "path": "/hooks/fire/{event_type}",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'fired': 0}"
+    },
+    {
+      "path": "/rag/documents/{doc_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Document 1 not found"
+    },
+    {
+      "path": "/triggers",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/conversations/{conversation_id}",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/tasks",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/usage/daily",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'period_days': 7, 'daily': []}"
+    },
+    {
+      "path": "/api/usage/session/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'conversation_id': '1', 'total_requests': 0, 'total_prompt_tokens': 0, 'total_completion_tokens': 0"
+    },
+    {
+      "path": "/projects/active",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": null
+    },
+    {
+      "path": "/api/usage/recent",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'entries': [], 'count': 0}"
+    },
+    {
+      "path": "/skills/seed",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'ok'}"
+    },
+    {
+      "path": "/api/conversations/{conversation_id}/messages",
+      "method": "DELETE",
+      "actual_status_code": 404,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "Conversation not found"
+    },
+    {
+      "path": "/api/usage/stats",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'period_days': 30, 'total_requests': 0, 'total_prompt_tokens': 0, 'total_completion_tokens': 0, 'to"
+    },
+    {
+      "path": "/dashboard",
+      "method": "GET",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'active_missions': 0, 'total_tasks': 0, 'completed_tasks': 0, 'projects': 0, 'workers': 15, 'activi"
+    },
+    {
+      "path": "/backup/create",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'filename': 'aic-backup-20260817-032909.zip', 'size': 24279, 'created_at': '2026-08-16T20:29:10.687"
+    },
+    {
+      "path": "/mcp/servers/register-memory",
+      "method": "POST",
+      "actual_status_code": 200,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "{'status': 'connected', 'server_id': '25231343-58eb-4b52-9bb5-39eeee6c7fb0', 'name': 'Memory (MCP)',"
+    }
+  ],
+  "summary_line": "PASS: 3/186"
+}

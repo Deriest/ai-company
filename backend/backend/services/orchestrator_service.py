@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from backend.services.content_utils import content_to_text
 from backend.models.orchestration import (
     OrchestrationSession, OrchestrationTask, OrchestrationApproval,
     WorkflowDefinition, Checkpoint,
@@ -629,7 +630,7 @@ class OrchestratorService:
                 child.error_message = str(e)
                 await db.flush()
             except Exception:
-                logger.warning("Failed to persist child task FAILED status", exc_info=True)
+                pass
             result = {"success": False, "error": str(e)}
 
         output_text = json.dumps(result, default=str)

@@ -8,7 +8,7 @@ def generate_uuid():
 
 class Artifact(Base):
     __tablename__ = "artifacts"
-
+    
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     # Message lives in storage metadata; keep an application-level reference
@@ -23,7 +23,7 @@ class Artifact(Base):
 
 class ToolCall(Base):
     __tablename__ = "tool_calls"
-
+    
     id = Column(String, primary_key=True, default=generate_uuid)
     message_id = Column(String, nullable=False, index=True)
     tool_name = Column(String, nullable=False, index=True)
@@ -33,7 +33,7 @@ class ToolCall(Base):
 
 class ToolResult(Base):
     __tablename__ = "tool_results"
-
+    
     id = Column(String, primary_key=True, default=generate_uuid)
     tool_call_id = Column(String, ForeignKey("tool_calls.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     result = Column(JSON, nullable=True)
@@ -43,7 +43,7 @@ class ToolResult(Base):
 
 class GenerationLog(Base):
     __tablename__ = "generation_logs"
-
+    
     id = Column(String, primary_key=True, default=generate_uuid)
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     message_id = Column(String, nullable=True, index=True)
@@ -60,7 +60,7 @@ class GenerationLog(Base):
 
 class WorkerExecution(Base):
     __tablename__ = "worker_execution"
-
+    
     id = Column(String, primary_key=True, default=generate_uuid)
     worker_role = Column(String, nullable=False, index=True) # thinker, crafter, reviewer, planner, manager
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)

@@ -13,12 +13,9 @@ from __future__ import annotations
 
 import os
 import re
-import logging
 from pathlib import Path
 
 from backend.workspace_manager import get_task_workspace_dir
-
-logger = logging.getLogger(__name__)
 
 BLOCK_PATTERN = re.compile(
     r"```(?:(\w+)\s+([\w./@\-_]+)|file:([\w./@\-_]+))\s*\n(.*?)```",
@@ -76,6 +73,6 @@ def extract_code_blocks_to_workspace(task_id: str, content: str, repo_path: str 
                     repo_target.parent.mkdir(parents=True, exist_ok=True)
                     repo_target.write_text(body, encoding="utf-8")
             except Exception:
-                logger.warning("Failed to write extracted code to repo_path (%s)", filepath, exc_info=True)
+                pass
 
     return written

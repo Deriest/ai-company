@@ -32,43 +32,17 @@ class MetricsRecorder:
         unit: str | None = None,
         labels: dict | None = None,
     ) -> Metric:
-        """Record a metric with retry logic for database lock contention.
-        
-        Best-effort persistence similar to UsageTracker._persist(): retry on
-        "database is locked" OperationalError with short backoff; any other error
-        is logged and dropped.
-        """
-        import asyncio
-        from sqlalchemy.exc import OperationalError
-        
-        for attempt in range(1, 7):
-            try:
-                async with async_session() as session:
-                    metric = Metric(
-                        name=name,
-                        value=float(value),
-                        unit=unit,
-                        labels=labels or {},
-                    )
-                    session.add(metric)
-                    await session.commit()
-                    await session.refresh(metric)
-                    return metric
-            except OperationalError as exc:
-                msg = str(exc.orig) if exc.orig is not None else str(exc)
-                if "locked" not in msg.lower():
-                    logger.warning(f"Failed to persist metric '{name}' after {attempt} retries: {exc}")
-                    break
-                if attempt == 6:
-                    logger.error(
-                        f"Failed to persist metric '{name}' after {attempt} retries (write locked): {msg}"
-                    )
-                    break
-                await asyncio.sleep(0.05 * attempt)
-            except Exception as e:
-                logger.error(f"Failed to persist metric '{name}': {type(e).__name__}: {str(e)}")
-                break
-        return None
+        async with async_session() as session:
+            metric = Metric(
+                name=name,
+                value=float(value),
+                unit=unit,
+                labels=labels or {},
+            )
+            session.add(metric)
+            await session.commit()
+            await session.refresh(metric)
+            return metric
 
     async def query(
         self,

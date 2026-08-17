@@ -203,7 +203,7 @@ MIGRATIONS = [
         "up": """
             CREATE TABLE IF NOT EXISTS discovery_sessions_new (
                 id VARCHAR PRIMARY KEY,
-                task_conversation_ref VARCHAR NOT NULL,
+                conversation_id VARCHAR NOT NULL,
                 user_id VARCHAR,
                 status VARCHAR NOT NULL DEFAULT 'new_request',
                 round_number INTEGER DEFAULT 0,
@@ -213,13 +213,13 @@ MIGRATIONS = [
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            INSERT INTO discovery_sessions_new (id, task_conversation_ref, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
-                SELECT id, task_conversation_ref, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions
+            INSERT INTO discovery_sessions_new (id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at)
+                SELECT id, conversation_id, user_id, status, round_number, questions_asked, questions_answered, context, created_at, updated_at FROM discovery_sessions
                 WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='discovery_sessions')
                   AND NOT EXISTS (SELECT 1 FROM discovery_sessions_new);
             DROP TABLE IF EXISTS discovery_sessions;
             ALTER TABLE discovery_sessions_new RENAME TO discovery_sessions;
-            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(task_conversation_ref);
+            CREATE INDEX IF NOT EXISTS idx_discovery_sessions_conversation ON discovery_sessions(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_user ON discovery_sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_discovery_sessions_status ON discovery_sessions(status);
         """,
@@ -262,51 +262,8 @@ MIGRATIONS = [
         "up": "ALTER TABLE local_profile ADD COLUMN last_used_repo_path VARCHAR",
         "down": "SELECT 1",
     },
-    {
-        "version": "024",
-        "name": "add_lease_heartbeat",
-        "description": "Add last_heartbeat_at and expires_at columns to leases for lease expiration / recovery (self_healing.py)",
-        "up": """
-            ALTER TABLE leases ADD COLUMN last_heartbeat_at TIMESTAMP;
-            ALTER TABLE leases ADD COLUMN expires_at TIMESTAMP;
-            UPDATE leases SET expires_at = datetime(replace(replace(created_at, '-', ''), ' ', ''), '+5 minutes') WHERE expires_at IS NULL;
-        """,
-        "down": "SELECT 1",
-    },
 ]
 
-
-def _split_sql_statements(sql: str) -> list[str]:
-    """Split a migration script into statements on ``;`` — but only outside
-    single-quoted string literals (M9: a default value like ``';'`` must not
-    split the statement). ``--`` comments are stripped first.
-    """
-    out: list[str] = []
-    buf: list[str] = []
-    in_string = False
-    i = 0
-    n = len(sql)
-    while i < n:
-        ch = sql[i]
-        if not in_string and ch == "-" and sql.startswith("--", i):
-            nl = sql.find("\n", i)
-            i = n if nl == -1 else nl
-            continue
-        if ch == "'":
-            in_string = not in_string
-            buf.append(ch)
-        elif ch == ";" and not in_string:
-            stmt = "".join(buf).strip()
-            if stmt:
-                out.append(stmt)
-            buf = []
-        else:
-            buf.append(ch)
-        i += 1
-    tail = "".join(buf).strip()
-    if tail:
-        out.append(tail)
-    return out
 
 async def ensure_migration_table():
     """Create the schema_migrations table if it doesn't exist."""
@@ -362,7 +319,7 @@ async def _verify_alter_columns(up_sql: str) -> bool:
 async def _apply_migration(migration: dict) -> None:
     """Apply a normal migration inside a transaction."""
     async with engine.begin() as conn:
-        for stmt in _split_sql_statements(migration["up"]):
+        for stmt in migration["up"].strip().split(";"):
             stmt = stmt.strip()
             if stmt and stmt != "SELECT 1":
                 await conn.execute(text(stmt))
@@ -416,7 +373,7 @@ async def _apply_migration_fk_off(migration: dict) -> None:
         # SQLite driver level).
         await conn.commit()
         async with conn.begin():
-            for stmt in _split_sql_statements(migration["up"]):
+            for stmt in migration["up"].strip().split(";"):
                 stmt = stmt.strip()
                 if stmt and stmt != "SELECT 1":
                     # Round-6: skip a copy statement whose source table was
@@ -473,6 +430,4 @@ async def run_migrations():
                     raise
             else:
                 logger.error(f"  Failed: {e}")
-
-
-
+                raise

@@ -21,6 +21,7 @@ from storage.models import (
     EngineeringBrief as EngineeringBriefORM,
     EngineeringPlan as EngineeringPlanORM,
     TaskGraphModel,
+    DispatchSession,
     Task,
     TaskStatus,
 )
@@ -571,7 +572,7 @@ class MasterOrchestrator:
                 nodes.append(node)
 
             if len(nodes) <= 1:
-                logger.debug("Only 1 subtask; graph construction skipped")
+                logger.debug(f"Only 1 subtask; graph construction skipped")
                 return None
 
             # Analyze dependencies: explicit deps + task-type edges + phase barriers

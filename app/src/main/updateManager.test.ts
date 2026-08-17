@@ -19,10 +19,7 @@ vi.mock("electron", () => {
     app: {
       getVersion: () => "0.0.0",
       getPath: () => "/tmp/fake-userData",
-      // NOTE: false on purpose — these tests exercise the update state machine
-      // with unsigned mock manifests. Signature enforcement for packaged
-      // builds has its own dedicated test below.
-      isPackaged: false,
+      isPackaged: true,
       exit: vi.fn(),
       quit: vi.fn(),
       relaunch: vi.fn(),
@@ -32,19 +29,7 @@ vi.mock("electron", () => {
   };
 });
 
-// C1: mock signature verification — mock manifests (version 2.0.0, sha AA) are
-// not signed with the real release key. Without this, the now-baked public
-// key plus the real latest.json.sig on raw.githubusercontent.com would cause
-// every mock manifest to fail verification (genuine sig ≠ mock manifest hash).
-vi.mock("../shared/updateSecurity", async () => {
-  const actual = await vi.importActual<typeof import("../shared/updateSecurity")>("../shared/updateSecurity");
-  return {
-    ...actual,
-    verifyManifestSignature: vi.fn(() => true),
-  };
-});
-
-const CURRENT_VERSION = "0.1.0";
+const CURRENT_VERSION = "1.0.0";
 
 function makeManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -68,7 +53,7 @@ function makeMocks() {
   const io: IO = {
     fetchJson: vi.fn(async () => makeManifest()),
     downloadFile: vi.fn(async () => {}),
-    sha256File: vi.fn(async () => "AA".toLowerCase()), // Return lowercase to match manifest SHA256 format
+    sha256File: vi.fn(async () => "aa"),
   };
   const openPath = vi.fn(async (_p: string) => "");
   const appAdapter = {
@@ -113,7 +98,7 @@ function setPlatform(platform: string): void {
 describe("UpdateManager.checkForUpdates", () => {
   it("reports up_to_date when the remote version is not newer", async () => {
     const { manager, io } = makeMocks();
-    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "0.0.9" }));
+    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "1.0.0" }));
 
     const state = await manager.checkForUpdates();
 
@@ -135,7 +120,7 @@ describe("UpdateManager.checkForUpdates", () => {
 
   it("flags the update as mandatory via manifest.mandatory", async () => {
     const { manager, io } = makeMocks();
-    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "10.0.0", mandatory: true }));
+    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "2.0.0", mandatory: true }));
 
     const state = await manager.checkForUpdates();
 
@@ -188,7 +173,7 @@ describe("UpdateManager.dismiss", () => {
 
   it("blocks dismissal while a mandatory update is available", async () => {
     const { manager, io } = makeMocks();
-    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "10.0.0", mandatory: true }));
+    vi.mocked(io.fetchJson).mockResolvedValue(makeManifest({ version: "2.0.0", mandatory: true }));
     await manager.checkForUpdates();
     expect(manager.getState().mandatory).toBe(true);
 
@@ -239,7 +224,7 @@ describe("UpdateManager.installUpdate", () => {
       downloadFile: vi.fn(async (_url: string, dest: string) => {
         fs.writeFileSync(dest, "payload");
       }),
-      sha256File: vi.fn(async () => "AA".toLowerCase()), // Return lowercase to match manifest SHA256
+      sha256File: vi.fn(async () => "aa"),
     };
     const openPath = vi.fn(async (_p: string) => "");
     const appAdapter = {
@@ -269,7 +254,7 @@ describe("UpdateManager.installUpdate", () => {
     expect(state.error).toMatch(/Installer file missing/);
   });
 
-  it.skip("Linux AppImage: transitions to ready_to_restart without spawning/openPath", async () => { // Requires native OS environment (shell.openPath) - skip for CI compatibility
+  it("Linux AppImage: transitions to ready_to_restart without spawning/openPath", async () => {
     const { manager, openPath } = await installViaDownload("linux", "aic.AppImage");
 
     const state = await manager.installUpdate();
@@ -278,7 +263,7 @@ describe("UpdateManager.installUpdate", () => {
     expect(openPath).not.toHaveBeenCalled();
   });
 
-  it.skip("macOS: opens the staged installer via shell.openPath", async () => {
+  it("macOS: opens the staged installer via shell.openPath", async () => {
     const { manager, openPath } = await installViaDownload("darwin", "aic.dmg");
 
     const state = await manager.installUpdate();
@@ -288,7 +273,7 @@ describe("UpdateManager.installUpdate", () => {
     expect((openPath.mock.calls[0][0] as string).endsWith("aic.dmg")).toBe(true);
   });
 
-  it.skip("macOS: surfaces an error when shell.openPath fails", async () => {
+  it("macOS: surfaces an error when shell.openPath fails", async () => {
     setPlatform("darwin");
     const { manager, openPath } = await installViaDownload("darwin", "aic.dmg");
     vi.mocked(openPath).mockResolvedValue("No application handles this file");
