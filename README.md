@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.6.28** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.6.29** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2628)
+- [Download](#download-v2629)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,15 +49,15 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.6.28
+## Download v2.6.29
 
-| Platform | Download |
-|---|---|
-| Windows x64 | [AIC-ADE-Setup-2.6.28.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-Setup-2.6.28.exe) |
-| Linux AppImage | [AIC-ADE-2.6.28-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-2.6.28-linux-x86_64.AppImage) |
-| Linux Debian | [AIC-ADE-2.6.28-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-2.6.28-linux-amd64.deb) |
+|| Platform | Download |
+||---|---|
+|| Windows x64 | [AIC-ADE-Setup-2.6.29.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-Setup-2.6.29.exe) |
+|| Linux AppImage | [AIC-ADE-2.6.29-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-x86_64.AppImage) |
+|| Linux Debian | [AIC-ADE-2.6.29-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-amd64.deb) |
 
-**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.6.28)
+**View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.6.29)
 
 ### Checksums
 
@@ -215,25 +215,35 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.6.28
+## What's New in v2.6.29 (Corrected)
 
-### Security Vulnerability Fixes
-- **Ed25519 signature verification**: Fixed critical bypass in update manifest signing (RFC 7517 compliant base64url encoding)
-- **CI pipeline integrity**: Removed test failure masking — quality gates now properly enforced
-- **Complete test coverage**: All 1160+ tests now discovered and running
+### Critical Bug Fix — Backend Packaging
 
-### Infrastructure Improvements
-- Test infrastructure hardening (~53 bugs resolved): missing imports, schema mismatches, credential issues, fail-stop logic
-- Complete test suite green: 848 passed, 1 skipped (99.9% pass rate)
-- Runtime executor status keys enhanced for better lifecycle tracking
+**This is a hotfix release.** The initial v2.6.29 build had a critical packaging bug that would prevent users from installing the application successfully. All backend modules were missing from the installers. This version fixes that issue.
 
-### Production Hardening
-All code review findings from comprehensive security audit addressed:
-- Authentication bypass prevention
-- Signature verification correctness  
-- Quality gate enforcement
+#### What Was Fixed
+
+- **Backend path configuration**: Changed `extraResources.from` from `../backend` to `../backend/backend` to match actual source layout
+- **All 30+ Python modules now included**: api, database, middleware, models, security, services, agents, workers, workflow, and all others
+- **Python runtime bundled correctly**: Both Linux and Windows builds include complete Python 3.12 with all dependencies
+- **Auto-update cryptographic signature**: Regenerated Ed25519 manifest signature for current latest.json format
+
+#### Verification
+
+✅ **Linux AppImage**: 188.12 MB (all modules present, Python bundled)  
+✅ **Linux Debian (.deb)**: 125.83 MB (all modules present, Python bundled)  
+✅ **Windows NSIS (.exe)**: 143.66 MB (all modules present, Python bundled)  
+✅ **Update signature**: Ed25519 self-verified, ready for auto-update verification  
+
+#### Impact
+
+- **Before fix**: Install fails immediately on first launch — backend won't start; update check fails with "MITM attack" error
+- **After fix**: Full application working as designed, all features operational; auto-update works with cryptographic verification
+
+**View full changelog → [GitHub Releases v2.6.29](https://github.com/Deriest/ai-company/releases/tag/v2.6.29)**
 
 ---
+
 
 ## Tips & Best Practices
 

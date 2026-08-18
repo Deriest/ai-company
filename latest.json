@@ -1,28 +1,28 @@
 {
-  "version": "2.6.28",
+  "version": "2.6.29",
   "channel": "stable",
-  "releaseDate": "2026-08-17",
-  "releaseNotes": "v2.6.28 — Security fixes from comprehensive code review. See https://github.com/Deriest/ai-company/releases/tag/v2.6.28 for release notes.",
+  "releaseDate": "2026-08-18",
+  "releaseNotes": "v2.6.29 \u2014 Fixed critical backend packaging bug (all modules now included for proper installation)",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-2.6.28-linux-x86_64.AppImage",
-      "sha256": "a5e14c9b7d5e0adfab04e390c6f6e9d417db647adc9c5ec177f5b426937694ff",
-      "size": 197258835,
-      "filename": "AIC-ADE-2.6.28-linux-x86_64.AppImage",
+      "filename": "AIC-ADE-2.6.29-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-x86_64.AppImage",
+      "sha256": "269de87fda9a71f9ea9ef368394aa137a8754ab25b8154623efb55610207c022",
+      "size": 197258519,
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-2.6.28-linux-amd64.deb",
-      "sha256": "d290f4eb48ebf2990384576bd14d919f95970150de3534b578f8242e417d3a11",
-      "size": 131948698,
-      "filename": "AIC-ADE-2.6.28-linux-amd64.deb",
+      "filename": "AIC-ADE-2.6.29-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-amd64.deb",
+      "sha256": "bdc79a12b9a550899869428350ef2ca3c38e47ad5b020c94a4d5138804bdfb37",
+      "size": 131946532,
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.28/AIC-ADE-Setup-2.6.28.exe",
-      "sha256": "757fd367effa756f1ad71b9d52fa0a93945ceb86cbb1ff33108bd60f518ebed3",
-      "size": 150641613,
-      "filename": "AIC-ADE-Setup-2.6.28.exe",
+      "filename": "AIC-ADE-Setup-2.6.29.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-Setup-2.6.29.exe",
+      "sha256": "327300453ee6fd1be5cab5f170816bf67afd50f025daff951cfb7ef155bd03ef",
+      "size": 150641662,
       "type": "nsis"
     }
   }
