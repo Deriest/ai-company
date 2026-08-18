@@ -24,24 +24,28 @@ const isDev = !app.isPackaged && process.env.AIC_IDE_DEV === "1";
 
 // Async lock for backup/restore operations (prevents concurrent restores)
 let backupLockPromise: Promise<void> | null = null;
+let backupLockResolve: (() => void) | null = null;
 
 /**
  * Acquire async lock to prevent concurrent backup/restore operations.
  * Returns unlock function that must be called when done.
+ * Concurrent callers await the previous holder's unlock before proceeding.
  */
 async function acquireBackupLock(): Promise<() => Promise<void>> {
-    // Wait for any existing operation
-    if (backupLockPromise) {
+    while (backupLockPromise) {
         await backupLockPromise;
     }
-    
+    let resolve!: () => void;
+    backupLockPromise = new Promise<void>((r) => { resolve = r; });
+    backupLockResolve = resolve;
+
     const unlock: () => Promise<void> = async () => {
+        const r = backupLockResolve;
         backupLockPromise = null;
+        backupLockResolve = null;
+        if (r) r();
     };
-    
-    // Create new lock promise
-    backupLockPromise = Promise.resolve();
-    
+
     return unlock;
 }
 

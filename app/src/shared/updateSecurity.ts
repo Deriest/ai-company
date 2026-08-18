@@ -23,6 +23,11 @@ if (PUBLIC_KEY_BASE64) {
     }
 }
 
+function allowUnsigned(): boolean {
+    if (process.env.AIC_UPDATE_ALLOW_UNSIGNED === "1") return true;
+    return process.env.NODE_ENV !== "production";
+}
+
 /**
  * Verify manifest signature using Ed25519 digital signature.
  */
@@ -30,42 +35,36 @@ export function verifyManifestSignature(
     manifestJson: unknown,
     signatureBase64: string
 ): boolean {
-    // Validate inputs
-    if (!publicKeyBytes || !signatureBase64) {
-        // In development mode without key, skip verification
-        if (process.env.NODE_ENV === "production") {
-            console.error("[updateSecurity] No public key configured for signature verification");
-            return false;
-        }
-        return true;
+    if (!signatureBase64) {
+        if (allowUnsigned()) return true;
+        console.error("[updateSecurity] No signature provided for manifest verification");
+        return false;
+    }
+    if (!publicKeyBytes) {
+        if (allowUnsigned()) return true;
+        console.error("[updateSecurity] No public key configured for signature verification");
+        return false;
     }
 
     try {
         const jsonString = JSON.stringify(manifestJson);
-        
-        // Create hash of manifest content (SHA256)
-        const hash = crypto.createHash("sha256").update(jsonString).digest();
-        
-        // Create signature verifier
         const verifier = crypto.createVerify("SHA256");
-        verifier.update(hash);
-        
-        // Convert public key to proper format
+        verifier.update(jsonString);
+
         const pubKeyObj = crypto.createPublicKey({
             key: publicKeyBytes,
-            format: "pem",
+            format: "der",
             type: "spki",
         });
-        
-        // Verify signature
+
         const valid = verifier.verify(pubKeyObj, signatureBase64, "base64");
-        
+
         if (!valid) {
             console.error(
                 "[updateSecurity] Manifest signature verification FAILED"
             );
         }
-        
+
         return valid;
     } catch (e) {
         console.error("[updateSecurity] Signature verification error:", e);
@@ -82,19 +81,15 @@ export function verifyRSASignature(
     rsaPublicKeyPem: string
 ): boolean {
     if (!signatureBase64) {
-        if (process.env.NODE_ENV === "production") {
-            return false;
-        }
-        return true;
+        if (allowUnsigned()) return true;
+        return false;
     }
 
     try {
         const jsonString = JSON.stringify(manifestJson);
-        const hash = crypto.createHash("sha256").update(jsonString).digest();
-        
         const verifier = crypto.createVerify("SHA256");
-        verifier.update(hash);
-        
+        verifier.update(jsonString);
+
         const pubKeyObj = crypto.createPublicKey(rsaPublicKeyPem);
         return verifier.verify(pubKeyObj, signatureBase64, "base64");
     } catch (e) {
@@ -110,10 +105,12 @@ export function getVerificationStatus(): {
     hasPublicKey: boolean;
     publicKeyLength: number | null;
     nodeEnv: string;
+    allowUnsigned: boolean;
 } {
     return {
         hasPublicKey: !!publicKeyBytes,
         publicKeyLength: publicKeyBytes?.length ?? null,
         nodeEnv: process.env.NODE_ENV || "development",
+        allowUnsigned: allowUnsigned(),
     };
 }

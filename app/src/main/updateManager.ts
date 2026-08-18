@@ -408,13 +408,21 @@ export class UpdateManager {
     this.setState({ status: "checking", error: undefined });
     try {
       const url = manifestUrl(this.config.baseUrl, this.config.channel);
-      
-      // Fetch manifest and signature side-by-side
-      const fetchOptions: RequestInit = { headers: { 'Accept': 'application/json' } };
-      const [raw, signature] = await Promise.all([
-        fetch(url, fetchOptions).then(r => r.json()),
-        fetch(`${url}.sig`, { headers: { 'Accept': 'text/plain' } }).then(r => r.text()).catch(() => ""),
-      ]);
+
+      // Manifest fetch goes through the hardened IO seam (https-only, redirect
+      // cap, size cap). Signature is best-effort text fetch; absence is handled
+      // by the allowUnsigned policy inside updateSecurity.
+      const raw = await this.io.fetchJson(url);
+      let signature = "";
+      try {
+        const sigUrl = `${url}.sig`;
+        if (isAllowedDownloadUrl(sigUrl)) {
+          const res = await fetch(sigUrl);
+          if (res.ok) signature = await res.text();
+        }
+      } catch {
+        /* no signature available — verification policy decides */
+      }
       
       // Verify cryptographic signature before parsing
       if (signature) {
