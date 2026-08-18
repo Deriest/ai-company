@@ -111,40 +111,54 @@ class Settings(BaseSettings):
         # Force absolute SQLite path so packaged installs never write into read-only resources
         db_path = (self.DATA_DIR / "aic.db").resolve()
         self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
-        # CRITICAL GAP-1 FIX: JWT secret MUST be provided via environment variable
-        # Remove file-based fallback to prevent accidental Git commits and enable rotation
+        
+        # AUTO-GENERATE JWT SECRET IF NOT SET (user-friendly approach)
         from os import environ
         
-        if "AIC_JWT_SECRET" not in environ:
-            raise ValueError(
-                """
-JWT_SECRET must be provided via AIC_JWT_SECRET environment variable!
-
-Generate a secure 32+ character secret with:
-    python -c "import secrets; print(secrets.token_hex(32))"
-
-Set it like:
-    export AIC_JWT_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
-
-In production deployments (Docker, systemd, etc.), set AIC_JWT_SECRET in your
-environment configuration. NEVER store secrets in files or commit them to Git.
-""".strip()
-            )
+        secret_file = self.DATA_DIR / ".jwt_secret"
         
-        self.SECRET_KEY = environ["AIC_JWT_SECRET"]
+        # Check if secret already exists in environment OR file
+        existing_secret = None
         
-        # Validate minimum length for cryptographic security
-        if len(self.SECRET_KEY) < 32:
-            raise ValueError(
-                f"JWT_SECRET too short (minimum 32 characters required, got {len(self.SECRET_KEY)})"
-            )
+        if "AIC_JWT_SECRET" in environ:
+            existing_secret = environ["AIC_JWT_SECRET"]
+        elif secret_file.exists():
+            try:
+                existing_secret = secret_file.read_text().strip()
+                logger.info(f"JWT secret loaded from {secret_file}")
+            except (OSError, UnicodeDecodeError):
+                logger.warning(f"Could not read existing JWT secret file, will regenerate")
+        
+        if existing_secret:
+            # Use existing secret
+            self.SECRET_KEY = existing_secret
             
-        # Optional: Warn about non-alphanumeric characters
-        if not all(c.isalnum() for c in self.SECRET_KEY):
-            logger.warning(
-                "AIC_JWT_SECRET contains non-alphanumeric characters. "
-                "This is supported but consider using only [a-zA-Z0-9] for maximum compatibility."
-            )
+            # Validate minimum length
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    f"JWT_SECRET too short (minimum 32 characters required, got {len(self.SECRET_KEY)})"
+                )
+        else:
+            # AUTO-GENERATE new secret on first run
+            new_secret = secrets.token_hex(32)  # 64 char hex = 256 bits
+            self.SECRET_KEY = new_secret
+            
+            # Persist to file for subsequent runs
+            try:
+                secret_file.write_text(new_secret, encoding="utf-8")
+                # Set restrictive permissions on Unix-like systems
+                try:
+                    os.chmod(secret_file, 0o600)
+                except OSError:
+                    pass
+                logger.info(f"Generated new JWT secret saved to {secret_file}")
+            except OSError as e:
+                raise RuntimeError(
+                    f"Could not persist JWT secret to {secret_file}: {e}. "
+                    "Please set AIC_JWT_SECRET environment variable manually."
+                )
+            
+            logger.info("✨ Auto-generated new JWT secret for secure API authentication")
         
         # Load per-install identity written by the Electron main process.
         # Precedence: AIC_IDENTITY_* env vars > AIC_IDENTITY_FILE > defaults.

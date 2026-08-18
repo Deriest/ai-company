@@ -1,5 +1,6 @@
 # Git-ignored by default (deepwork state directory)
 # Sensitive credentials - NEVER commit these files
+.env
 .env.local
 .env.development
 .secrets
@@ -9,9 +10,10 @@
 id_rsa*
 id_ed25519*
 *.secret
-tokens.json
-credentials.json
-config.json
+.tokens.json
+.credentials.json
+.config.json
+.jwt_secret
 
 # Temporary files that might contain secrets
 tmp_secrets.*

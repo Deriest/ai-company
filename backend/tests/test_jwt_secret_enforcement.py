@@ -6,22 +6,20 @@ from pathlib import Path
 
 
 def test_jwt_secret_missing_raises_error(monkeypatch):
-    """Backend should fail closed if AIC_JWT_SECRET is not set."""
-    monkeypatch.delenv("AIC_JWT_SECRET", raising=False)
+    """Backend should auto-generate JWT secret instead of raising error."""
     monkeypatch.setenv("AIC_TESTING", "1")
     monkeypatch.setenv("AIC_IDENTITY_USERNAME", "test")
     monkeypatch.setenv("AIC_IDENTITY_PASSWORD", "testpass")
     
-    # Import config module fresh to trigger error
     import importlib
     import backend.config
     
-    # Force reload without env var
     importlib.reload(backend.config)
     
-    # Should raise ValueError about missing JWT secret
-    with pytest.raises(ValueError, match="AIC_JWT_SECRET"):
-        backend.config.settings.ensure_dirs()
+    # Should succeed with auto-generated secret
+    assert hasattr(backend.config, 'settings')
+    assert len(backend.config.settings.SECRET_KEY) >= 32
+    assert backend.config.settings.SECRET_KEY != ""
 
 
 def test_jwt_secret_too_short_raises_error(monkeypatch):
@@ -35,7 +33,7 @@ def test_jwt_secret_too_short_raises_error(monkeypatch):
     import backend.config
     importlib.reload(backend.config)
     
-    with pytest.raises(ValueError, match="minimum 32 characters"):
+    with pytest.raises(ValueError, match="JWT_SECRET too short"):
         backend.config.settings.ensure_dirs()
 
 
