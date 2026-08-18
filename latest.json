@@ -2,25 +2,25 @@
   "version": "2.6.30",
   "channel": "stable",
   "releaseDate": "2026-08-18",
-  "releaseNotes": "v2.6.30 — Critical security fix: Ed25519 signature verifier now works correctly on all platforms (Linux + Windows). Fixed crypto implementation mismatch that caused \"MITM attack\" errors.",
+  "releaseNotes": "v2.6.30 \u2014 Critical security fix: Ed25519 signature verification now works correctly.",
   "platforms": {
     "linux": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-x86_64.AppImage",
-      "sha256": "1a0d78193bc54b127de569e0cabe4e50f6282c280bb29193c47c8b5d4e3f2a1c",
+      "sha256": "1a0d78193bc54b127de569e0cabe4e507940910c5fb9b82c1f3ba72b8e0c0dc0",
       "size": 197258529,
       "filename": "AIC-ADE-2.6.30-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-amd64.deb",
-      "sha256": "477ddf3bcde5bf4e9f6282c280bb2919a5c8b7d6e5f4a3c2b1d9e8f7a6c5b4d3e",
+      "sha256": "477ddf3bcde5bf4e9f6282c280bb29192f1aca832cbb5ffa16459850c8b9cf69",
       "size": 131951432,
       "filename": "AIC-ADE-2.6.30-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
       "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-Setup-2.6.30.exe",
-      "sha256": "757d19554faf5cf70f664f40e6b44c63b8d7e6f5a4c3b2d1e9f8a7c6b5d4e3f2a",
+      "sha256": "757d19554faf5cf70f664f40e6b44c63d3c4cecf62548f047dcedf875eaeb8dd",
       "size": 150641884,
       "filename": "AIC-ADE-Setup-2.6.30.exe",
       "type": "nsis"
