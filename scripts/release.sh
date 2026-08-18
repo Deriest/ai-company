@@ -200,6 +200,11 @@ cat > "$ROOT_DIR/latest.json" << EOF
       "filename": "${EXE}",
       "type": "nsis"
     }
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "url": "${GITHUB_RELEASE_BASE}/latest.json.sig",
+    "sha256": "${LATEST_SIG_SHA}"
   }
 }
 EOF
@@ -213,6 +218,7 @@ echo ""
 echo "📋 Step 6/7: Updating SHA256SUMS..."
 
 LATEST_SHA=$(sha256sum "$ROOT_DIR/latest.json" | cut -d' ' -f1)
+LATEST_SIG_SHA=$(sha256sum "$ROOT_DIR/latest.json.sig" | cut -d' ' -f1)
 
 # app/release/SHA256SUMS — remove old entries for this version + old latest.json, append new
 touch "$RELEASE_DIR/SHA256SUMS"
@@ -223,6 +229,7 @@ ${APPIMAGE_SHA}  ${APPIMAGE}
 ${DEB_SHA}  ${DEB}
 ${EXE_SHA}  ${EXE}
 ${LATEST_SHA}  latest.json
+${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 # Root SHA256SUMS — same but with app/release/ prefix
@@ -234,6 +241,7 @@ ${APPIMAGE_SHA}  app/release/${APPIMAGE}
 ${DEB_SHA}  app/release/${DEB}
 ${EXE_SHA}  app/release/${EXE}
 ${LATEST_SHA}  latest.json
+${LATEST_SIG_SHA}  latest.json.sig
 EOF
 
 echo "  ✅ SHA256SUMS updated (root + app/release/)"

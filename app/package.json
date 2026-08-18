@@ -143,7 +143,9 @@
       "dist-electron/**/*",
       "build/icon.png",
       "build/icon.ico",
-      "package.json"
+      "package.json",
+      "latest.json",
+      "latest.json.sig"
     ],
     "linux": {
       "target": [

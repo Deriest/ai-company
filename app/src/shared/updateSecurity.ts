@@ -30,6 +30,9 @@ function allowUnsigned(): boolean {
 
 /**
  * Verify manifest signature using Ed25519 digital signature.
+ * 
+ * Matches signer.js canonicalization: SHA256 over JSON.stringify(JSON.parse(raw))
+ * Uses JWK "OKP/Ed25519" format with raw 32-byte public point for verification.
  */
 export function verifyManifestSignature(
     manifestJson: unknown,
@@ -40,7 +43,12 @@ export function verifyManifestSignature(
         console.error("[updateSecurity] No signature provided for manifest verification");
         return false;
     }
-    if (!publicKeyBytes) {
+    
+    // Use baked public key or env override for production builds
+    const BAKED_UPDATE_PUBLIC_KEY = "fXxYzXuiMkeMi4u7obc7RmJI07Whuvewlkl308ThH+o=";
+    const publicKeyBase64 = process.env.AIC_UPDATE_PUBLIC_KEY || BAKED_UPDATE_PUBLIC_KEY;
+    
+    if (!publicKeyBase64) {
         if (allowUnsigned()) return true;
         console.error("[updateSecurity] No public key configured for signature verification");
         return false;
@@ -48,26 +56,28 @@ export function verifyManifestSignature(
 
     try {
         const jsonString = JSON.stringify(manifestJson);
-        const verifier = crypto.createVerify("SHA256");
-        verifier.update(jsonString);
-
+        
+        // Parse the base64 public key to get raw 32 bytes
+        const rawPubKey = Buffer.from(publicKeyBase64, "base64");
+        
+        // Build JWK object matching signer's derivation
         const pubKeyObj = crypto.createPublicKey({
-            key: publicKeyBytes,
-            format: "der",
+            key: { kty: "OKP", crv: "Ed25519", x: rawPubKey.toString("base64url") },
+            format: "jwk",
             type: "spki",
         });
 
-        const valid = verifier.verify(pubKeyObj, signatureBase64, "base64");
+        // Ed25519 PureEdDSA: verify over the 32-byte SHA256 DIGEST directly
+        const hash = crypto.createHash("sha256").update(jsonString).digest();
+        const valid = crypto.verify(null, hash, pubKeyObj, Buffer.from(signatureBase64, "base64"));
 
         if (!valid) {
-            console.error(
-                "[updateSecurity] Manifest signature verification FAILED"
-            );
+            console.error("[updateSecurity] Manifest signature verification FAILED");
         }
 
         return valid;
-    } catch (e) {
-        console.error("[updateSecurity] Signature verification error:", e);
+    } catch (e: unknown) {
+        console.error("[updateSecurity] Signature verification error:", String(e));
         return false;
     }
 }
