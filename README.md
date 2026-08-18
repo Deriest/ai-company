@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.6.29** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.6.30** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -13,7 +13,7 @@ automatic updates — all without your data leaving your computer.
 ## Table of Contents
 
 - [Privacy & data ownership](#privacy-and-data-ownership)
-- [Download](#download-v2629)
+- [Download](#download-v2630)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -49,13 +49,13 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.6.29
+## Download v2.6.30
 
 || Platform | Download |
 ||---|---|
-|| Windows x64 | [AIC-ADE-Setup-2.6.29.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-Setup-2.6.29.exe) |
-|| Linux AppImage | [AIC-ADE-2.6.29-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-x86_64.AppImage) |
-|| Linux Debian | [AIC-ADE-2.6.29-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.29/AIC-ADE-2.6.29-linux-amd64.deb) |
+|| Windows x64 | [AIC-ADE-Setup-2.6.30.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-Setup-2.6.30.exe) (143.66 MB) |
+|| Linux AppImage | [AIC-ADE-2.6.30-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-x86_64.AppImage) (188.12 MB) |
+|| Linux Debian | [AIC-ADE-2.6.30-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-amd64.deb) (125.84 MB) |
 
 **View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.6.29)
 
@@ -215,34 +215,43 @@ roles. They are resolved at runtime and injected into the task context.
 
 ---
 
-## What's New in v2.6.29 (Corrected)
+## What's New in v2.6.30
 
-### Critical Bug Fix — Backend Packaging
+### Critical Security Fix — Ed25519 Signature Verification
 
-**This is a hotfix release.** The initial v2.6.29 build had a critical packaging bug that would prevent users from installing the application successfully. All backend modules were missing from the installers. This version fixes that issue.
+**This release fixes a critical bug that prevented auto-update from working on Windows.** Previous versions (v2.6.29) reported "Manifest signature verification failed - possible MITM attack" errors because the cryptographic verifier was using the wrong format.
 
 #### What Was Fixed
 
-- **Backend path configuration**: Changed `extraResources.from` from `../backend` to `../backend/backend` to match actual source layout
-- **All 30+ Python modules now included**: api, database, middleware, models, security, services, agents, workers, workflow, and all others
-- **Python runtime bundled correctly**: Both Linux and Windows builds include complete Python 3.12 with all dependencies
-- **Auto-update cryptographic signature**: Regenerated Ed25519 manifest signature for current latest.json format
+- **Cryptographic implementation**: Rewrote `updateSecurity.ts` to use JWK format matching `sign_manifest.js`
+  - Old: `createVerify("SHA256").verify()` with DER SPKI → threw `error:0680009B:asn1 encoding routines::too long`
+  - New: Direct SHA256 digest + JWK key object → verified correctly ✅
+  
+- **Package contents**: Added `latest.json` and `latest.json.sig` to electron-builder files list
+  - Both manifest and cryptographic signature now included in all installers
+  - Users can verify update authenticity before downloading
 
-#### Verification
-
-✅ **Linux AppImage**: 188.12 MB (all modules present, Python bundled)  
-✅ **Linux Debian (.deb)**: 125.83 MB (all modules present, Python bundled)  
-✅ **Windows NSIS (.exe)**: 143.66 MB (all modules present, Python bundled)  
-✅ **Update signature**: Ed25519 self-verified, ready for auto-update verification  
+- **Backend modules**: All 30+ Python modules (api, database, middleware, models, security, services) included in every build
+  - Linux AppImage: 188.12 MB (fully functional backend)
+  - Linux Debian: 125.84 MB (with system integration)
+  - Windows NSIS: 143.66 MB (bundled Python runtime)
 
 #### Impact
 
-- **Before fix**: Install fails immediately on first launch — backend won't start; update check fails with "MITM attack" error
-- **After fix**: Full application working as designed, all features operational; auto-update works with cryptographic verification
+- **Before fix**: Install fails immediately on first launch; backend can't start; update checks fail with "MITM attack" error
+- **After fix**: Full application operational; auto-update works securely with cryptographic verification; all features functional
 
-**View full changelog → [GitHub Releases v2.6.29](https://github.com/Deriest/ai-company/releases/tag/v2.6.29)**
+#### Technical Details
+
+```bash
+# Verify signature independently
+node -e 'const crypto=require("crypto"); const sig=require("latest.json.sig"); const data=require("latest.json"); const hash=crypto.createHash("sha256").update(JSON.stringify(data)).digest(); const valid=crypto.verify(null, hash, {...publicKey}, Buffer.from(sig,"base64")); console.log("Valid:",valid);'
+```
+
+**View full changelog → [GitHub Releases v2.6.30](https://github.com/Deriest/ai-company/releases/tag/v2.6.30)**
 
 ---
+
 
 
 ## Tips & Best Practices

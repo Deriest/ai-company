@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.29",
+  "version": "2.6.30",
   "private": true,
   "description": "AICompany ADE",
   "author": "TVD <tvd@local>",
@@ -184,7 +184,7 @@
       "notarize": false
     },
     "extraMetadata": {
-      "version": "2.6.29"
+      "version": "2.6.30"
     }
   },
   "engines": {

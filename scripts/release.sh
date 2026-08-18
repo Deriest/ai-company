@@ -65,8 +65,20 @@ fi
 
 echo "📋 Step 1/7: Bumping version to ${VERSION}..."
 
-# package.json
+# package.json (root + app — keep versions in sync)
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$APP_DIR/package.json"
+sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" "$ROOT_DIR/package.json"
+
+# app/package.json extraMetadata.version (electron-builder baked version)
+python3 -c "
+import json
+with open('$APP_DIR/package.json') as f:
+    data = json.load(f)
+data.setdefault('build', {}).setdefault('extraMetadata', {})['version'] = '$VERSION'
+with open('$APP_DIR/package.json', 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
 
 # package-lock.json — use Python json for safe update (BUG-11 fix)
 python3 -c "
@@ -165,11 +177,12 @@ done
 
 echo "  ✅ All artifacts uploaded"
 
-# ── 5. Update latest.json ───────────────────────────────────────────────────
+# ── 5. Sign & update latest.json ────────────────────────────────────────────────
 
 echo ""
-echo "📝 Step 5/7: Updating latest.json..."
+echo "🔐 Step 5/7: Signing latest.json..."
 
+# Generate manifest content first (before signing)
 TODAY=$(date +%F)
 
 cat > "$ROOT_DIR/latest.json" << EOF
@@ -200,17 +213,21 @@ cat > "$ROOT_DIR/latest.json" << EOF
       "filename": "${EXE}",
       "type": "nsis"
     }
-  },
-  "signature": {
-    "algorithm": "Ed25519",
-    "url": "${GITHUB_RELEASE_BASE}/latest.json.sig",
-    "sha256": "${LATEST_SIG_SHA}"
   }
 }
 EOF
 
 cp "$ROOT_DIR/latest.json" "$RELEASE_DIR/latest.json"
-echo "  ✅ latest.json updated (root + app/release/)"
+
+# NOW sign the freshly written manifest
+cd "$APP_DIR"
+node ../scripts/sign_manifest.js ../latest.json ../secrets/release_private_key.pem ../latest.json.sig
+
+cd "$ROOT_DIR"
+LATEST_SHA=$(sha256sum latest.json | cut -d' ' -f1)
+LATEST_SIG_SHA=$(sha256sum latest.json.sig | cut -d' ' -f1)
+
+echo "  ✅ Manifest signed and hashed"
 
 # ── 6. Update SHA256SUMS ────────────────────────────────────────────────────
 
