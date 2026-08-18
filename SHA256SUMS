@@ -1,4 +1,5 @@
 1a0d78193bc54b127de569e0cabe4e507940910c5fb9b82c1f3ba72b8e0c0dc0  app/release/AIC-ADE-2.6.30-linux-x86_64.AppImage
 477ddf3bcde5bf4e9f6282c280bb29192f1aca832cbb5ffa16459850c8b9cf69  app/release/AIC-ADE-2.6.30-linux-amd64.deb
 757d19554faf5cf70f664f40e6b44c63d3c4cecf62548f047dcedf875eaeb8dd  app/release/AIC-ADE-Setup-2.6.30.exe
-4965e42de31a9bc2561b71b75562f3a400eba9bf9dd48ae9951d138dd6ad74a2  app/release/latest.json.sig
+caad9da5ff6f85dbdec0b35e0028a6120e97281a4e22440a22017ef7cef06a84  app/release/latest.json
+f70ec25a7c4290c12150533e2eabe2cf4ac909c6614d98b56baaba5cf3c8bcf2  app/release/latest.json.sig
