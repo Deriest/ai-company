@@ -170,12 +170,23 @@ export function resolvePlatformDir(): string {
   if (process.env.AIC_PLATFORM_DIR && fs.existsSync(process.env.AIC_PLATFORM_DIR)) {
     return process.env.AIC_PLATFORM_DIR;
   }
-  // Packaged: resources/backend (extraResources)
+  // Packaged: extraResources are laid out FLAT under resources/. The `backend`
+  // package sits at resources/backend/ while its sibling packages that the code
+  // also imports (`storage/`, `agents/`, `llm/`, `conversation/`, `observability/`,
+  // …) live alongside it at resources/<name>. uvicorn is spawned as
+  // `backend.main:app` with cwd + PYTHONPATH = this directory, so the Python
+  // sys.path root MUST be resources/ itself — NOT resources/backend/ — otherwise
+  // both `import backend` and `from storage.database import …` resolve one level
+  // too deep and crash with ModuleNotFoundError. We only verify that the backend
+  // package exists, then return its parent.
   if (process.resourcesPath) {
-    const resourcesDir = path.join(process.resourcesPath, "backend");
-    if (fs.existsSync(resourcesDir)) return resourcesDir;
+    const backendPkg = path.join(process.resourcesPath, "backend");
+    if (fs.existsSync(backendPkg)) return process.resourcesPath;
   }
-  // Dev: sibling of app/ (monorepo: AI-Company/backend)
+  // Dev: sibling of app/ (monorepo: AI-Company/backend). This is likewise the
+  // PARENT of the nested backend/backend package, mirroring the packaged parent
+  // above so cwd/PYTHONPATH is the directory that contains both `backend/` and
+  // its `storage/`, `agents/`, … siblings.
   const appParentDir = path.join(app.getAppPath(), "..", "backend");
   if (fs.existsSync(appParentDir)) return appParentDir;
   const devWorkspace = path.join(__dirname, "..", "..", "..", "backend");
@@ -237,7 +248,14 @@ export function resolvePythonPath(platformDir: string): string | null {
 async function checkBackendHealth(): Promise<boolean> {
   if (!backendPort) return false;
   try {
-    const res = await fetch(`http://127.0.0.1:${backendPort}/health`);
+    // NOTE: use /readiness, NOT /health. Since the identity/auth hardening
+    // (require_current_user on the core router), /health returns 401 without a
+    // Bearer token — and the main process has no token yet (it only generates
+    // identity.json; the renderer logs in later). Hitting /health here would
+    // always 401, so the poll below would never see the backend as healthy and
+    // would SIGTERM it after 15s. /readiness is public and returns 200 once the
+    // DB connection is alive (a stronger liveness signal anyway).
+    const res = await fetch(`http://127.0.0.1:${backendPort}/readiness`);
     if (res.ok) {
       backendStatus = "healthy";
       backendError = null;

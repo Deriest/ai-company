@@ -61,6 +61,21 @@ if ! command -v wine &>/dev/null; then
   echo "⚠️  Wine not found — Windows build may fail on Linux."
 fi
 
+# ── 0. Preflight: every requirement must be importable from BOTH packaged ────
+#    runtimes. A dep that is only in the dev venv (and not the bundled
+#    python-linux/python-win) historically shipped and crashed the installed
+#    app at startup. Abort the release before building.
+
+echo ""
+echo "🩺 Step 0/8: Verifying requirements are bundled in both runtimes..."
+
+if ! python3 "$ROOT_DIR/scripts/verify_runtime_deps.py"; then
+  echo "❌ Aborting release — packaged runtimes are missing required modules."
+  exit 1
+fi
+
+echo "  ✅ All import-critical requirements present in python-linux + python-win"
+
 # ── 1. Bump version ─────────────────────────────────────────────────────────
 
 echo "📋 Step 1/7: Bumping version to ${VERSION}..."
@@ -110,6 +125,57 @@ npx electron-builder --win nsis --x64
 cd "$ROOT_DIR"
 
 echo "  ✅ Build complete"
+
+# ── 2b. Smoke test the PACKAGED backend ──────────────────────────────────────
+#   Boot the bundled python + backend exactly as Electron does (cwd=resources,
+#   PYTHONPATH=resources) and confirm it becomes ready. Catches the two bugs that
+#   historically shipped broken: (a) "ModuleNotFoundError: No module named
+#   'backend'" from a wrong sys.path root, and (b) a health probe hitting an
+#   auth-gated endpoint. Abort before hashing/upload if the sidecar won't start.
+
+echo ""
+echo "🩺 Step 2b/8: Booting packaged backend for smoke test..."
+
+SMOKE_RESOURCES="$RELEASE_DIR/linux-unpacked/resources"
+SMOKE_PY="$SMOKE_RESOURCES/python-linux/bin/python"
+SMOKE_PORT=18090
+SMOKE_DIR="$(mktemp -d)"
+SMOKE_SECRET="$(head -c32 /dev/urandom | xxd -p -c64)"
+
+if [[ ! -x "$SMOKE_PY" ]]; then
+  echo "❌ Bundled python-linux runtime missing at $SMOKE_PY — aborting."
+  rm -rf "$SMOKE_DIR"
+  exit 1
+fi
+
+AIC_DATA_DIR="$SMOKE_DIR" AIC_IDENTITY_FILE="$SMOKE_DIR/identity.json" AIC_JWT_SECRET="$SMOKE_SECRET" \
+PYTHONPATH="$SMOKE_RESOURCES" PYTHONUNBUFFERED=1 \
+"$SMOKE_PY" -m uvicorn backend.main:app --host 127.0.0.1 --port $SMOKE_PORT \
+  >"$SMOKE_DIR/startup.log" 2>&1 &
+SMOKE_PID=$!
+
+SMOKE_READY=""
+for _ in $(seq 1 30); do
+  sleep 0.5
+  if curl -sf "http://127.0.0.1:${SMOKE_PORT}/readiness" >/dev/null 2>&1; then
+    SMOKE_READY="yes"
+    break
+  fi
+done
+
+if [[ "$SMOKE_READY" != "yes" ]]; then
+  echo "❌ Packaged backend failed to become ready — ABORTING release."
+  echo "  --- startup.log (tail) ---"
+  tail -30 "$SMOKE_DIR/startup.log"
+  kill "$SMOKE_PID" 2>/dev/null || true
+  rm -rf "$SMOKE_DIR"
+  exit 1
+fi
+
+kill "$SMOKE_PID" 2>/dev/null || true
+wait "$SMOKE_PID" 2>/dev/null || true
+rm -rf "$SMOKE_DIR"
+echo "  ✅ Packaged backend booted and /readiness returned 200"
 
 # ── 3. Compute hashes + sizes ───────────────────────────────────────────────
 
