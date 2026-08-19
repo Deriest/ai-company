@@ -1,6 +1,6 @@
 # AIC-ADE — Agentic Development Environment
 
-**Latest release: v2.6.30** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
+**Latest release: v2.6.34** · **Electron + React 19** · **Python FastAPI + SQLite** · **Local-first**
 
 AIC-ADE is a self-hosted, local-first AI engineering desktop application. It runs a
 FastAPI backend on your machine (bound to `127.0.0.1`), provides a fully offline
@@ -49,13 +49,13 @@ browser — nothing is submitted automatically; review before clicking submit.
 
 ---
 
-## Download v2.6.30
+## Download v2.6.34
 
 || Platform | Download |
 ||---|---|
-|| Windows x64 | [AIC-ADE-Setup-2.6.30.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-Setup-2.6.30.exe) (143.66 MB) |
-|| Linux AppImage | [AIC-ADE-2.6.30-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-x86_64.AppImage) (188.12 MB) |
-|| Linux Debian | [AIC-ADE-2.6.30-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.30/AIC-ADE-2.6.30-linux-amd64.deb) (125.84 MB) |
+|| Windows x64 | [AIC-ADE-Setup-2.6.34.exe](https://github.com/Deriest/ai-company/releases/download/v2.6.34/AIC-ADE-Setup-2.6.34.exe) (143.66 MB) |
+|| Linux AppImage | [AIC-ADE-2.6.34-linux-x86_64.AppImage](https://github.com/Deriest/ai-company/releases/download/v2.6.34/AIC-ADE-2.6.34-linux-x86_64.AppImage) (188.12 MB) |
+|| Linux Debian | [AIC-ADE-2.6.34-linux-amd64.deb](https://github.com/Deriest/ai-company/releases/download/v2.6.34/AIC-ADE-2.6.34-linux-amd64.deb) (125.84 MB) |
 
 **View all release notes and assets →** [GitHub Releases](https://github.com/Deriest/ai-company/releases/tag/v2.6.29)
 

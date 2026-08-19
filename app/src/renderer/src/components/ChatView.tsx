@@ -59,13 +59,6 @@ interface AssistantMessageState {
   workflow?: WorkflowType
 }
 
-type AgentMode = 'build' | 'plan'
-
-const AGENT_WORKER_MAP: Record<AgentMode, string> = {
-  build: 'backend',
-  plan: 'research',
-}
-
 // ── Engine tiers (THINKER / CRAFTER / SPRINTER / VISION) ──
 
 type EngineTier = 'thinker' | 'crafter' | 'sprinter' | 'vision'
@@ -810,7 +803,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [dragActive, setDragActive] = useState(false)
   const [visionWarning, setVisionWarning] = useState('')
   const [sending, setSending] = useState(false)
-  const [agentMode, setAgentMode] = useState<AgentMode>('build')
   const [assistantStates, setAssistantStates] = useState<Map<string, AssistantMessageState>>(new Map())
   const [contextOptimized, setContextOptimized] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(false)
@@ -1349,11 +1341,13 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       // executeAgent returns an AbortController-backed cancel fn (QA-2437 BUG-4)
       // workspace + project_id: send the active project (repo_path + id) so the
       // dispatcher creates folder/files inside the user's chosen project folder.
+      // NOTE: no worker_role is sent — Hermes is the dispatcher, so the backend
+      // maps the selected workflow tags to the correct worker role itself
+      // (chat.py only maps when worker_role is omitted). No agent-mode toggle.
       abortRef.current = await chatApi.executeAgent(
         {
           conversation_id: convId,
           messages: [{ role: 'user', content: promptText }],
-          worker_role: AGENT_WORKER_MAP[agentMode],
           model_tier: hasImages ? 'vision' : 'crafter',
           attachments: attachmentPayload,
           workspace: activeProject?.repo_path || projectRoot || undefined,
@@ -1654,7 +1648,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     <Terminal className="size-5 text-muted-foreground/40" />
                   </div>
                   <p className="text-xs text-muted-foreground/60">
-                    {active ? `${agentMode} mode · describe what to do` : 'select or create a session'}
+                    {active ? `describe what to do` : 'select or create a session'}
                   </p>
                 </div>
               </div>
@@ -1673,42 +1667,14 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             )}
           </div>
 
-          {/* Status bar */}
-          <div className="flex items-center justify-between border-t border-border bg-sidebar px-4 py-1.5 text-[9px] text-muted-foreground/50 shrink-0">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <span className={cn("size-1.5 rounded-full", health === 'ok' ? 'bg-success' : 'bg-destructive')} />
-                {health === 'ok' ? 'connected' : health === 'bad' ? 'offline' : 'checking…'}
-              </span>
-              <span className="font-mono">{agentMode} agent</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setExplorerOpen(!explorerOpen)} className="hover:text-foreground flex items-center gap-1" aria-label={explorerOpen ? "Hide explorer" : "Show explorer"}>
-                <PanelRight className="size-3" />
-                {explorerOpen ? 'explorer' : ''}
-              </button>
-              <span className="font-mono">Hermes</span>
-            </div>
-          </div>
+
 
           {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
           <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="w-full max-w-none">
               {/* Keep the complete toolbar on one horizontal row. On narrow
                   windows the row scrolls left/right instead of dropping tiers. */}
-              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden pb-1">
-                {/* BUILD | PLAN */}
-                <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/50 p-0.5">
-                  {(['build', 'plan'] as AgentMode[]).map(mode => (
-                    <button key={mode} onClick={() => setAgentMode(mode)}
-                      className={cn("rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide transition-colors",
-                        agentMode === mode ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
-                      )}>
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-
+              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden pb-1">
                 {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
                 <div className="flex shrink-0 items-center gap-1.5">
                   <span className="text-[8px] font-semibold text-primary">Context</span>
@@ -1717,8 +1683,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   </span>
                 </div>
 
-                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80% */}
-                <div className="h-1 min-w-3 flex-1 overflow-hidden rounded-full bg-muted/40">
+                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80%. Constrained width so it
+                    no longer stretches the full row. */}
+                <div className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-muted/40">
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 
@@ -1790,7 +1757,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     }
                   }}
                   disabled={false} rows={1}
-                  placeholder={activeId ? `describe what to ${agentMode === 'build' ? 'build' : 'analyze'} or drop files…` : 'Type a message to start…'}
+                  placeholder={activeId ? `describe what to build or drop files…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
                 <input id="chat-file-input" type="file" multiple className="hidden" onChange={e => { if (e.target.files) addAttachments(e.target.files); e.currentTarget.value = '' }} />
                 <button onClick={() => document.getElementById('chat-file-input')?.click()} className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground" aria-label="Attach files" title="Attach files">

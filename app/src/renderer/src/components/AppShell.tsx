@@ -18,7 +18,7 @@ import type { LocalProfile } from "../lib/api/profile";
 const nav = [
   { id: "home", label: "Office", icon: LayoutDashboard },
   { id: "hermes", label: "Command Center", icon: Terminal },
-  
+
   { id: "skills", label: "Skills", icon: Wrench },
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "plugins", label: "Plugins", icon: GitBranch },
@@ -142,6 +142,19 @@ export function AppShell({
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex-1 min-h-0 flex flex-col relative">{children}</div>
+
+          {/* Global Status Bar */}
+          <div className="flex items-center justify-between border-t border-sidebar-border bg-sidebar px-4 py-1.5 text-[9px] text-muted-foreground/50 shrink-0 select-none">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-success" />
+                <span className="font-medium tracking-wide">connected</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[9px] font-mono opacity-50">AIC-ADE v2.6.33</span>
+            </div>
+          </div>
         </main>
       </div>
       <BugReportDialog open={bugOpen} onClose={() => setBugOpen(false)} />

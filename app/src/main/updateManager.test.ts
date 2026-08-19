@@ -4,6 +4,22 @@ import os from "node:os";
 import path from "node:path";
 import { UpdateManager, type IO, type AppAdapter, type UpdateState } from "./updateManager";
 
+// Mock global fetch to prevent real network calls during tests.
+// Signature .sig files should return non-OK so the unsigned policy applies.
+const originalFetch = global.fetch;
+global.fetch = vi.fn(async (input: string | URL | Request): Promise<Response> => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.endsWith(".sig")) {
+    return { ok: false } as Response;
+  }
+  return originalFetch(input);
+});
+
+vi.mock("../shared/updateSecurity", () => ({
+  verifyManifestSignature: vi.fn(() => true),
+  getVerificationStatus: vi.fn(() => ({ hasPublicKey: false, publicKeyLength: null, nodeEnv: "development", allowUnsigned: true })),
+}));
+
 // The module imports { app, shell, Notification } from "electron"; in a plain
 // Node vitest run that import would return the electron binary path string, so
 // we stub the module. All code-under-test uses the injected appAdapter/io
@@ -85,6 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  global.fetch = originalFetch;
   Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
   for (const dir of tmpDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });

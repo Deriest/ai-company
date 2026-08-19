@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
     # Core
     APP_NAME: str = "AIC Platform"
-    VERSION: str = os.getenv('AIC_VERSION', "2.6.28")
+    VERSION: str = os.getenv('AIC_VERSION', "2.6.34")
     DEBUG: bool = False
 
     # Database — absolute path is set after ensure_dirs when AIC_DATA_DIR is present
