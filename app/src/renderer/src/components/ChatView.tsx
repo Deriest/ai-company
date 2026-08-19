@@ -835,6 +835,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false)
   const [fetchingModels, setFetchingModels] = useState(false)
   const [compacting, setCompacting] = useState(false)
+  const [tierPopup, setTierPopup] = useState<EngineTier | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
   // ── Virtual list state (round-8) ────────────────────────
@@ -1670,110 +1671,138 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 
 
           {/* Composer — QA-2437 BUG-2: everything in ONE horizontal row, textarea below */}
-          <div className="border-t border-border/60 px-4 py-3.5 shrink-0 bg-card/20 backdrop-blur-sm">
+          <div className="border-t border-border px-4 py-3 shrink-0">
             <div className="w-full max-w-none">
-              {/* IMPROVED SINGLE-LINE TOOLBAR DESIGN: Modern polish, gradients, shadows, buttons inline */}
-              <div className="mb-2 flex items-center gap-3 overflow-x-auto overflow-y-hidden pb-1.5" style={{ scrollbarWidth: 'none' }}>
-                
-                {/* LEFT: Context Box + Progress Bar */}
-                <div className="flex items-center gap-3 shrink-0" title="Context usage indicator">
+              {/* Keep the complete toolbar on one horizontal row. On narrow
+                  windows the row scrolls left/right instead of dropping tiers. */}
+              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden pb-1">
+                {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[8px] font-semibold text-primary">Context</span>
+                  <span className="font-mono text-[8px] tabular-nums text-muted-foreground whitespace-nowrap">
+                    {totalTokens > 0 ? totalTokens.toLocaleString() : '?'}{contextWindow > 0 ? ` / ${contextWindow.toLocaleString()}` : ''}
+                  </span>
+                </div>
+
+                {/* Progress bar — QA-2437 BUG-3: green < 50%, yellow 50-80%, red > 80%. Constrained width so it
+                    no longer stretches the full row. */}
+                <div className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-muted/40">
+                  <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
+                </div>
+
+                {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors - click to open popup */}
+                {ENGINE_TIERS.map(tier => {
+                  const sel = tiers[tier]
+                  const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
+                  // Extract short model name for display
+                  const modelNameDisplay = sel.model ? sel.model.split('/').pop()?.replace('proxy/', '').slice(0, 14) : null
                   
-                  {/* Context Indicator Card */}
-                  <div className="group flex items-center gap-2 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 px-3 py-2 shadow-sm transition-all hover:shadow-md hover:from-primary/15 hover:to-primary/8 border border-primary/10 hover:border-primary/20 cursor-default">
-                    <span className="text-[9px] font-extrabold tracking-widest text-primary drop-shadow-sm">CONTEXT</span>
-                    <span className="font-mono text-[9px] font-bold tabular-nums text-primary">{totalTokens > 0 ? totalTokens.toLocaleString() : '?'}</span>
-                    {contextWindow > 0 && (
-                      <>
-                        <span className="text-[7px] font-semibold text-muted-foreground/60">/</span>
-                        <span className="font-mono text-[9px] font-bold tabular-nums text-muted-foreground/80">{contextWindow.toLocaleString()}</span>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Enhanced Progress Bar */}
-                  <div className="relative h-2 w-40 shrink-0 overflow-hidden rounded-full bg-gradient-to-b from-muted/50 to-muted/30 shadow-inner border border-muted/20" title="Token usage progress">
-                    <div className={cn("absolute inset-0 h-full rounded-full transition-all duration-500 ease-out", contextBarColor)} 
-                         style={{ width: `${contextPct}%`, boxShadow: 'inset 0 -1px 3px rgba(0,0,0,0.2), 0 0 12px rgba(0,0,0,0.1)' }} />
-                  </div>
-                </div>
-
-                {/* DIVIDER LINE */}
-                <div className="mx-1.5 h-6 w-px shrink-0 bg-gradient-to-b from-transparent via-muted/40 to-transparent"></div>
-
-                {/* MIDDLE: Tier Selectors (all 4 tiers inline) */}
-                <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                  {ENGINE_TIERS.map(tier => {
-                    const sel = tiers[tier]
-                    const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
-                    return (
-                      <div key={tier} className="group relative flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-card/60 to-card/40 px-2.5 py-1.5 shadow-sm transition-all hover:from-card/80 hover:to-card/60 hover:shadow-md border border-border/30 hover:border-border/50 cursor-default">
+                  return (
+                    <div key={tier} className="relative" onClick={(e) => e.stopPropagation()}>
+                      {/* Tier trigger button - shows current model selection */}
+                      <button
+                        onClick={() => { setTierPopup(tierPopup === tier ? null : tier); }}
+                        className="flex items-center gap-2 rounded-md border border-border/50 bg-card/70 px-3 py-1.5 text-[10px] hover:bg-muted/60 cursor-pointer transition-all"
+                        style={{
+                          boxShadow: tierPopup === tier ? 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)' : undefined,
+                          borderColor: tierPopup === tier ? 'rgba(59, 130, 246, 0.4)' : undefined,
+                          backgroundColor: tierPopup === tier ? 'rgba(59, 130, 246, 0.12)' : undefined
+                        }}
+                        title={`Click to select ${tier}`}
+                      >
+                        {/* Tier label */}
+                        <span className={cn("font-bold tracking-tight", TIER_LABEL_COLORS[tier])}>{tier.toUpperCase()}</span>
                         
-                        {/* Glow effect on hover */}
-                        <div className={cn("absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-20", TIER_LABEL_COLORS[tier].replace('text-', 'bg-'))}></div>
+                        {/* Chevron icon */}
+                        <ChevronDown className="size-2.5 text-muted-foreground/70" />
                         
-                        {/* Tier Label */}
-                        <span className={cn("relative z-10 text-[8px] font-extrabold tracking-widest", TIER_LABEL_COLORS[tier])}>
-                          {tier.toUpperCase()}
-                        </span>
-                        
-                        {/* Provider Dropdown */}
-                        <select value={sel.provider} onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
-                          aria-label={`${tier} provider`}
-                          className="relative z-10 block cursor-pointer rounded bg-transparent px-1 py-0.5 text-[8px] font-medium text-foreground outline-none focus:text-primary [&::-ms-expand]:hidden [&::-webkit-appearance:none] [&::-webkit-slider-thumb]:appearance-none">
-                          <option value="">—</option>
-                          {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                        </select>
-                        
-                        {/* Model Dropdown */}
-                        <select value={sel.model} onChange={e => handleTierChange(tier, { model: e.target.value })}
-                          aria-label={`${tier} model`}
-                          className="relative z-10 block cursor-pointer rounded bg-transparent px-1 py-0.5 font-mono text-[8px] font-medium text-foreground/90 outline-none focus:text-primary [&::-ms-expand]:hidden [&::-webkit-appearance:none]">
-                          <option value="">—</option>
-                          {providerModels.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
-                        </select>
-                      </div>
-                    )
-                  })}
-                </div>
+                        {/* Selected provider/model display */}
+                        {sel.provider && (
+                          <>
+                            <span className="hidden sm:inline text-[7px] text-muted-foreground/50 font-medium">|</span>
+                            <span className="hidden sm:inline ml-1.5 font-mono text-[9px] font-semibold text-foreground/90 truncate" title={sel.model}>
+                              {modelNameDisplay}
+                            </span>
+                            <span className="sm:hidden ml-1 font-mono text-[7px] font-semibold text-foreground/80">{modelNameDisplay}</span>
+                          </>
+                        )}
+                      </button>
+                      
+                      {/* Popup dropdown - appears ABOVE the button */}
+                      {tierPopup === tier && (
+                        <div 
+                          className="absolute bottom-full left-0 mb-2 z-50 min-w-[200px] rounded-xl border border-border/60 bg-card/98 p-3 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-200"
+                          style={{ 
+                            boxShadow: '0 -8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)',
+                            background: 'linear-gradient(180deg, rgba(31, 41, 55, 0.98) 0%, rgba(31, 41, 55, 0.94) 100%)',
+                            backdropFilter: 'blur(16px)'
+                          }}
+                        >
+                          {/* Header */}
+                          <div className="mb-3 pb-2 border-b border-border/40">
+                            <h3 className={cn("text-[10px] font-extrabold uppercase tracking-widest", TIER_LABEL_COLORS[tier])}>
+                              Configure {tier.toUpperCase()}
+                            </h3>
+                          </div>
+                          
+                          {/* Provider selector */}
+                          <div className="mb-3">
+                            <label className="mb-1.5 block text-[7px] font-extrabold uppercase tracking-wide text-muted-foreground/70">
+                              Provider
+                            </label>
+                            <select 
+                              value={sel.provider} 
+                              onChange={e => handleTierChange(tier, { provider: e.target.value, model: '' })}
+                              aria-label={`${tier} provider`}
+                              className="w-full rounded-lg border border-border/50 bg-card/80 px-3 py-2 text-[9px] font-medium outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20 transition-all"
+                            >
+                              <option value="">— Select Provider —</option>
+                              {providers.map(p => (
+                                <option key={p.id} value={p.name}>{p.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {/* Model selector */}
+                          <div>
+                            <label className="mb-1.5 block text-[7px] font-extrabold uppercase tracking-wide text-muted-foreground/70">
+                              Model
+                            </label>
+                            <select 
+                              value={sel.model} 
+                              onChange={e => handleTierChange(tier, { model: e.target.value })}
+                              aria-label={`${tier} model`}
+                              className="w-full rounded-lg border border-border/50 bg-card/80 px-3 py-2 text-[9px] font-mono font-medium outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20 transition-all"
+                            >
+                              <option value="">— Select Model —</option>
+                              {providerModels.map(m => (
+                                <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {/* Close button */}
+                          <button 
+                            onClick={() => setTierPopup(null)}
+                            className="mt-3 w-full rounded-lg border border-border/30 bg-muted/30 px-3 py-2 text-[8px] font-semibold text-muted-foreground hover:bg-destructive/15 hover:text-destructive hover:border-destructive/40 transition-all"
+                          >
+                            ✕ Close
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
 
-                {/* DIVIDER LINE */}
-                <div className="mx-1.5 h-6 w-px shrink-0 bg-gradient-to-b from-transparent via-muted/40 to-transparent"></div>
-
-                {/* RIGHT: Fetch & Compact Buttons (pill-style, inline) */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
-                    className="group relative inline-flex items-center gap-2 rounded-xl border border-border/40 bg-gradient-to-br from-card/50 to-card/30 px-3.5 py-2 text-[9px] font-bold tracking-wide text-muted-foreground transition-all hover:border-primary/30 hover:from-primary/10 hover:to-primary/5 hover:text-primary hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card/50 disabled:hover:text-muted-foreground overflow-hidden">
-                    
-                    {/* Background shine effect */}
-                    <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent transition-transform group-hover:animate-[shimmer_1s_infinite]"></div>
-                    
-                    {/* Icon spinner when fetching */}
-                    {fetchingModels ? (
-                      <Loader2 className="relative z-10 size-3 animate-spin" />
-                    ) : (
-                      <svg className="relative z-10 size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                    )}
-                    
-                    <span className="relative z-10 font-semibold">FETCH</span>
-                  </button>
-
-                  <button onClick={() => void handleCompact()} disabled={compacting || sending}
-                    className="group relative inline-flex items-center gap-2 rounded-xl border border-border/40 bg-gradient-to-br from-card/50 to-card/30 px-3.5 py-2 text-[9px] font-bold tracking-wide text-muted-foreground transition-all hover:border-primary/30 hover:from-primary/10 hover:to-primary/5 hover:text-primary hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card/50 disabled:hover:text-muted-foreground overflow-hidden">
-                    
-                    {/* Background shine effect */}
-                    <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent transition-transform group-hover:animate-[shimmer_1s_infinite]"></div>
-                    
-                    {/* Icon spinner when compacting */}
-                    {compacting ? (
-                      <Loader2 className="relative z-10 size-3 animate-spin" />
-                    ) : (
-                      <svg className="relative z-10 size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
-                    )}
-                    
-                    <span className="relative z-10 font-semibold">COMPACT</span>
-                  </button>
-                </div>
-
+                {/* Fetch / Compact */}
+                <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
+                </button>
+                <button onClick={() => void handleCompact()} disabled={compacting || sending}
+                  className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
+                  {compacting ? <Loader2 className="size-2.5 animate-spin" /> : 'Compact'}
+                </button>
               </div>
 
               {visionWarning && <p className="mb-2 text-[10px] text-warning">{visionWarning}</p>}
