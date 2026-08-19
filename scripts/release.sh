@@ -154,11 +154,17 @@ PYTHONPATH="$SMOKE_RESOURCES" PYTHONUNBUFFERED=1 \
   >"$SMOKE_DIR/startup.log" 2>&1 &
 SMOKE_PID=$!
 
+# Poll up to 60s — the first cold start (SQLite schema + migrations + worker seed
+# + embedding probe) can take a while right after a heavy wine-based NSIS build.
 SMOKE_READY=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 120); do
   sleep 0.5
   if curl -sf "http://127.0.0.1:${SMOKE_PORT}/readiness" >/dev/null 2>&1; then
     SMOKE_READY="yes"
+    break
+  fi
+  # If the process already died, stop waiting.
+  if ! kill -0 "$SMOKE_PID" 2>/dev/null; then
     break
   fi
 done
