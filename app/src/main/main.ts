@@ -308,16 +308,34 @@ async function ensureBackendRunning(): Promise<void> {
         }
     }
     
-    // CRITICAL: AIC_JWT_SECRET must be provided in production
-    // Never auto-generate - requires explicit security configuration
-    if (!process.env.AIC_JWT_SECRET) {
-        throw new Error(
-            "AIC_JWT_SECRET environment variable is required for production security.\n" +
-            "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"\n" +
-            "Then set: export AIC_JWT_SECRET=<your_generated_secret>"
-        );
+    // CRITICAL: Ensure AIC_JWT_SECRET is always set for production security
+    // Auto-generate on first run if not explicitly provided (user-friendly approach)
+    const userDataDir = appDataDir();
+    fs.mkdirSync(userDataDir, { recursive: true });
+    const jwtSecretPath = path.join(userDataDir, ".jwt_secret");
+    
+    let jwtSecret = process.env.AIC_JWT_SECRET || "";
+    
+    // If no explicit env var, check file first (same as backend logic)
+    if (!jwtSecret && fs.existsSync(jwtSecretPath)) {
+        try {
+            jwtSecret = fs.readFileSync(jwtSecretPath, "utf8").trim();
+            console.log(`JWT secret loaded from ${jwtSecretPath}`);
+        } catch (e) {
+            console.warn("Could not read existing JWT secret file, will regenerate");
+        }
     }
-    const jwtSecret = process.env.AIC_JWT_SECRET!;  // Type assertion since we validated above
+    
+    // Auto-generate new secret if none exists
+    if (!jwtSecret) {
+        jwtSecret = crypto.randomBytes(32).toString("hex"); // 64 char hex = 256 bits
+        fs.writeFileSync(jwtSecretPath, jwtSecret, { mode: 0o600 });
+        console.log(`✨ Generated new JWT secret saved to ${jwtSecretPath}`);
+        console.log("Auto-generated key for secure API authentication");
+        
+        // Also set in environment for this process
+        process.env.AIC_JWT_SECRET = jwtSecret;
+    }
     
     backendProc = spawn(pythonPath, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(backendPort)], {
       cwd: platformDir,
