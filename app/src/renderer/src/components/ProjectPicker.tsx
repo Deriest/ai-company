@@ -29,16 +29,31 @@ export function ProjectPicker({
 }) {
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [active, setActive] = useState<ProjectRecord | null>(null)
+  const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [browsing, setBrowsing] = useState(false)
 
   useEffect(() => {
-    projectsApi.list().then(setProjects).catch(() => {})
-    projectsApi.getActive().then((p) => {
-      setActive(p)
-      onActiveChange?.(p)
-    }).catch(() => {})
-  }, [refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false
+    const loadActive = async () => {
+      try {
+        setLoading(true)
+        await Promise.all([
+          projectsApi.list().then(result => { if (!cancelled) setProjects(result) }),
+          projectsApi.getActive().then((p) => {
+            if (!cancelled) {
+              setActive(p)
+              onActiveChange?.(p)
+            }
+          })
+        ])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadActive()
+    return () => { cancelled = true }
+  }, [refreshKey, onActiveChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = async (project: ProjectRecord) => {
     try {

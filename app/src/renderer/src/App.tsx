@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react"
 import "./styles/tailwind.css";
 import { useBoot } from "./hooks/useBoot";
 import { BootSplash } from "./components/BootSplash";

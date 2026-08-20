@@ -793,7 +793,23 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => {
-    try { return sessionStorage.getItem('aic-ade-active-conversation') }
+    try { 
+      const cachedSession = sessionStorage.getItem('aic-ade-active-conversation')
+      const cachedConversations = window.localStorage.getItem('aic-conversations-v2')
+      if (cachedConversations) {
+        try {
+          const parsed = JSON.parse(cachedConversations)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Restore active session from cache first
+            if (cachedSession && parsed.some(c => c.id === cachedSession)) {
+              return cachedSession
+            }
+            return parsed[0].id
+          }
+        } catch {}
+      }
+      return cachedSession
+    }
     catch { return null }
   })
   const [messages, setMessages] = useState<MessageRecord[]>([])
@@ -973,6 +989,9 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       } else {
         const list = await conversationsApi.list()
         setConversations(list)
+        // Persist to localStorage for fast restore on next mount
+        window.localStorage.setItem('aic-conversations-v2', JSON.stringify(list))
+        
         const restored = activeId && list.some(c => c.id === activeId) ? activeId : list[0]?.id || null
         if (restored !== activeId) setActiveId(restored)
       }

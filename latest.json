@@ -1,28 +1,28 @@
 {
-  "version": "2.6.36",
+  "version": "2.6.37",
   "channel": "stable",
-  "releaseDate": "2026-08-20",
-  "releaseNotes": "v2.6.36 — See https://github.com/Deriest/ai-company/releases/tag/v2.6.36 for release notes.",
+  "releaseDate": "2026-08-21",
+  "releaseNotes": "v2.6.37 — See https://github.com/Deriest/ai-company/releases/tag/v2.6.37 for release notes.",
   "platforms": {
     "linux": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.36/AIC-ADE-2.6.36-linux-x86_64.AppImage",
-      "sha256": "6eceb6577644143c942cab7044c8ed0d9bf276f0350004edd013542498303dc1",
-      "size": 197262478,
-      "filename": "AIC-ADE-2.6.36-linux-x86_64.AppImage",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.37/AIC-ADE-2.6.37-linux-x86_64.AppImage",
+      "sha256": "b6eac0065c5905172a6e292287ac9776518b951864ee4f1dec8d2fa8699205cf",
+      "size": 197263108,
+      "filename": "AIC-ADE-2.6.37-linux-x86_64.AppImage",
       "type": "AppImage"
     },
     "linux-deb": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.36/AIC-ADE-2.6.36-linux-amd64.deb",
-      "sha256": "dc00e24dfa6b02ff88c95ab66ff5393ca03efcbc7b4ae14e3f8487e6e5243c39",
-      "size": 131975524,
-      "filename": "AIC-ADE-2.6.36-linux-amd64.deb",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.37/AIC-ADE-2.6.37-linux-amd64.deb",
+      "sha256": "befebed7e0b24337b2d238ccf49d93ab39d8178ddd6d11b4fcc892b129904880",
+      "size": 131974812,
+      "filename": "AIC-ADE-2.6.37-linux-amd64.deb",
       "type": "deb"
     },
     "win32": {
-      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.36/AIC-ADE-Setup-2.6.36.exe",
-      "sha256": "e7ae55d615f733471795747d8e776cd94937c70ff404f4fa242622a165c2834e",
-      "size": 150642681,
-      "filename": "AIC-ADE-Setup-2.6.36.exe",
+      "downloadUrl": "https://github.com/Deriest/ai-company/releases/download/v2.6.37/AIC-ADE-Setup-2.6.37.exe",
+      "sha256": "b9f7c5f20d3da83dc82394389a2ed69b063d1abac36bf03e2848614d9b84a632",
+      "size": 150643224,
+      "filename": "AIC-ADE-Setup-2.6.37.exe",
       "type": "nsis"
     }
   }

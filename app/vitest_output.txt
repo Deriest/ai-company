@@ -1,0 +1,110 @@
+
+ RUN  v3.2.7 /home/tvd/AI-Company/app
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: auth failure > rejects invalid credentials with 401
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: auth failure > rejects missing token on protected endpoint
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: auth failure > rejects invalid token
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: non-existent resources > returns error for non-existent task
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: non-existent resources > returns error for non-existent worker
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: non-existent resources > handles non-existent conversation messages gracefully
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: empty/malformed requests > handles empty body on login
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: empty/malformed requests > handles project creation with empty name
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: empty/malformed requests > handles dispatch on non-existent task graph
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: empty/malformed requests > handles cancel on non-existent job
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: data shape validation > workers response is array with id field
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: data shape validation > tasks response is array
+SKIP: no token
+
+stdout | src/renderer/src/lib/edge-cases.test.ts > edge case: data shape validation > notifications response is array
+SKIP: no token
+
+ ✓ src/renderer/src/lib/edge-cases.test.ts (13 tests) 39ms
+ ✓ src/renderer/src/lib/api/chat.test.ts (6 tests) 151ms
+ ✓ tests/frontend_api_client.test.ts (7 tests) 14ms
+ ✓ src/main/main.test.ts (20 tests) 44ms
+stdout | src/renderer/src/lib/integration.test.ts > integration: live platform API > health endpoint responds
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/integration.test.ts > integration: live platform API > login returns token
+SKIP: platform not running
+
+stdout | src/renderer/src/lib/integration.test.ts > integration: live platform API > workers returns 15 canonical
+SKIP: no token
+
+stdout | src/renderer/src/lib/integration.test.ts > integration: live platform API > tasks returns array
+SKIP: no token
+
+stdout | src/renderer/src/lib/integration.test.ts > integration: live platform API > projects returns array
+SKIP: no token
+
+ ✓ src/renderer/src/lib/integration.test.ts (5 tests) 45ms
+ ✓ src/main/updateManager.test.ts (16 tests) 869ms
+   ✓ UpdateManager.checkForUpdates > reports available with artifact when a newer version exists  567ms
+ ✓ src/renderer/src/lib/api/profile.test.ts (11 tests) 18ms
+ ✓ src/renderer/src/lib/workflows.test.ts (22 tests) 20ms
+ ✓ src/renderer/src/lib/virtualList.test.ts (15 tests) 14ms
+ ✓ src/renderer/src/lib/edge-cases.unit.test.ts (8 tests) 21ms
+stderr | src/shared/updateSecurity.test.ts > updateSecurity — unsigned manifest policy (H4/M12) > verifyRSASignature rejects garbage signatures when a key is provided
+[updateSecurity] RSA signature verification error: Error: error:1E08010C:DECODER routines::unsupported
+[90m    at Proxy.createPublicKey (node:internal/crypto/keys:707:12)[39m
+    at verifyRSASignature [90m(/home/tvd/AI-Company/app/[39msrc/shared/updateSecurity.ts:103:34[90m)[39m
+    at [90m/home/tvd/AI-Company/app/[39msrc/shared/updateSecurity.test.ts:14:12
+    at [90mfile:///home/tvd/AI-Company/app/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:155:11
+    at [90mfile:///home/tvd/AI-Company/app/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:26
+    at [90mfile:///home/tvd/AI-Company/app/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///home/tvd/AI-Company/app/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1863:10[90m)[39m
+    at runTest [90m(file:///home/tvd/AI-Company/app/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1574:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m {
+  opensslErrorStack: [ [32m'error:1E08010C:DECODER routines::unsupported'[39m ],
+  library: [32m'DECODER routines'[39m,
+  reason: [32m'unsupported'[39m,
+  code: [32m'ERR_OSSL_UNSUPPORTED'[39m
+}
+
+ ✓ src/shared/updateSecurity.test.ts (3 tests) 18ms
+ ✓ src/renderer/src/lib/api/backup.test.ts (4 tests) 26ms
+ ✓ src/renderer/src/lib/updateManager.test.ts (11 tests) 12ms
+ ✓ src/renderer/src/lib/fsm.test.ts (5 tests) 11ms
+ ✓ src/renderer/src/lib/paths.test.ts (2 tests) 7ms
+ ✓ src/renderer/src/lib/pipeline.test.ts (13 tests) 12ms
+ ✓ src/renderer/src/lib/security.test.ts (5 tests) 7ms
+ ✓ src/renderer/src/lib/filetree.test.ts (4 tests) 8ms
+ ✓ src/renderer/src/lib/sessionRestore.test.ts (9 tests) 8ms
+ ✓ src/renderer/src/lib/sidecar.test.ts (5 tests) 7ms
+ ✓ src/renderer/src/lib/providerModel.test.ts (5 tests) 5ms
+ ✓ src/renderer/src/lib/projectEnv.test.ts (5 tests) 8ms
+ ✓ src/renderer/src/lib/errors.test.ts (4 tests) 22ms
+ ✓ src/renderer/src/lib/onboarding.test.ts (3 tests) 6ms
+ ✓ src/renderer/src/lib/projectBootstrap.test.ts (3 tests) 8ms
+ ✓ src/renderer/src/components/ErrorBoundary.test.tsx (3 tests) 90ms
+ ✓ src/renderer/src/components/ChatView.test.tsx (5 tests) 74ms
+ ✓ src/renderer/src/components/ChatView.sendlock.test.tsx (2 tests) 468ms
+
+ Test Files  28 passed (28)
+      Tests  214 passed (214)
+   Start at  16:08:30
+   Duration  7.05s (transform 1.09s, setup 0ms, collect 3.07s, tests 2.03s, environment 3.63s, prepare 3.83s)
+
