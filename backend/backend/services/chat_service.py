@@ -611,22 +611,27 @@ class ChatService:
                 cost = (prompt_tokens * 0.000003 + completion_tokens * 0.000015)
 
             latency_ms = int((time.time() - start_time) * 1000)
+            total_tokens = usage.get("total_tokens", 0)
+            
             logger.info(json.dumps({
                 "event": "chat_completion",
                 "provider": provider_id,
                 "model": model_id,
+                "tier": model_tier,  # Track which tier was used for latency analysis
                 "latency_ms": latency_ms,
-                "token_count": usage.get("total_tokens", 0),
+                "token_count": total_tokens,
                 "cost": round(cost, 6),
                 "status": "completed",
             }))
-            return {"id": msg.id, "role": "assistant", "content": content, "status": "completed", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": usage.get("total_tokens", 0), "cost": round(cost, 6)}}
+            
+            return {"id": msg.id, "role": "assistant", "content": content, "status": "completed", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens, "cost": round(cost, 6), "latency_ms": latency_ms}}
         except Exception as e:
             latency_ms = int((time.time() - start_time) * 1000)
             logger.error(json.dumps({
                 "event": "chat_completion_error",
                 "provider": provider_id,
                 "model": model_id,
+                "tier": model_tier,
                 "latency_ms": latency_ms,
                 "error": str(e),
             }))
