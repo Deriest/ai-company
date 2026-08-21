@@ -57,7 +57,14 @@ export async function fetchUser(userId: string) {
 @pytest.mark.asyncio
 async def test_ast_analyzer_api():
     from backend.ast_analyzer import ASTAnalyzer
-    res = ASTAnalyzer.parse_python_file("backend/ast_analyzer.py")
-    assert res["status"] == "success"
-    assert "ASTAnalyzer" in [s["name"] for s in res["symbols"]]
+    from pathlib import Path
+    
+    # Use absolute path based on test file location
+    test_file = Path(__file__).resolve()
+    # Navigate: tests/ -> backend/ -> ast_analyzer.py
+    ast_file = test_file.parent.parent / "backend" / "ast_analyzer.py"
+    
+    res = ASTAnalyzer.parse_python_file(str(ast_file))
+    assert res.get("status") == "success", f"Expected success, got: {res}"
+    assert "ASTAnalyzer" in [s["name"] for s in res.get("symbols", [])], f"No ASTAnalyzer symbol found. Result: {res}"
 
