@@ -229,20 +229,28 @@ async def install_plugin(session: AsyncSession, repo_url: str, plugin_path: str 
 async def list_plugins(session: AsyncSession) -> list[dict]:
     result = await session.execute(select(PluginEntry))
     entries = result.scalars().all()
-    return [{
-        "id": e.id,
-        "plugin_id": e.plugin_id,
-        "name": e.name,
-        "description": e.description,
-        "version": e.version,
-        "source": e.source,
-        "source_url": e.source_url,
-        "package_path": e.package_path,
-        "components": e.components or [],
-        "assigned_workers": e.assigned_workers or [],
-        "is_enabled": e.is_enabled,
-        "is_required": e.is_required,
-    } for e in entries]
+    plugins = []
+    for e in entries:
+        # Parse manifest to extract minimum required version (if defined)
+        manifest = e.manifest or {}
+        min_version = manifest.get("minRequiredVersion", "0.0.0")
+        
+        plugins.append({
+            "id": e.id,
+            "plugin_id": e.plugin_id,
+            "name": e.name,
+            "description": e.description,
+            "version": e.version,
+            "min_required_version": min_version,
+            "source": e.source,
+            "source_url": e.source_url,
+            "package_path": e.package_path,
+            "components": e.components or [],
+            "assigned_workers": e.assigned_workers or [],
+            "is_enabled": e.is_enabled,
+            "is_required": e.is_required,
+        })
+    return plugins
 
 
 async def update_plugin(session: AsyncSession, plugin_id: str, patch: dict) -> dict | None:

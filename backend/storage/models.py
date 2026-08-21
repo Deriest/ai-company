@@ -830,6 +830,7 @@ class PluginEntry(Base):
     name = Column(String(128), nullable=False)
     description = Column(Text, nullable=False)
     version = Column(String(32), default="0.0.0")
+    minimum_version = Column(String(32), default="")  # Minimum required version for security/compatibility
     source = Column(String(64), default="github")  # github | local | built-in
     source_url = Column(String(512), default="")
     package_path = Column(String(512), default="")  # local path to installed package

@@ -5,6 +5,24 @@
  * Plugins can include skills, commands, agents, hooks, MCP servers.
  */
 import { useState, useEffect } from 'react'
+
+// Helper: Compare semantic versions
+const compareVersions = (v1: string, v2: string): number => {
+  const parts1 = v1.split('.').map(Number)
+  const parts2 = v2.split('.').map(Number)
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const a = parts1[i] || 0
+    const b = parts2[i] || 0
+    if (a > b) return 1
+    if (a < b) return -1
+  }
+  return 0
+}
+
+const isVersionOutdated = (current: string, required: string): boolean => {
+  return compareVersions(current, required) < 0
+}
+
 import {
   Plus, Search, X, Trash2, RefreshCw, Plug,
   CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
@@ -14,6 +32,33 @@ import {
 import { Card, PageHeader, Badge } from './kit'
 import { cn } from '../lib/utils'
 import { apiClient } from '../lib/api/client'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+
+// Version Warning Badge Component
+const VersionStatusBadge = ({ plugin }: { plugin: PluginRecord }) => {
+  if (!plugin.min_required_version) {
+    return <CheckCircle2 className="w-4 h-4 text-green-600" />
+  }
+  
+  const outdated = isVersionOutdated(plugin.version, plugin.min_required_version)
+  
+  return (
+    <div className="flex items-center gap-1">
+      {outdated ? (
+        <AlertTriangle className="w-4 h-4 text-yellow-600" title={`Version ${plugin.version} is outdated. Required: ${plugin.min_required_version}`} />
+      ) : (
+        <CheckCircle2 className="w-4 h-4 text-green-600" />
+      )}
+      <span className="text-xs font-medium">
+        v{plugin.version}
+        {!outdated && plugin.min_required_version && ` ≥ ${plugin.min_required_version}`}
+      </span>
+    </div>
+  )
+}
+
+import { cn } from '../lib/utils'
+import { apiClient } from '../lib/api/client'
 
 interface PluginRecord {
   id: string
@@ -21,6 +66,8 @@ interface PluginRecord {
   name: string
   description: string
   version: string
+  min_required_version?: string  // Minimum required version from manifest
+  minimum_version?: string       // Minimum required version stored in DB
   source: string
   source_url: string
   package_path: string
@@ -43,6 +90,33 @@ const COMPONENT_ICONS: Record<string, React.ComponentType<{ className?: string }
   templates: BookOpen,
 }
 
+// Version Filter Controls Component
+const VersionFilter = ({ current, onChange }: { current: string; onChange: (v: string) => void }) => {
+  const filters = [
+    { value: 'all', label: 'All Plugins' },
+    { value: 'current', label: 'Up-to-Date' },
+    { value: 'requires-update', label: 'Needs Update' },
+  ]
+  
+  return (
+    <div className="flex gap-2 mb-4">
+      {filters.map((f) => (
+        <button
+          key={f.value}
+          onClick={() => onChange(f.value)}
+          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+            current === f.value
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted hover:bg-muted/80'
+          }`}
+        >
+          {f.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const WORKER_OPTIONS = [
   'hermes', 'rex', 'pm', 'research', 'designer', 'documentation',
   'architect', 'backend', 'frontend', 'qa', 'performance', 'database',
@@ -61,6 +135,7 @@ export function PluginsView() {
   const [installError, setInstallError] = useState('')
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null)
   const [updatingPlugin, setUpdatingPlugin] = useState<string | null>(null)
+  const [versionFilter, setVersionFilter] = useState<'all' | 'current' | 'requires-update'>('all')
   const [updateMessage, setUpdateMessage] = useState<string | null>(null)
 
   const load = async () => {
