@@ -524,6 +524,7 @@ from backend.routes.verification import router as verification_router
 from backend.routes.delivery import router as delivery_router
 from backend.routes.autonomy import router as autonomy_router
 from backend.routes.tools import router as tools_router
+from backend.routes.latency import router as latency_router
 app.include_router(tools_router, prefix="/api")
 
 app.include_router(conversations_router, prefix="/api/conversations")
@@ -537,3 +538,4 @@ app.include_router(dispatcher_router, prefix="/api/dispatcher")
 app.include_router(verification_router, prefix="/api/verification")
 app.include_router(delivery_router, prefix="/api/delivery")
 app.include_router(autonomy_router, prefix="/api/autonomy")
+app.include_router(latency_router, prefix="/api")

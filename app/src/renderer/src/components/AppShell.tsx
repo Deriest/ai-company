@@ -10,6 +10,7 @@ import {
   Plug,
   GitBranch,
 } from "lucide-react";
+import { Gauge } from "lucide-react";
 import { cn } from "../lib/utils";
 import { BugReportDialog } from "./auth/Dialogs";
 import TitleBar from "./TitleBar";
@@ -23,6 +24,7 @@ const nav = [
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "plugins", label: "Plugins", icon: GitBranch },
   { id: "settings", label: "Settings", icon: Settings },
+  { id: "insights", label: "Performance", icon: Gauge },
 ] as const;
 
 export function AppShell({

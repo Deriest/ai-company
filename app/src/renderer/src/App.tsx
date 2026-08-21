@@ -16,6 +16,7 @@ import { JobsView } from "./components/JobsView";
 import { MemoryView } from "./components/MemoryView";
 import { RAGView } from "./components/RAGView";
 import { AutomationView } from "./components/AutomationView";
+import { PerformanceInsights } from "./components/PerformanceInsights";
 import { OnboardingFlow } from "./components/auth/OnboardingFlow";
 import { CommandPalette } from "./components/CommandPalette";
 import { TerminalPanel } from "./components/Terminal";
@@ -23,7 +24,7 @@ import { profileApi, type LocalProfile } from "./lib/api/profile";
 import type { ProjectRecord } from "./lib/api/projects";
 import type { RestoredState, View } from "./types";
 
-const navViews: View[] = ["home", "hermes", "skills", "mcp", "plugins", "settings"];
+const navViews: View[] = ["home", "hermes", "skills", "mcp", "plugins", "insights", "settings"];
 
 /**
  * v2.4.0 — Local profile (no auth). First-launch onboarding → main dashboard.
@@ -182,6 +183,8 @@ const boot = useBoot({
       case "hermes":
       case "chat":
         return null;
+      case "insights":
+        return <PerformanceInsights />;
       // live route unified with workspace/office above
 
       case "skills":
