@@ -523,6 +523,8 @@ from backend.routes.dispatcher import router as dispatcher_router
 from backend.routes.verification import router as verification_router
 from backend.routes.delivery import router as delivery_router
 from backend.routes.autonomy import router as autonomy_router
+from backend.routes.tools import router as tools_router
+app.include_router(tools_router, prefix="/api")
 
 app.include_router(conversations_router, prefix="/api/conversations")
 app.include_router(websocket_router, prefix="/ws")
