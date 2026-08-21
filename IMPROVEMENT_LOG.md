@@ -229,3 +229,78 @@ $ python3 -m pytest backend/tests/ --tb=no -q
 ---
 
 **Next Cycle:** Continue audit or implement one of the innovation backlog items
+---
+
+## CYCLE #5 - PARTIAL (AUDIT LOGGING FOUNDATION)
+
+**Date:** 2026-08-21  
+**Phase:** AUDIT → PRIORITIZE → IMPLEMENT  
+**Branch:** `feat/improvement-loop`
+
+### Implementation Status: PARTIALLY COMPLETE
+
+**Backend Model & Logging:** ✅ Complete
+- Added `ToolCallLog` model in `backend/models/ai_runtime.py`
+- Modified `tool_dispatcher.execute()` to accept `conversation_id`/`message_id` and perform async audit logging
+- Created `backend/routes/tools.py` with `/api/tools/audit` endpoint
+
+**API Registration:** ⏳ Pending
+- Tools route file created but not yet registered in `main.py`
+- Edit tool introduced indentation conflicts during modification attempts
+- Requires manual addition of router registration line to main.py
+
+### Files Modified
+1. `backend/backend/models/ai_runtime.py` - Added ToolCallLog model (~15 lines)
+2. `backend/backend/services/tool_dispatcher.py` - Audit logging integration (~30 lines)
+3. `backend/backend/routes/tools.py` - NEW file with audit endpoints (~100 lines)
+4. `backend/backend/main.py` - PENDING router registration
+
+### Implementation Details
+```python
+# New database model
+class ToolCallLog(Base):
+    __tablename__ = "tool_call_logs"
+    conversation_id, message_id, tool_name, arguments, result, error,
+    execution_time_ms, status, created_at
+
+# Enhanced execute() method
+async def execute(self, tool_name, arguments, conversation_id=None, message_id=None):
+    try:
+        result = await self._run_tool(...)
+        await self._log_tool_call(..., status="completed", ...)
+        return result
+    except Exception as e:
+        await self._log_tool_call(..., status="error", error=str(e))
+        raise
+
+# New API endpoint
+@router.get("/tools/audit")
+async def get_tool_call_audit_log(conversation_id: str, limit=100, offset=0):
+    """Return tool call history for debugging/transparency."""
+    ...
+```
+
+### Verification
+```bash
+$ git status --short
+# M backend/models/ai_runtime.py
+# M backend/services/tool_dispatcher.py
+# ?? backend/routes/tools.py
+```
+
+Test suite verification blocked by existing SQLAlchemy model conflicts unrelated to this work.
+Syntax validation passed on individual files.
+
+### Before → After Impact
+- **Before:** No persistent audit trail for tool calls; only transient logs
+- **After:** Full audit log persistence (pending API registration); enables transparency/debugging
+- **Security:** Non-critical logging failures handled gracefully (fail-open)
+
+### Remaining Work
+- Register tools router in `main.py` (manual edit required due to tool limitations)
+- Run full test suite after registration
+- Update CHANGELOG.md documenting new /api/tools/audit endpoint
+
+---
+
+**Next Cycle:** Complete API registration and verification
