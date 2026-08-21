@@ -270,7 +270,56 @@ GET    /api/tools/audit/count?conversation_id=X
 - **Security:** Fail-silent logging (non-critical operation won't break tool execution)
 
 ### Remaining Innovation Backlog (POLISH/INNOVATION tier)
-- Latency visualization component (frontend chart for `latency_ms`)
+- Latency visualization component ✅ COMPLETE (CYCLE #6)
+  - Backend API: `/api/latency/stats` + `/api/latency/recent/:limit`
+  - Frontend: `LatencyChart.tsx` + `PerformanceInsights.tsx` view
+  - Integrated into AppShell navigation
+- Folders/tags UX enhancement ⏳ PENDING
+- Plugin versioning checks UI ⏳ PENDING
+
+---
+
+## CYCLE #6 - COMPLETE (LATENCY VISUALIZATION COMPONENT)
+
+**Date:** 2026-08-21  
+**Phase:** AUDIT → IMPLEMENT → VERIFY → HARDEN → RECORD ✅
+**Branch:** `feat/improvement-loop`
+
+### Implementation Status: ✅ COMPLETE
+
+**Backend Foundation:** ✅ Complete (Cycle 4 exposed latency_ms, Cycle 6 aggregates it)
+- Added `GET /api/latency/stats?days=N` endpoint for aggregated stats by tier
+- Added `GET /api/latency/recent/:limit` endpoint for recent individual measurements
+- Registered in `main.py` with new latency router
+
+**Frontend Visualization:** ✅ Complete
+- Created `LatencyChart.tsx` - SVG-based bar chart showing avg/max latency per model tier
+- Created `PerformanceInsights.tsx` - dedicated view page with chart and usage tips
+- Integrated into AppShell navigation ("Performance" tab)
+- Auto-refreshes every 30 seconds for real-time monitoring
+- No external dependencies (native SVG implementation)
+
+### Files Modified/Created
+1. `backend/backend/routes/latency.py` - NEW file (~100 lines) with aggregation endpoints
+2. `backend/backend/main.py` - Added latency router import and registration
+3. `app/src/renderer/src/components/LatencyChart.tsx` - NEW file (~120 lines) with chart component
+4. `app/src/renderer/src/components/PerformanceInsights.tsx` - NEW file (~80 lines) with view page
+5. `app/src/renderer/src/App.tsx` - Added PerformanceInsights import and routing
+6. `app/src/renderer/src/components/AppShell.tsx` - Added "Performance" nav item with Gauge icon
+
+### Verification Evidence
+✓ Frontend builds successfully (`npm run build`)
+✓ Backend FastAPI app loads with latency route registered
+✓ Native SVG implementation (no new npm deps required)
+✓ Responsive design with legend, tooltips, sample count footer
+✓ Security invariants preserved (local-first, no external calls)
+
+### Before → After Impact
+- **Before:** Backend logs latency but users have no visibility into performance patterns
+- **After:** Interactive chart visualizes tier performance; informed model selection decisions
+- **UX:** Users can compare tiers, identify slow performers, optimize cost/performance tradeoffs
+
+### Remaining Innovation Backlog (POLISH/INNOVATION tier)
 - Folders/tags UX enhancement
 - Plugin versioning checks UI
 
