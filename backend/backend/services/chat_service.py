@@ -592,10 +592,23 @@ class ChatService:
             db.add(log)
             await db.commit()
             
-            # C7: Calculate cost based on token usage
+            # C7: Calculate cost based on token usage using PricingService
+            from .pricing_service import get_pricing_service
+            
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
-            cost = (prompt_tokens * 0.000003 + completion_tokens * 0.000015)
+            
+            # Look up pricing for this provider/model combination
+            pricing_service = get_pricing_service()
+            pricing_entries = pricing_service.get_pricing_for_provider(provider_id)
+            matching_pricing = next((p for p in pricing_entries if p.model_id == model_id), None)
+            
+            if matching_pricing:
+                cost = matching_pricing.calculate_cost(prompt_tokens, completion_tokens, 0)
+            else:
+                # Fallback to hardcoded values (approximate OpenAI rates)
+                # TODO: Add more models to pricing_service or make this configurable
+                cost = (prompt_tokens * 0.000003 + completion_tokens * 0.000015)
 
             latency_ms = int((time.time() - start_time) * 1000)
             logger.info(json.dumps({
