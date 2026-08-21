@@ -6,6 +6,8 @@ export interface ProjectRecord {
   slug: string;
   description: string;
   repo_path: string;
+  folder?: string;
+  tags: string[];
   status: string;
   created_at: string;
   updated_at: string;
@@ -13,8 +15,7 @@ export interface ProjectRecord {
 
 export const projectsApi = {
   list: () => apiClient.get<ProjectRecord[]>("/projects"),
-  get: (id: string) => apiClient.get<ProjectRecord>(`/projects/${id}`),
-  create: (data: { name: string; description?: string; repo_path?: string }) =>
+create: (data: { name: string; description?: string; repo_path?: string; folder?: string; tags?: string[] }) =>
     apiClient.post<ProjectRecord>("/projects", data),
   update: (id: string, data: Partial<ProjectRecord>) =>
     apiClient.patch<ProjectRecord>(`/projects/${id}`, data),

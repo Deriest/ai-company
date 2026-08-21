@@ -177,6 +177,8 @@ class Project(Base):
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
+    folder = Column(String(128), nullable=True)  # Folder path/name for grouping
+    tags = Column(JSON, default=list)  # List of tag names like ['webapp', 'frontend']
     tasks = relationship("Task", back_populates="project")
     milestones = relationship("Milestone", back_populates="project")
 

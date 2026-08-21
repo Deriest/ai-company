@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { FolderOpen, ChevronDown, Check, FolderSearch } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { projectsApi, type ProjectRecord } from '../lib/api/projects'
+import { TagBadge, TagsList } from './TagBadge'
 
 /**
  * Project picker — used in the AppShell rail AND the Command Center sidebar.
@@ -85,6 +86,8 @@ export function ProjectPicker({
 
   const label = active?.name || fallbackLabel || 'No project'
   const pathLabel = active?.repo_path || fallbackPath || ''
+  const folderInfo = active?.folder ? `📁 ${active.folder}` : null
+  const tagCount = active?.tags?.length || 0
 
   return (
     <div className="relative">

@@ -36,6 +36,8 @@ class ProjectCreate(BaseModel):
     name: str
     description: str = ""
     repo_path: Optional[str] = None
+    folder: Optional[str] = None  # Folder for organizing projects
+    tags: list = []  # List of tag names for filtering
 
 
 class ProjectUpdate(BaseModel):
@@ -43,6 +45,8 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     repo_path: Optional[str] = None
     status: Optional[str] = None
+    folder: Optional[str] = None  # Folder for organizing projects
+    tags: Optional[list] = None  # List of tag names for filtering
 
 
 def _project_dict(p: Project) -> dict:
@@ -52,6 +56,8 @@ def _project_dict(p: Project) -> dict:
         "slug": p.slug,
         "description": p.description or "",
         "repo_path": p.repo_path,
+        "folder": p.folder,
+        "tags": p.tags or [],
         "status": p.status,
         "config": p.config or {},
         "owner_id": p.owner_id,
@@ -97,6 +103,8 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
         slug=slug,
         description=body.description,
         repo_path=body.repo_path,
+        folder=body.folder,
+        tags=body.tags,
     )
     db.add(project)
     await db.commit()
@@ -154,6 +162,10 @@ async def update_project(
         project.repo_path = body.repo_path
     if body.status is not None:
         project.status = body.status
+    if body.folder is not None:
+        project.folder = body.folder
+    if body.tags is not None:
+        project.tags = body.tags
 
     await db.commit()
     await db.refresh(project)
