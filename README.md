@@ -325,6 +325,15 @@ Your security and privacy are built in:
   - Startup fails completely if default credentials would be used (no insecure fallback)
   - GitHub token validation ensures proper format before storage
   - Ed25519 signature verification fixed (RFC 7517 compliant)
+  
+- **Single-user design** — This is a desktop app for solo developers. Trust boundaries:
+  - Plugins: Users explicitly install from GitHub; commands/skills auto-grant to workers
+    because you control your own environment. The app validates HTTP/SSE MCP endpoints
+    against cloud metadata services (`169.254.169.254`) but allows localhost/private IPs
+    for Ollama, local LLMs, and other development tools.
+  - Shell execution: Dangerous command patterns blocked (`rm -rf /`, `dd`, etc.), but
+    users review logs for suspicious activity as part of normal solo-dev workflow.
+  - File access: Workspace-scoped with path validation preventing escape.
 
 ---
 

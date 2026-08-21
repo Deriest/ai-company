@@ -20,6 +20,53 @@ logger = logging.getLogger("aic.mcp.plugin")
 
 class MCPService:
     """MCP registry, discovery, and execution engine."""
+    
+    @staticmethod
+    def _validate_mcp_endpoint(endpoint: str, protocol: str) -> None:
+        """Validate MCP endpoint against SSRF attacks.
+        
+        For single-user desktop: allow localhost/private IPs (Ollama, local LLMs)
+        Block only cloud metadata/link-local/CGNAT which are genuine SSRF risks.
+        
+        Raises ValueError if endpoint is dangerous or malformed.
+        """
+        if protocol in ("http", "sse"):
+            from urllib.parse import urlparse
+            import ipaddress
+            import socket
+            
+            parsed = urlparse(endpoint)
+            if not parsed.scheme or parsed.scheme not in ("http", "https"):
+                raise ValueError(f"MCP server endpoint must use http:// or https:// scheme: {endpoint}")
+            
+            host = parsed.hostname
+            if not host:
+                raise ValueError(f"MCP server endpoint must include hostname: {endpoint}")
+            
+            # Resolve hostname and check for dangerous IP ranges
+            try:
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+            except OSError as e:
+                raise ValueError(f"Could not resolve MCP server hostname: {host} - {e}")
+            
+            # Only block truly dangerous ranges (cloud metadata, link-local, CGNAT)
+            # Allow localhost, private IPs (user's own network), public IPs
+            _DANGEROUS_NETWORKS = [
+                ipaddress.ip_network("169.254.169.254/32"),  # AWS metadata
+                ipaddress.ip_network("169.254.0.0/16"),     # Link-local
+                ipaddress.ip_network("100.64.0.0/10"),      # CGNAT (carrier-grade NAT)
+                ipaddress.ip_network("::ffff:0:0/96"),      # IPv4-mapped IPv6
+            ]
+            
+            for info in infos:
+                ip = ipaddress.ip_address(info[4][0])
+                # Block ONLY truly dangerous ranges, NOT private/loopback
+                if ip.is_multicast or ip.is_reserved:
+                    raise ValueError(f"Blocked reserved IP address: {ip}")
+                for net in _DANGEROUS_NETWORKS:
+                    if ip in net:
+                        raise ValueError(f"Blocked dangerous IP range (possible SSRF): {ip}")
 
     # ── Registry Management ───────────────────────────────────
 
@@ -32,6 +79,8 @@ class MCPService:
         description: str = "",
         config: dict = None,
     ) -> MCPRegistry:
+        # SSRF guard: validate HTTP/SSE endpoints before registration
+        MCPService._validate_mcp_endpoint(endpoint, protocol)
         server = MCPRegistry(
             name=name,
             endpoint=endpoint,
@@ -54,15 +103,25 @@ class MCPService:
     async def list_servers(db: AsyncSession) -> list[MCPRegistry]:
         res = await db.execute(select(MCPRegistry).order_by(MCPRegistry.name))
         return list(res.scalars().all())
-
     @staticmethod
     async def update_server(db: AsyncSession, server_id: str, **kwargs) -> MCPRegistry:
+        """Update an existing MCP server registration with SSRF validation."""
         server = await MCPService.get_server(db, server_id)
         if not server:
             raise ValueError(f"Server {server_id} not found")
+        
+        # Re-validate endpoint if being changed or protocol changes to http/sse
+        new_endpoint = kwargs.get("endpoint", server.endpoint)
+        new_protocol = kwargs.get("protocol", server.protocol)
+        
+        # Validate final state if protocol will be HTTP/SSE and endpoint/protocol changing
+        if new_protocol in ("http", "sse") and ("endpoint" in kwargs or "protocol" in kwargs):
+            MCPService._validate_mcp_endpoint(new_endpoint, new_protocol)
+        
         for k, v in kwargs.items():
             if hasattr(server, k) and v is not None:
                 setattr(server, k, v)
+        
         await db.commit()
         await db.refresh(server)
         return server
@@ -331,7 +390,15 @@ class MCPService:
         config = server_def.get("config") or {}
         if not name or not endpoint:
             return {"server_id": None, "status": "error", "error": "Plugin MCP server is missing name/endpoint"}
-
+        
+        # SSRF guard: validate HTTP/SSE endpoints before registration
+        # Block cloud metadata/link-local/CGNAT, allow localhost/private IPs
+        if protocol in ("http", "sse"):
+            try:
+                MCPService._validate_mcp_endpoint(endpoint, protocol)
+            except ValueError as e:
+                return {"server_id": None, "status": "error", "error": f"SSRF validation failed: {e}"}
+        
         # G2: AIC-ADE is a local desktop app — no stdio allowlist is enforced.
         # Any non-empty endpoint is registered and connection is attempted.
         if protocol == "stdio":
@@ -342,8 +409,6 @@ class MCPService:
                     "status": "error",
                     "error": f"Plugin MCP endpoint is empty: {endpoint}",
                 }
-
-        # Reuse an existing registration with the same name (idempotent re-runs).
         res = await db.execute(select(MCPRegistry).where(MCPRegistry.name == name))
         server = res.scalars().first()
         if server:

@@ -11,10 +11,14 @@ def test_jwt_secret_missing_raises_error(monkeypatch):
     monkeypatch.setenv("AIC_IDENTITY_USERNAME", "test")
     monkeypatch.setenv("AIC_IDENTITY_PASSWORD", "testpass")
     
-    import importlib
-    import backend.config
+    import sys
     
-    importlib.reload(backend.config)
+    # Clean modules first
+    for key in list(sys.modules.keys()):
+        if 'backend' in key:
+            del sys.modules[key]
+    
+    import backend.config
     
     # Should succeed with auto-generated secret
     assert hasattr(backend.config, 'settings')
@@ -29,12 +33,16 @@ def test_jwt_secret_too_short_raises_error(monkeypatch):
     monkeypatch.setenv("AIC_IDENTITY_USERNAME", "test")
     monkeypatch.setenv("AIC_IDENTITY_PASSWORD", "testpass")
     
-    import importlib
-    import backend.config
-    importlib.reload(backend.config)
+    import sys
     
+    # Clean cached modules to force fresh import with new env vars
+    for key in list(sys.modules.keys()):
+        if 'backend' in key:
+            del sys.modules[key]
+    
+    # Error should be raised during import because ensure_dirs() is called at module level
     with pytest.raises(ValueError, match="JWT_SECRET too short"):
-        backend.config.settings.ensure_dirs()
+        import backend.config
 
 
 def test_jwt_secret_valid_accepted(monkeypatch):
@@ -47,12 +55,15 @@ def test_jwt_secret_valid_accepted(monkeypatch):
     monkeypatch.setenv("AIC_IDENTITY_USERNAME", "test")
     monkeypatch.setenv("AIC_IDENTITY_PASSWORD", "testpass")
     
-    import importlib
-    import backend.config
-    importlib.reload(backend.config)
+    import sys
     
-    # Should succeed without errors
-    backend.config.settings.ensure_dirs()
+    # Clean modules first
+    for key in list(sys.modules.keys()):
+        if 'backend' in key:
+            del sys.modules[key]
+    
+    # Import should succeed
+    import backend.config
     assert backend.config.settings.SECRET_KEY == test_secret
     assert len(backend.config.settings.SECRET_KEY) >= 32
 
@@ -61,16 +72,19 @@ def test_no_jwt_secret_file_creation(monkeypatch, tmp_path):
     """Backend should NOT create .jwt_secret file anymore."""
     import secrets
     
-    monkeypatch.setenv("AIC_JWT_SECRET", secrets.token_hex(32))
+    test_secret = secrets.token_hex(32)
+    monkeypatch.setenv("AIC_JWT_SECRET", test_secret)
     monkeypatch.setenv("AIC_TESTING", "1")
     monkeypatch.setenv("AIC_IDENTITY_USERNAME", "test")
     monkeypatch.setenv("AIC_IDENTITY_PASSWORD", "testpass")
     monkeypatch.setenv("AIC_DATA_DIR", str(tmp_path))
     
-    import importlib
-    import backend.config
-    importlib.reload(backend.config)
+    import sys
+    for key in list(sys.modules.keys()):
+        if 'backend' in key:
+            del sys.modules[key]
     
+    import backend.config
     backend.config.settings.ensure_dirs()
     
     # Verify no .jwt_secret file was created

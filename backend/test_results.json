@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-08-10T12:57:05.941935",
+  "timestamp": "2026-08-21T15:57:12.570922",
   "app_title": "AIC-ADE Backend",
   "total_routes": 181,
   "options_skipped": 0,
   "routes_tested": 181,
-  "passed": 146,
-  "failed": 35,
-  "pass_rate": 80.66,
+  "passed": 148,
+  "failed": 33,
+  "pass_rate": 81.77,
   "public_endpoints_checked": [
     {
       "method": "GET",
@@ -125,284 +125,255 @@
       ]
     },
     {
-      "path": "/approval-config",
-      "method": "PUT",
-      "actual_status_code": 422,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": [
-        {
-          "type": "missing",
-          "loc": [
-            "body"
-          ],
-          "msg": "Field required",
-          "input": null
-        }
-      ]
-    },
-    {
-      "path": "/api/usage/session/{conversation_id}",
-      "method": "GET",
-      "actual_status_code": 200,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": "{'conversation_id': '1', 'total_requests': 0, 'total_prompt_tokens': 0, 'total_completion_tokens': 0"
-    },
-    {
       "path": "/api/discovery/{session_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Discovery session not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: discovery_sessions\n[SQL: SELECT discovery_sessions.id, dis"
     },
     {
       "path": "/api/discovery/{session_id}/brief",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Engineering Brief not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: engineering_briefs\n[SQL: SELECT engineering_briefs.id, eng"
     },
     {
       "path": "/api/discovery/conversation/{conversation_id}",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": null
+      "response_detail": "(sqlite3.OperationalError) no such table: discovery_sessions\n[SQL: SELECT discovery_sessions.id, dis"
     },
     {
       "path": "/workflows",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": null
+      "response_detail": "(sqlite3.OperationalError) no such table: workflow_definitions\n[SQL: SELECT workflow_definitions.id,"
     },
     {
       "path": "/api/planning/{plan_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Engineering Plan not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: engineering_plans\n[SQL: SELECT engineering_plans.id, engin"
     },
     {
       "path": "/api/planning/brief/{brief_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "No plan found for this brief"
+      "response_detail": "(sqlite3.OperationalError) no such table: engineering_plans\n[SQL: SELECT engineering_plans.id, engin"
     },
     {
       "path": "/api/taskgraph/{graph_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Task Graph not found"
-    },
-    {
-      "path": "/api/taskgraph/plan/{plan_id}",
-      "method": "GET",
-      "actual_status_code": 404,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": "No graph found for this plan"
-    },
-    {
-      "path": "/workflows/{wf_id}",
-      "method": "GET",
-      "actual_status_code": 404,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": "Workflow not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: task_graphs\n[SQL: SELECT task_graphs.id, task_graphs.plan_"
     },
     {
       "path": "/api/dispatcher/{execution_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Execution not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: dispatch_sessions\n[SQL: SELECT dispatch_sessions.id, dispa"
+    },
+    {
+      "path": "/api/taskgraph/plan/{plan_id}",
+      "method": "GET",
+      "actual_status_code": -1,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "(sqlite3.OperationalError) no such table: task_graphs\n[SQL: SELECT task_graphs.id, task_graphs.plan_"
     },
     {
       "path": "/api/verification/{verification_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Verification not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: verification_sessions\n[SQL: SELECT verification_sessions.i"
     },
     {
       "path": "/api/delivery/brief/{brief_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "No report found for this brief"
+      "response_detail": "(sqlite3.OperationalError) no such table: engineering_reports\n[SQL: SELECT engineering_reports.id, e"
     },
     {
       "path": "/api/delivery/{report_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Engineering Report not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: engineering_reports\n[SQL: SELECT engineering_reports.id, e"
+    },
+    {
+      "path": "/workflows/{wf_id}",
+      "method": "GET",
+      "actual_status_code": -1,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "(sqlite3.OperationalError) no such table: workflow_definitions\n[SQL: SELECT workflow_definitions.id,"
     },
     {
       "path": "/orchestration/sessions/{session_id}/resume",
       "method": "POST",
-      "actual_status_code": 400,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Session 1 not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: orchestration_sessions\n[SQL: SELECT orchestration_sessions"
     },
     {
       "path": "/orchestration/sessions/{session_id}/checkpoints",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": null
-    },
-    {
-      "path": "/approval-config",
-      "method": "GET",
-      "actual_status_code": 200,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": "{'mode': 'semi', 'scope': {'verifications': True, 'lint_type_checks': True, 'unit_tests': True, 'bui"
+      "response_detail": "(sqlite3.OperationalError) no such table: checkpoints\n[SQL: SELECT checkpoints.id, checkpoints.sessi"
     },
     {
       "path": "/api/conversations",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "[{'id': 'f8904fc38b2547ad9af25892bb47ccc1', 'title': 'Worker status test', 'project_id': None, 'stat"
+      "response_detail": "(sqlite3.OperationalError) no such table: conversations\n[SQL: SELECT conversations.id, conversations"
     },
     {
       "path": "/api/conversations/{conversation_id}",
       "method": "GET",
-      "actual_status_code": 404,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "Conversation not found"
+      "response_detail": "(sqlite3.OperationalError) no such table: conversations\n[SQL: SELECT conversations.id, conversations"
     },
     {
       "path": "/api/conversations/{conversation_id}/messages",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": null
+      "response_detail": "(sqlite3.OperationalError) no such table: messages\n[SQL: SELECT messages.id, messages.conversation_i"
     },
     {
       "path": "/api/context/{project_id}",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "{'project_id': '1', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions': {"
+      "response_detail": "(sqlite3.OperationalError) no such table: knowledge_entries\n[SQL: SELECT knowledge_entries.id, knowl"
     },
     {
       "path": "/api/context/stats",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "{'project_id': 'stats', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventions"
+      "response_detail": "(sqlite3.OperationalError) no such table: knowledge_entries\n[SQL: SELECT knowledge_entries.id, knowl"
     },
     {
       "path": "/api/context/sources",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "{'project_id': 'sources', 'repository_structure': {}, 'architecture_patterns': [], 'coding_conventio"
-    },
-    {
-      "path": "/api/usage/daily",
-      "method": "GET",
-      "actual_status_code": 200,
-      "expected_status_codes": [
-        401,
-        405
-      ],
-      "response_detail": "{'period_days': 7, 'daily': [{'date': '2026-08-06', 'requests': 104, 'tokens': 314775, 'cost': 0.0}]"
+      "response_detail": "(sqlite3.OperationalError) no such table: knowledge_entries\n[SQL: SELECT knowledge_entries.id, knowl"
     },
     {
       "path": "/api/usage/stats",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "{'period_days': 30, 'total_requests': 104, 'total_prompt_tokens': 273170, 'total_completion_tokens':"
+      "response_detail": "(sqlite3.OperationalError) no such table: llm_usage_logs\n[SQL: SELECT count(llm_usage_logs.id) AS to"
+    },
+    {
+      "path": "/api/usage/daily",
+      "method": "GET",
+      "actual_status_code": -1,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "(sqlite3.OperationalError) no such table: llm_usage_logs\n[SQL: SELECT date(llm_usage_logs.created_at"
     },
     {
       "path": "/api/usage/recent",
       "method": "GET",
-      "actual_status_code": 200,
+      "actual_status_code": -1,
       "expected_status_codes": [
         401,
         405
       ],
-      "response_detail": "{'entries': [{'id': '9d1446e2a1ba404dbf23f6cab0486ffa', 'provider': 'default', 'model': 'kc/nvidia/n"
+      "response_detail": "(sqlite3.OperationalError) no such table: llm_usage_logs\n[SQL: SELECT llm_usage_logs.id, llm_usage_l"
+    },
+    {
+      "path": "/api/usage/session/{conversation_id}",
+      "method": "GET",
+      "actual_status_code": -1,
+      "expected_status_codes": [
+        401,
+        405
+      ],
+      "response_detail": "(sqlite3.OperationalError) no such table: generation_logs\n[SQL: SELECT count(generation_logs.id) AS "
     }
   ],
-  "summary_line": "PASS: 146/181"
+  "summary_line": "PASS: 148/181"
 }
