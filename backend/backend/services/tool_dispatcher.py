@@ -20,7 +20,9 @@ class ToolDispatcher:
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
 
-    async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, tool_name: str, arguments: Dict[str, Any], 
+                     conversation_id: str | None = None, message_id: str | None = None) -> Dict[str, Any]:
+        """Execute a tool with optional audit logging to database."""
         start_time = time.time()
         try:
             if tool_name == "read_file":
@@ -37,10 +39,64 @@ class ToolDispatcher:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
             exec_time = int((time.time() - start_time) * 1000)
+            
+            # Log successful execution to audit table
+            await self._log_tool_call(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=res,
+                error=None,
+                execution_time_ms=exec_time,
+                status="completed",
+                conversation_id=conversation_id,
+                message_id=message_id
+            )
+            
             return {"result": res, "error": None, "execution_time_ms": exec_time}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
+            
+            # Log failed execution to audit table
+            await self._log_tool_call(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=None,
+                error=str(e),
+                execution_time_ms=exec_time,
+                status="error",
+                conversation_id=conversation_id,
+                message_id=message_id
+            )
+            
             return {"result": None, "error": str(e), "execution_time_ms": exec_time}
+
+    @staticmethod
+    async def _log_tool_call(tool_name: str, arguments: Dict[str, Any],
+                           result: Dict[str, Any] | None, error: str | None,
+                           execution_time_ms: int, status: str,
+                           conversation_id: str | None, message_id: str | None):
+        """Log tool call to audit database table."""
+        try:
+            from backend.database.session import AsyncSessionLocal
+            from backend.models.ai_runtime import ToolCallLog
+            
+            async with AsyncSessionLocal() as session:
+                log_entry = ToolCallLog(
+                    conversation_id=conversation_id or "",
+                    message_id=message_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                    error=error,
+                    execution_time_ms=execution_time_ms,
+                    status=status
+                )
+                session.add(log_entry)
+                await session.commit()
+        except Exception as db_err:
+            # Fail silently for audit logging - non-critical operation
+            logger = logging.getLogger("aic.tool_dispatcher")
+            logger.warning(f"Failed to log tool call: {db_err}")
 
     def _read_file(self, path: str) -> Dict[str, Any]:
         full_path = resolve_workspace_path(self.workspace_dir, path)

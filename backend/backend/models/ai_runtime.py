@@ -41,6 +41,21 @@ class ToolResult(Base):
     execution_time_ms = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class ToolCallLog(Base):
+    """Audit log for tool calls - persists execution history for transparency."""
+    __tablename__ = "tool_call_logs"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String, nullable=True, index=True)
+    tool_call_id = Column(String, ForeignKey("tool_calls.id", ondelete="SET NULL"), index=True, nullable=True)
+    tool_name = Column(String, nullable=False, index=True)
+    arguments = Column(JSON, nullable=False)
+    result = Column(JSON, nullable=True)
+    error = Column(String, nullable=True)
+    execution_time_ms = Column(Integer, default=0)
+    status = Column(String, default="completed") # completed, error
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 class GenerationLog(Base):
     __tablename__ = "generation_logs"
     
