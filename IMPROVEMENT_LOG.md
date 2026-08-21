@@ -387,3 +387,56 @@ Alternative: Plugin versioning checks UI (Plugins & Skills lane)
 
 
 ---
+
+## CYCLE #8 - FOLDERS/TAGS UX ENHANCEMENT ✅ COMPLETE
+
+**Date:** 2026-08-21  
+**Phase:** AUDIT → IMPLEMENT → VERIFY → HARDEN → RECORD
+**Branch:** `feat/improvement-loop`
+
+### Implementation Status: ✅ COMPLETE
+
+**Backend Foundation:** ✅ Complete
+- Added `folder` string field and `tags` JSON array to Project model (`storage/models.py`)
+- Updated projects API endpoints to accept folder/tags in create/update requests
+- Projects now include folder and tags in all `/projects/` responses
+- Schema backward compatible (optional fields, no breaking changes)
+
+**Frontend Visualization:** ✅ Complete
+- Created `TagBadge.tsx` component for displaying project tags with remove button
+- Created `TagsList` wrapper component for multiple tags display (+N more indicator)
+- Updated TypeScript interfaces (`ProjectRecord`) with optional folder and required tags[]
+- Enhanced ProjectPicker dropdown to show folder path and tag count
+- No new npm dependencies (uses existing design system components)
+
+### Files Modified/Created
+1. `backend/storage/models.py` - Added folder/tags columns to Project table (~5 lines added)
+2. `backend/backend/api/routes/projects.py` - Updated schemas and handlers for folder/tags (~15 lines changed)
+3. `app/src/renderer/src/lib/api/projects.ts` - Extended ProjectRecord interface + create signature
+4. `app/src/renderer/src/components/TagBadge.tsx` - NEW file (~80 lines) reusable tag component
+5. `app/src/renderer/src/components/ProjectPicker.tsx` - Added folder label + tag count display
+
+### Verification Evidence
+✓ FastAPI app loads successfully with updated routes
+✓ Frontend builds without TypeScript errors
+✓ Existing project CRUD operations still work (backward compatible)
+✓ Security invariants preserved (local-first, BYOK maintained)
+✓ No regressions in test suite baseline
+
+### Before → After Impact
+- **Before:** Projects could only be organized by name; no grouping or filtering mechanism
+- **After:** 
+  - Folders: Logical grouping by category (e.g., "webapp", "internal", "mobile")
+  - Tags: Flexible multi-dimensional organization (e.g., ["frontend", "urgent", "v2"])
+  - Visual: Tag badges shown in project picker dropdown
+  - Future-ready: Foundation for search/filter features using folders/tags
+- **UX:** Users can now visually group projects, identify related work at a glance
+- **Search:** Tag-based filtering ready for future implementation
+
+### Remaining Innovation Backlog (POLISH/INNOVATION tier)
+- Plugin versioning checks UI ⏳ PENDING (only remaining item from original backlog)
+
+---
+
+**Next Cycle:** Implement plugin versioning checks UI OR investigate pre-existing shell_background test failure
+
