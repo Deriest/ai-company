@@ -56,6 +56,7 @@ interface ActivityEntry {
   workerName: string
   action: string
   tone: 'primary' | 'success' | 'warning' | 'muted'
+  createdAt?: Date  // Store creation time for time-ago formatting
 }
 
 // ── Canonical 15 workers with sprite colors ────────────
@@ -193,9 +194,6 @@ function WorkerSprite({ worker, status }: { worker: WorkerDef; status: WorkerSta
     drawPixelCharacter(canvas, worker, isWorking, 0, 0)
 
     let blinkCounter = 0
-    // L7: track the pending blink-close timeout so the effect cleanup can clear
-    // it — previously every blink scheduled a 100ms timer that was never
-    // cleared on unmount/status change (one leaked timer per idle tick).
     let blinkTimeoutId: ReturnType<typeof setTimeout> | undefined
     const interval = setInterval(() => {
       if (isWorking) {
@@ -298,30 +296,16 @@ function DeskCard({ worker, state }: { worker: WorkerDef; state: WorkerState }) 
       </div>
 
       {/* Progress bar (only when working) */}
-      {isActive && (
+      {(state.status === 'working' || state.status === 'meeting') && (
         <div className="mt-1.5">
-          <ProgressBar value={state.progress} tone="primary" className="h-1" />
-          <p className="mt-0.5 truncate text-[10px] text-muted-foreground font-mono">
-            {state.task || 'Processing…'}
-          </p>
-        </div>
-      )}
-
-      {/* Idle / complete states */}
-      {state.status === 'idle' && (
-        <p className="mt-1.5 text-[10px] text-muted-foreground/50">Available</p>
-      )}
-      {state.status === 'complete' && (
-        <div className="mt-1.5 flex items-center gap-1">
-          <CheckCircle2 className="size-2.5 text-success" />
-          <p className="truncate text-[10px] text-success/70">{state.task || 'Done'}</p>
+          <ProgressBar value={state.progress || 0} />
         </div>
       )}
     </div>
   )
 }
 
-// ── Activity Log ────────────────────────────────────────
+// ── Activity Log Component ───────────────────────────────────
 
 function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -345,7 +329,7 @@ function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
         ) : (
           <div className="space-y-1">
             {entries.map((e) => (
-              <div key={e.id} className="flex items-start gap-2 text-[10px]">
+              <div key={e.id} className="flex items-start gap-2 text-[10px]" title={`Created: ${e.createdAt?.toLocaleString() || ''}`}>
                 <span className="shrink-0 font-mono text-muted-foreground/50 tabular-nums">
                   {e.timestamp}
                 </span>
@@ -381,17 +365,32 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
   const [activities, setActivities] = useState<ActivityEntry[]>([])
   const prevStatesRef = useRef<Record<string, WorkerStatus>>({})
   const loggedCompletedRef = useRef<Set<string>>(new Set())
+  const loggedCreatedRef = useRef<Set<string>>(new Set())
+  const prevTaskIdsRef = useRef<Set<string>>(new Set())
   // Monotonic request sequence — a slow poll response must never overwrite a
   // newer one (the 4s poll races against ~30s TTL backend responses).
   const loadSeqRef = useRef(0)
 
-  const addActivity = useCallback((workerName: string, action: string, tone: ActivityEntry['tone'] = 'muted') => {
+  const addActivity = useCallback((workerName: string, action: string, tone: ActivityEntry['tone'] = 'muted', createdAt?: Date) => {
     const now = new Date()
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     setActivities(prev => [...prev.slice(-49), {
       id: `${now.getTime()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp, workerName, action, tone,
+      timestamp, workerName, action, tone, createdAt: createdAt || now,
     }])
+  }, [])
+
+  // Time-ago formatter: returns "5 min ago", "2 hours ago", etc.
+  const formatTimeAgo = useCallback((date: Date): string => {
+    if (isNaN(date.getTime())) return 'just now'
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000)
+    if (seconds < 60) return 'just now'
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes} min ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
+    const days = Math.floor(hours / 24)
+    return `${days} day${days > 1 ? 's' : ''} ago`
   }, [])
 
   const loadData = useCallback(async () => {
@@ -480,12 +479,37 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
           const workerDef = WORKERS.find(w =>
             w.id === ct.worker_type || w.name.toLowerCase() === ct.worker_type,
           )
-          if (workerDef) {
-            addActivity(workerDef.name, `completed: ${(ct.title || 'task').slice(0, 40)}`, 'success')
-          }
+          const workerName = workerDef ? workerDef.name : 'Unknown Worker'
+          const taskTitle = ct.title || 'task'
+          const createdAt = ct.created_at || ct.createdAt
+          const createdDate = createdAt ? new Date(createdAt as string) : new Date()
+          const timeSinceCreated = formatTimeAgo(createdDate)
+          addActivity(workerName, `completed: ${taskTitle.slice(0, 40)} (${timeSinceCreated} old)`, 'success', createdDate)
         }
       }
 
+      // Poll fallback: detect newly created tasks that may have missed WebSocket events
+      const allTaskIds = new Set(tasks.map((t: any) => t.id || t.title).filter(Boolean))
+      if (prevTaskIdsRef.current.size === 0) {
+        prevTaskIdsRef.current = allTaskIds
+      } else {
+        const newTaskIds = Array.from(allTaskIds).filter((id) => !prevTaskIdsRef.current.has(id))
+        if (newTaskIds.length > 0) {
+          const newTasks = tasks.filter((t: any) => newTaskIds.includes(t.id || t.title))
+          for (const nt of newTasks) {
+            const taskId = nt.id || nt.title
+            if (!loggedCreatedRef.current.has(taskId)) {
+              loggedCreatedRef.current.add(taskId)
+              const createdAt = (nt as any).created_at ?? (nt as any).createdAt
+              const createdDate = createdAt ? new Date(createdAt as string) : new Date()
+              const timeStr = formatTimeAgo(createdDate)
+              addActivity('System', `created: ${(nt.title || 'task').slice(0, 40)} (${timeStr})`, 'primary', createdDate)
+            }
+          }
+        }
+      }
+      prevTaskIdsRef.current = allTaskIds
+      
       prevStatesRef.current = Object.fromEntries(
         Object.entries(newStates).map(([k, v]) => [k, v.status]),
       )
@@ -503,7 +527,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
     } finally {
       if (requestId === loadSeqRef.current) setLoading(false)
     }
-  }, [addActivity])
+  }, [addActivity, formatTimeAgo])
 
   // Initial load
   useEffect(() => { loadData() }, [loadData])
@@ -514,40 +538,78 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
     return () => clearInterval(interval)
   }, [loadData])
 
-  // WS-1: Instant refresh AND activity logging when backend broadcasts worker events
+  // WS-1: Instant refresh AND activity logging when backend broadcasts worker/events
   useEffect(() => {
     const wsRefreshRef = { current: null as ReturnType<typeof setTimeout> | null }
     const cleanup = connectWs(
       'general',  // Primary channel - dispatcher broadcasts here
       (msg) => {
         const m = msg as { type?: string; data?: any }
-        if (!m?.type?.startsWith('worker.')) return
+        if (!m?.type) return
         
-        // Parse event type and worker type from message.type (format: "worker.{type}.{action}")
-        const parts = m.type.split('.')
-        if (parts.length < 3) return
+        // Parse event type from message.type (formats: "worker.{type}.{action}" or "task.*")
+        const eventType = m.type.toLowerCase()
         
-        const workerTypeId = parts[1].toLowerCase()  // e.g., "backend" from "worker.backend.started"
-        const eventType = parts[2].toLowerCase()     // e.g., "started", "completed", "failed"
-        const taskTitle = m.data?.title || m.data?.task_title || ''
-        
-        // Find matching worker definition to get the display name
-        const workerDef = WORKERS.find(w => w.id.toLowerCase() === workerTypeId)
-        const workerName = workerDef ? workerDef.name : 'unknown'
-        
-        // Add activity entry immediately based on event type (no delay!)
-        switch (eventType) {
-          case 'started':
-            addActivity(workerName, 'started working', 'primary')
-            break
-          case 'completed':
-            addActivity(workerName, `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
-            break
-          case 'failed':
-            addActivity(workerName, 'failed with error', 'warning')
-            break
-          default:
-            break
+        // Handle worker events
+        if (eventType.startsWith('worker.')) {
+          const parts = eventType.split('.')
+          if (parts.length < 3) return
+          
+          const workerTypeId = parts[1].toLowerCase()  // e.g., "backend" from "worker.backend.started"
+          const actionType = parts[2].toLowerCase()     // e.g., "started", "completed", "failed"
+          const taskTitle = m.data?.title || m.data?.task_title || ''
+          
+          // Find matching worker definition to get the display name
+          const workerDef = WORKERS.find(w => w.id.toLowerCase() === workerTypeId)
+          const workerName = workerDef ? workerDef.name : 'unknown'
+          
+          // Add activity entry immediately based on event type (no delay!)
+          switch (actionType) {
+            case 'started':
+              addActivity(workerName, 'started working', 'primary')
+              break
+            case 'completed':
+              addActivity(workerName, `completed: ${(taskTitle || '').slice(0, 40)}`, 'success')
+              break
+            case 'failed':
+              addActivity(workerName, 'failed with error', 'warning')
+              break
+            default:
+              break
+          }
+        }
+        // Handle task events
+        else if (eventType.startsWith('task.')) {
+          const taskParts = eventType.split('.')
+          const taskAction = taskParts[1]  // e.g., "created", "updated", "completed", "failed"
+          const taskTitle = m.data?.title || m.data?.description || ''
+          
+          switch (taskAction) {
+            case 'created':
+              const taskId = m.data?.id || m.data?.task_id
+              if (taskId && !loggedCreatedRef.current.has(taskId)) {
+                loggedCreatedRef.current.add(taskId)
+                const createdAt = (m.data as any).created_at ?? (m.data as any).createdAt
+                const createdDate = createdAt ? new Date(createdAt as string) : new Date()
+                const timeStr = formatTimeAgo(createdDate)
+                addActivity('System', `new task: ${(taskTitle || '').slice(0, 40)} (${timeStr})`, 'success', createdDate)
+              }
+              break
+            case 'updated':
+              addActivity('System', `task updated: ${(taskTitle || '').slice(0, 40)}`, 'muted')
+              break
+            case 'failed':
+              addActivity('System', `task failed: ${(taskTitle || '').slice(0, 40)}`, 'warning')
+              break
+            case 'completed':
+              addActivity('System', `mission complete: ${(taskTitle || '').slice(0, 40)}`, 'success')
+              break
+            default:
+              break
+          }
+        }
+        else {
+          return
         }
         
         // Also refresh state via loadData
@@ -561,7 +623,7 @@ export function WorkspaceView({ onNavigate, projectRoot, projectName, showFileTr
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
       cleanup()
     }
-  }, [loadData, addActivity])
+  }, [loadData, addActivity, formatTimeAgo])
 
   const workingCount = Object.values(workerStates).filter(s => s.status === 'working' || s.status === 'meeting').length
 

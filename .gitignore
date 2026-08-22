@@ -19,14 +19,22 @@ id_ed25519*
 tmp_secrets.*
 debug_*.*
 
-# Sensitive credentials - NEVER commit these files!
-.secrets
-*.pem
-*.key
-*.p12
-.env.local
-*.secret
-secret_*
+# AIC-ADE local data (generated at runtime, NEVER commit these files)
+data/
+data/.jwt_secret
+data/identity.json
+data/tasks/
+data/workspace/
+backend/data/
+storage/aic.db
+AIC_DATA_DIR/*
+
+# Venv and cache
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 
 # GitHub token backup (if created for manual testing)
 .github-token.backup

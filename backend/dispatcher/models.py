@@ -28,6 +28,7 @@ class TaskExecution:
     attempts: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    expires_at: datetime | None = None  # Lease expiration timestamp (auto-renew on progress)
 
 
 @dataclass
