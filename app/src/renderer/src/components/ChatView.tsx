@@ -793,23 +793,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
 }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => {
-    try { 
-      const cachedSession = sessionStorage.getItem('aic-ade-active-conversation')
-      const cachedConversations = window.localStorage.getItem('aic-conversations-v2')
-      if (cachedConversations) {
-        try {
-          const parsed = JSON.parse(cachedConversations)
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // Restore active session from cache first
-            if (cachedSession && parsed.some(c => c.id === cachedSession)) {
-              return cachedSession
-            }
-            return parsed[0].id
-          }
-        } catch {}
-      }
-      return cachedSession
-    }
+    try { return sessionStorage.getItem('aic-ade-active-conversation') }
     catch { return null }
   })
   const [messages, setMessages] = useState<MessageRecord[]>([])
@@ -989,9 +973,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
       } else {
         const list = await conversationsApi.list()
         setConversations(list)
-        // Persist to localStorage for fast restore on next mount
-        window.localStorage.setItem('aic-conversations-v2', JSON.stringify(list))
-        
         const restored = activeId && list.some(c => c.id === activeId) ? activeId : list[0]?.id || null
         if (restored !== activeId) setActiveId(restored)
       }
@@ -1694,7 +1675,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
             <div className="w-full max-w-none">
               {/* Keep the complete toolbar on one horizontal row. On narrow
                   windows the row scrolls left/right instead of dropping tiers. */}
-              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden pb-1">
+              <div className="mb-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-visible">
                 {/* Context usage — QA-2437 BUG-1: token_count sum, '?' fallback; BUG-3: primary-colored label */}
                 <div className="flex shrink-0 items-center gap-1.5">
                   <span className="text-[8px] font-semibold text-primary">Context</span>
@@ -1709,8 +1690,6 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 
-{/* Tier selector row - OUTSIDE metadata scroll so popups aren't clipped */}
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 overflow-visible mt-2">
                 {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors - click to open popup */}
                 {ENGINE_TIERS.map(tier => {
                   const sel = tiers[tier]
@@ -1723,7 +1702,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                       {/* Tier trigger button - shows current model selection */}
                       <button
                         onClick={() => { setTierPopup(tierPopup === tier ? null : tier); }}
-                        className="flex items-center gap-2 rounded-md border border-border/50 bg-card/70 px-2 py-1 text-[9px] hover:bg-muted/60 cursor-pointer transition-all"
+                        className="flex items-center gap-2 rounded-md border border-border/50 bg-card/70 px-3 py-1 text-[9px] hover:bg-muted/60 cursor-pointer transition-all"
                         style={{
                           boxShadow: tierPopup === tier ? 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)' : undefined,
                           borderColor: tierPopup === tier ? 'rgba(59, 130, 246, 0.4)' : undefined,
@@ -1814,10 +1793,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     </div>
                   )
                 })}
-              </div>
-              
-              {/* Scrollable metadata row - Fetch/Compact here */}
-              {/* Fetch / Compact */}
+
+                {/* Fetch / Compact */}
                 <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
                   className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
