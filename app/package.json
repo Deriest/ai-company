@@ -184,7 +184,7 @@
       "notarize": false
     },
     "extraMetadata": {
-      "version": "2.6.40"
+      "version": "2.6.41"
     }
   },
   "engines": {
