@@ -1,6 +1,6 @@
 {
   "name": "aic-ade",
-  "version": "2.6.41",
+  "version": "2.6.42",
   "description": "AICompany ADE",
   "main": "app/dist-electron/main/main.js",
   "scripts": {
@@ -28,7 +28,7 @@
       "!**/dist/**"
     ],
     "extraMetadata": {
-      "version": "2.6.41"
+      "version": "2.6.42"
     },
     "extraResources": [
       {
