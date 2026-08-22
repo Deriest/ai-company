@@ -152,7 +152,7 @@ export function AppShell({
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[9px] font-mono opacity-50">AIC-ADE {appPackageJson.version || "v2.6.41"}</span>
+              <span className="text-[9px] font-mono opacity-50">AIC-ADE v2.6.41</span>
             </div>
           </div>
         </main>
