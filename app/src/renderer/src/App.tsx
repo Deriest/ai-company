@@ -45,29 +45,22 @@ export function App() {
   // onboarding just because their profile fetch fired too early.
   const profileRetryRef = useRef(false);
 
-  // Load profile on mount — only hide loading spinner after we know profile status
+  // Load profile on mount — keep spinner until we definitively know status
   const loadProfile = async () => {
     try {
       const p = await profileApi.get();
       setProfile(p);
-      setLoading(false); // Profile exists and loaded
     } catch {
-      // No profile exists — show onboarding WITHOUT hiding loading spinner
-      // Keep loading=true so BootSplash stays visible during transition
+      // No profile exists — leave null so onboarding shows
       setProfile(null);
-      // DON'T call setLoading(false) here - prevent onboarding flash
-    }
-    try {
-      const p = await profileApi.get();
-      setProfile(p);
-    } catch {
-      // No profile exists — show onboarding WITHOUT hiding loading spinner
-      // This prevents a flash where loader shows then immediately disappears
-      // Onboarding component will be mounted while loading spinner still visible
-      setProfile(null);
-      // Keep loading=true so BootSplash stays visible during transition
+    } finally {
+      setLoading(false); // Always hide spinner when fetch completes
     }
   };
+  
+  useEffect(() => {
+    loadProfile();
+  }, []);
   
   useEffect(() => {
     loadProfile();
@@ -186,8 +179,9 @@ const boot = useBoot({
   }
 
   // First launch — onboarding (only shown after profile fetch completes)
-  // profile will be null if no profile exists, or undefined if fetch didn't finish
-  // We guard against showing onboarding during initial null state before fetch
+  if (!profile || !profile.onboardingCompleted) {
+    return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+  }
 
   // Main app
   const renderView = () => {

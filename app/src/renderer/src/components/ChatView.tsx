@@ -1709,19 +1709,21 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                   <div className={cn("h-full rounded-full transition-all", contextBarColor)} style={{ width: `${contextPct}%` }} />
                 </div>
 
+{/* Tier selector row - OUTSIDE metadata scroll so popups aren't clipped */}
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 overflow-visible mt-2">
                 {/* THINKER / CRAFTER / SPRINTER / VISION tier selectors - click to open popup */}
                 {ENGINE_TIERS.map(tier => {
                   const sel = tiers[tier]
                   const providerModels = (providers.find(p => p.name === sel.provider)?.models || []).filter(m => tier !== 'vision' || m.capabilities?.vision)
                   // Extract short model name for display
-                  const modelNameDisplay = sel.model ? sel.model.split('/').pop()?.replace('proxy/', '').slice(0, 14) : null
+                  const modelNameDisplay = sel.model ? sel.model.split('/').pop()?.replace('proxy/', '').slice(-20) : null
                   
                   return (
                     <div key={tier} className="relative" onClick={(e) => e.stopPropagation()}>
                       {/* Tier trigger button - shows current model selection */}
                       <button
                         onClick={() => { setTierPopup(tierPopup === tier ? null : tier); }}
-                        className="flex items-center gap-2 rounded-md border border-border/50 bg-card/70 px-3 py-1.5 text-[10px] hover:bg-muted/60 cursor-pointer transition-all"
+                        className="flex items-center gap-2 rounded-md border border-border/50 bg-card/70 px-2 py-1 text-[9px] hover:bg-muted/60 cursor-pointer transition-all"
                         style={{
                           boxShadow: tierPopup === tier ? 'inset 0 0 0 1px rgba(59, 130, 246, 0.3)' : undefined,
                           borderColor: tierPopup === tier ? 'rgba(59, 130, 246, 0.4)' : undefined,
@@ -1739,7 +1741,7 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                         {sel.provider && (
                           <>
                             <span className="hidden sm:inline text-[7px] text-muted-foreground/50 font-medium">|</span>
-                            <span className="hidden sm:inline ml-1.5 font-mono text-[9px] font-semibold text-foreground/90 truncate" title={sel.model}>
+                            <span className="hidden sm:inline ml-1.5 font-mono text-[9px] font-semibold text-foreground/90 truncate text-right" title={sel.model}>
                               {modelNameDisplay}
                             </span>
                             <span className="sm:hidden ml-1 font-mono text-[7px] font-semibold text-foreground/80">{modelNameDisplay}</span>
@@ -1812,8 +1814,10 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                     </div>
                   )
                 })}
-
-                {/* Fetch / Compact */}
+              </div>
+              
+              {/* Scrollable metadata row - Fetch/Compact here */}
+              {/* Fetch / Compact */}
                 <button onClick={() => void handleFetchModels()} disabled={fetchingModels}
                   className="inline-flex shrink-0 items-center rounded-md border border-border/50 px-1.5 py-0.5 text-[8px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50">
                   {fetchingModels ? <Loader2 className="size-2.5 animate-spin" /> : 'Fetch'}
@@ -1857,8 +1861,8 @@ export function ChatView({ health = 'unknown', currentProvider = null, view = ''
                       e.preventDefault(); void handleSend()
                     }
                   }}
-                  disabled={false} rows={1}
-                  placeholder={activeId ? `describe what to build or drop files…` : 'Type a message to start…'}
+                  disabled={sending} rows={1}
+                  placeholder={activeId ? `Describe your task${attachments.length ? ' (files attached)' : ''}…` : 'Type a message to start…'}
                   className="max-h-[160px] min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/40 disabled:opacity-30" />
                 <input id="chat-file-input" type="file" multiple className="hidden" onChange={e => { if (e.target.files) addAttachments(e.target.files); e.currentTarget.value = '' }} />
                 <button onClick={() => document.getElementById('chat-file-input')?.click()} className="mb-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground" aria-label="Attach files" title="Attach files">
