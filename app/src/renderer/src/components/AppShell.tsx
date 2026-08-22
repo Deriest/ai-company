@@ -24,7 +24,6 @@ const nav = [
   { id: "mcp", label: "MCP Servers", icon: Plug },
   { id: "plugins", label: "Plugins", icon: GitBranch },
   { id: "settings", label: "Settings", icon: Settings },
-  { id: "insights", label: "Performance", icon: Gauge },
 ] as const;
 
 export function AppShell({
@@ -154,7 +153,7 @@ export function AppShell({
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[9px] font-mono opacity-50">AIC-ADE v2.6.33</span>
+              <span className="text-[9px] font-mono opacity-50">AIC-ADE v2.6.41</span>
             </div>
           </div>
         </main>
